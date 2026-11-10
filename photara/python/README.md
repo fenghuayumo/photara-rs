@@ -101,6 +101,30 @@ yet; assign the texture again to force a fresh handle. HDR environment
 lighting uses the background shader (background-light MIS is not implemented
 yet), so low-sample environment renders can be noisier than geometry lights.
 
+## Importing assets
+
+Static OBJ/MTL assets can be loaded directly into a Scene:
+
+```python
+result = scene.import_obj(
+    "assets/robot.obj",
+    location=(0.0, 0.0, 0.0),
+    rotation=(0.0, 0.0, 0.0),   # XYZ radians
+    scale=1.0,
+    object_id_start=10,         # 0 keeps the default id
+)
+result.objects        # created Object handles
+result.meshes         # created Mesh data-blocks
+result.materials      # created Material data-blocks
+result.warnings       # non-fatal MTL/material issues
+```
+
+OBJ support includes groups/objects, negative indices, quad/ngon fan
+triangulation, per-corner UV/normal seams (vertices are duplicated), generated
+smooth normals when absent, and MTL `Kd`/`Ke`/`Ns`/`map_Kd`. Static triangle
+geometry only; skinning, animation, morph targets, PBR texture sets and
+glTF/USD are not implemented yet.
+
 ## Batch rendering
 
 The same scene can be rendered repeatedly with different transforms, camera
@@ -179,7 +203,8 @@ pip install "photara-rs[png]"
 
 - No full PBR texture set (metallic/roughness/normal/emissive maps), volumes,
   hair/curves or subdivision.
-- No OBJ/glTF/USD import; geometry is supplied as NumPy arrays.
+- OBJ import is available; glTF/USD import is not implemented yet. Geometry
+  can always be supplied directly as NumPy arrays.
 - One perspective camera per scene; no orthographic, panoramic, DOF or motion
   blur controls.
 - Fixed passes only: combined, depth, normal, albedo and object-id.

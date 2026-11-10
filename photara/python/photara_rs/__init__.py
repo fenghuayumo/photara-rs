@@ -52,10 +52,12 @@ from ._session import (
     linear_to_srgb,
     save_png,
 )
+from .importers import ImportResult, load_obj, parse_obj
 from .scene import Camera, Light, Mesh, Object, RenderResult, Scene, World
 
 __all__ = [
     "Camera",
+    "ImportResult",
     "Light",
     "Material",
     "Mesh",
@@ -73,5 +75,7 @@ __all__ = [
     "World",
     "__version__",
     "linear_to_srgb",
+    "load_obj",
+    "parse_obj",
     "save_png",
 ]

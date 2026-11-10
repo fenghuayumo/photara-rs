@@ -1368,6 +1368,20 @@ class Scene:
     def clear_lights(self) -> None:
         self.lights.clear()
 
+    def import_obj(self, filepath, **kwargs):
+        """Import an OBJ/MTL file into this scene; see ``importers.load_obj``."""
+        self._ensure_open()
+        from .importers.obj import load_obj
+
+        return load_obj(self, filepath, **kwargs)
+
+    def import_gltf(self, filepath, **kwargs):
+        """Import a glTF/GLB file into this scene; see ``importers.load_gltf``."""
+        self._ensure_open()
+        from .importers.gltf import load_gltf
+
+        return load_gltf(self, filepath, **kwargs)
+
     def __enter__(self) -> "Scene":
         return self
 

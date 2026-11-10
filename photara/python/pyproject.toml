@@ -31,7 +31,7 @@ png = ["Pillow>=9"]
 Homepage = "https://github.com/fenghuayumo/photara-studio"
 
 [tool.setuptools]
-packages = ["photara_rs"]
+packages = ["photara_rs", "photara_rs.importers"]
 zip-safe = false
 
 [tool.setuptools.package-data]

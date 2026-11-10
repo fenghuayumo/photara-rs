@@ -24,9 +24,9 @@ data generation.
   Objects can be instanced, transformed, hidden, re-materialized and removed;
   meshes can be deformed or rebuilt in place; materials and lights update in
   place; base-color image textures and equirectangular HDR environments are
-  supported; renders can run asynchronously with progress/cancel and a scene
-  can render many frames without being rebuilt. A low-level handle-based
-  `Session` remains available.
+  supported; static OBJ/MTL assets can be imported into a scene; renders can
+  run asynchronously with progress/cancel and a scene can render many frames
+  without being rebuilt. A low-level handle-based `Session` remains available.
 - Supported device: **OptiX**. The HIP, HIPRT, Metal, oneAPI and multi-device
   backends and the user-facing CPU/CUDA selection have been removed. CUDA host
   code and non-ray-tracing kernel binaries remain as OptiX dependencies, and a
