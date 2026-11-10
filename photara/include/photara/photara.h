@@ -275,6 +275,41 @@ PHOTARA_API int photara_clear_scene(PhotaraContext *ctx);
 PHOTARA_API int photara_set_seed(PhotaraContext *ctx, int seed);
 PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
 
+/* Asynchronous render jobs. Job ids are non-zero and monotonically increasing;
+ * one job may be active per context. Scene mutation is rejected while a job is
+ * running. */
+typedef enum PhotaraRenderState {
+  PHOTARA_RENDER_RUNNING = 0,
+  PHOTARA_RENDER_DONE = 1,
+  PHOTARA_RENDER_CANCELLED = 2,
+  PHOTARA_RENDER_FAILED = 3
+} PhotaraRenderState;
+
+typedef struct PhotaraRenderProgress {
+  /* PhotaraRenderState value. */
+  int state;
+  float progress;
+  int current_sample;
+  int num_samples;
+  /* Strings are owned by the context and valid until the next poll/begin. */
+  const char *status;
+  const char *substatus;
+} PhotaraRenderProgress;
+
+/* Start an asynchronous render and return its job id. */
+PHOTARA_API int photara_render_begin(PhotaraContext *ctx,
+                                     unsigned long long *job);
+/* Poll a job. Returns 0 for a valid snapshot, -1 for an invalid/superseded job.
+ * After a terminal state, photara_copy_pass can be used when the state is DONE. */
+PHOTARA_API int photara_render_poll(PhotaraContext *ctx,
+                                    unsigned long long job,
+                                    PhotaraRenderProgress *progress);
+/* Cancel a running job and wait for the renderer to stop. */
+PHOTARA_API int photara_render_cancel(PhotaraContext *ctx, unsigned long long job);
+/* Finish a job. Returns 0 only for a successful completed render, -1 while
+ * running, cancelled, failed, or for an invalid job. */
+PHOTARA_API int photara_render_finish(PhotaraContext *ctx, unsigned long long job);
+
 /* Render synchronously and store the requested passes. */
 PHOTARA_API int photara_render(PhotaraContext *ctx);
 

@@ -37,9 +37,21 @@ try:  # Prefer the installed distribution metadata when available.
 except ImportError:  # pragma: no cover - Python < 3.8 is not supported.
     pass
 
-from ._errors import PhotaraClosedError, PhotaraError, PhotaraRemovedError
+from ._errors import (
+    PhotaraCancelledError,
+    PhotaraClosedError,
+    PhotaraError,
+    PhotaraRemovedError,
+    PhotaraRenderError,
+)
 from ._material import Material
-from ._session import Session, linear_to_srgb, save_png
+from ._session import (
+    RenderJob,
+    RenderProgress,
+    Session,
+    linear_to_srgb,
+    save_png,
+)
 from .scene import Camera, Light, Mesh, Object, RenderResult, Scene, World
 
 __all__ = [
@@ -48,9 +60,13 @@ __all__ = [
     "Material",
     "Mesh",
     "Object",
+    "PhotaraCancelledError",
     "PhotaraClosedError",
     "PhotaraError",
     "PhotaraRemovedError",
+    "PhotaraRenderError",
+    "RenderJob",
+    "RenderProgress",
     "RenderResult",
     "Scene",
     "Session",

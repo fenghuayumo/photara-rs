@@ -308,6 +308,11 @@ bool Session::is_session_thread_rendering()
   return (session_thread_state_ == SESSION_THREAD_RENDER);
 }
 
+bool Session::is_rendering()
+{
+  return is_session_thread_rendering();
+}
+
 RenderWork Session::run_update_for_next_iteration()
 {
   RenderWork render_work;

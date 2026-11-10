@@ -96,6 +96,27 @@ set PYTHONPATH=%CD%\photara\python
 python photara\python\examples\batch_sim2real.py --frames 4
 ```
 
+## Async rendering
+
+`Scene.render_async()` returns a `RenderJob` while the render runs on the
+renderer's session thread. The GIL is released, so the calling thread can
+poll progress or do other work. Scene mutation is rejected while a job is
+running.
+
+```python
+job = scene.render_async(seed=1000)
+while job.state == "running":
+    print(job.progress, job.current_sample, job.status)
+    time.sleep(0.05)
+
+frame = job.wait()          # RenderResult; raises on cancel/failure
+# frame = job.result()      # non-blocking access once done
+# job.cancel()              # stop and wait for the renderer
+```
+
+The low-level `Session` exposes the same `render_async()` API. A cancelled
+job raises `PhotaraCancelledError`; failures raise `PhotaraRenderError`.
+
 ## Low-level Session API
 
 `pr.Session` exposes the same renderer through integer handles. It is useful
@@ -138,4 +159,3 @@ pip install "photara-rs[png]"
 - Fixed passes only: combined, depth, normal, albedo and object-id.
 - Materials cannot be deleted from the renderer; `materials.remove()` only
   detaches an unused material from the Python scene.
-- Rendering is synchronous; there is no progress callback or cancellation API.

@@ -13,3 +13,11 @@ class PhotaraClosedError(PhotaraError):
 
 class PhotaraRemovedError(PhotaraError):
     """Raised when a removed scene item is used again."""
+
+
+class PhotaraCancelledError(PhotaraError):
+    """Raised when waiting on a render job that was cancelled."""
+
+
+class PhotaraRenderError(PhotaraError):
+    """Raised when a render job fails or is used in an invalid state."""

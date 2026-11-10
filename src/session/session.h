@@ -157,6 +157,9 @@ class Session {
    * (for example, when rendering with unlimited samples). */
   float get_progress();
 
+  /* Check whether the session thread is currently rendering. */
+  bool is_rendering();
+
   void collect_statistics(RenderStats *stats);
 
   /* --------------------------------------------------------------------

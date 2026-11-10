@@ -42,6 +42,7 @@ from ._math import (
     sun_light_matrix,
 )
 from ._session import (
+    RenderJob,
     Session,
     _as_object_id,
     linear_to_srgb,
@@ -1302,6 +1303,13 @@ class Scene:
             self._seed = seed
         self._session.render(seed=seed)
         return RenderResult(self._session, seed=self._seed)
+
+    def render_async(self, seed: Optional[int] = None) -> RenderJob:
+        """Start a non-blocking render and return a :class:`RenderJob`."""
+        self._ensure_open()
+        job = self._session.render_async(seed=seed)
+        self._seed = self._session.seed
+        return job
 
     # ------------------------------------------------------------------
     # Camera / world / lifecycle.

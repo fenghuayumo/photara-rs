@@ -35,6 +35,8 @@ Working, OptiX-first MVP:
   custom scene builders and render farms.
 - The facade uses dynamic BVH so new instances and transform changes are picked
   up on the next render.
+- Async rendering exposes job begin/poll/cancel/finish through the C ABI and a
+  Python `RenderJob` with progress, cancellation and concurrent contexts.
 - A self-contained local wheel bundles the native module, runtime DLLs and
   OptiX/CUDA kernels. It has been installed outside the repository and
   verified with OptiX rendering. It currently targets Windows x64, CPython 3.11
@@ -148,5 +150,5 @@ captures all passes once per frame into a `RenderResult`.
 3. USD/glTF/OBJ ingestion for sim2real scene loading.
 4. Image textures and environment maps.
 5. A dedicated realtime path (low samples + OptiX denoise + simplified
-   materials), including async render/progress APIs.
+   materials).
 6. Blender integration remains paused.

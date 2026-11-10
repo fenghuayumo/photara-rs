@@ -6,12 +6,18 @@ C ABI directly and is useful for render farms, custom scene builders and tests.
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
 from ._backend import _core, resource_dir
-from ._errors import PhotaraClosedError
+from ._errors import (
+    PhotaraCancelledError,
+    PhotaraClosedError,
+    PhotaraRenderError,
+)
 from ._material import Material, validate_values
 from ._math import as_float2, as_float3, as_matrix4
 
@@ -104,6 +110,163 @@ def _as_optional_uvs(value, vertex_count: int) -> Optional[np.ndarray]:
     return np.ascontiguousarray(array)
 
 
+@dataclass(frozen=True)
+class RenderProgress:
+    """Snapshot of an asynchronous render job."""
+
+    state: str
+    progress: float
+    current_sample: int
+    num_samples: int
+    status: str
+    substatus: str
+
+
+class RenderJob:
+    """A non-blocking render started by :meth:`Session.render_async`."""
+
+    _STATE_NAMES = {
+        0: "running",
+        1: "done",
+        2: "cancelled",
+        3: "failed",
+    }
+
+    def __init__(self, session: "Session", job_id: int, seed: int) -> None:
+        self._session = session
+        self.id = int(job_id)
+        self.seed = int(seed)
+        self._snapshot: Optional[RenderProgress] = None
+        self._result = None
+
+    def _poll_raw(self) -> RenderProgress:
+        ctx = self._session._ctx
+        try:
+            raw = ctx.render_poll(self.id)
+        except RuntimeError as exc:
+            raise PhotaraRenderError(str(exc)) from exc
+        state = self._STATE_NAMES.get(int(raw["state"]), "failed")
+        self._snapshot = RenderProgress(
+            state=state,
+            progress=float(raw["progress"]),
+            current_sample=int(raw["current_sample"]),
+            num_samples=int(raw["num_samples"]),
+            status=str(raw["status"]),
+            substatus=str(raw["substatus"]),
+        )
+        return self._snapshot
+
+    def poll(self) -> RenderProgress:
+        """Return a fresh status snapshot without blocking."""
+        return self._poll_raw()
+
+    def _finish(self) -> None:
+        ctx = self._session._ctx
+        try:
+            ctx.render_finish(self.id)
+        except RuntimeError as exc:
+            raise PhotaraRenderError(str(exc)) from exc
+
+    def _collect(self):
+        if self._result is None:
+            from .scene import RenderResult
+
+            self._result = RenderResult(self._session, self.seed)
+        return self._result
+
+    @property
+    def state(self) -> str:
+        return self.poll().state
+
+    @property
+    def progress(self) -> float:
+        return self.poll().progress
+
+    @property
+    def current_sample(self) -> int:
+        return self.poll().current_sample
+
+    @property
+    def num_samples(self) -> int:
+        return self.poll().num_samples
+
+    @property
+    def status(self) -> str:
+        return self.poll().status
+
+    @property
+    def substatus(self) -> str:
+        return self.poll().substatus
+
+    @property
+    def done(self) -> bool:
+        return self.state == "done"
+
+    @property
+    def cancelled(self) -> bool:
+        return self.state == "cancelled"
+
+    @property
+    def failed(self) -> bool:
+        return self.state == "failed"
+
+    def cancel(self) -> None:
+        """Cancel the render and wait for the renderer to stop."""
+        if self._result is not None:
+            return
+        snapshot = self.poll()
+        if snapshot.state != "running":
+            return
+        ctx = self._session._ctx
+        try:
+            ctx.render_cancel(self.id)
+        except RuntimeError as exc:
+            raise PhotaraRenderError(str(exc)) from exc
+        self.poll()
+
+    def wait(self, timeout: Optional[float] = None, poll_interval: float = 0.02):
+        """Block until the job finishes and return a :class:`RenderResult`.
+
+        Raises :class:`PhotaraCancelledError` when cancelled,
+        :class:`PhotaraRenderError` on failure, and :class:`TimeoutError` if
+        ``timeout`` expires.
+        """
+        if self._result is not None:
+            return self._result
+        deadline = None if timeout is None else time.monotonic() + float(timeout)
+        while True:
+            snapshot = self.poll()
+            if snapshot.state == "done":
+                self._finish()
+                return self._collect()
+            if snapshot.state == "cancelled":
+                raise PhotaraCancelledError(snapshot.status)
+            if snapshot.state == "failed":
+                raise PhotaraRenderError(snapshot.status)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError("render job timed out")
+            time.sleep(max(float(poll_interval), 0.001))
+
+    def result(self):
+        """Return the completed result; raise if it is not ready."""
+        if self._result is not None:
+            return self._result
+        snapshot = self.poll()
+        if snapshot.state == "done":
+            self._finish()
+            return self._collect()
+        if snapshot.state == "cancelled":
+            raise PhotaraCancelledError(snapshot.status)
+        if snapshot.state == "failed":
+            raise PhotaraRenderError(snapshot.status)
+        raise PhotaraRenderError("render job is still running")
+
+    def __repr__(self) -> str:
+        state = self._snapshot.state if self._snapshot is not None else "running"
+        progress = self._snapshot.progress if self._snapshot is not None else 0.0
+        return f"RenderJob(id={self.id}, state={state!r}, progress={progress:.3f})"
+
+
 class Session:
     """A low-level handle-based OptiX render session.
 
@@ -156,6 +319,7 @@ class Session:
         self._device = str(device)
         self._material_values: list[dict] = []
         self._material_objects: dict[int, Material] = {}
+        self._active_job: Optional[RenderJob] = None
         self._context = None
 
         self._context = _core.Context(
@@ -190,7 +354,16 @@ class Session:
         self.close()
 
     def close(self) -> None:
-        """Release the GPU context. All later renderer calls raise."""
+        """Cancel any active render and release the GPU context."""
+        job = self._active_job
+        if job is not None and self._context is not None:
+            try:
+                if job.state == "running":
+                    job.cancel()
+            except Exception:
+                # Close must stay robust even if the job was superseded.
+                pass
+        self._active_job = None
         self._context = None
 
     def __repr__(self) -> str:
@@ -641,9 +814,43 @@ class Session:
         self._ctx.set_samples(samples)
         self._samples = samples
 
+    def _job_is_running(self) -> bool:
+        job = self._active_job
+        if job is None:
+            return False
+        try:
+            return job.state == "running"
+        except PhotaraRenderError:
+            # The job was superseded by a synchronous render or another job.
+            self._active_job = None
+            return False
+
+    def render_async(self, seed: Optional[int] = None) -> RenderJob:
+        """Start a render without blocking and return a :class:`RenderJob`."""
+        ctx = self._ctx
+        if self._job_is_running():
+            raise PhotaraRenderError(
+                "An asynchronous render is already running; cancel or wait first"
+            )
+        self._active_job = None
+        if seed is not None:
+            seed = int(seed)
+            if seed < 0:
+                raise ValueError("seed must be non-negative")
+            ctx.set_seed(seed)
+            self._seed = seed
+        job = RenderJob(self, int(ctx.render_begin()), self._seed)
+        self._active_job = job
+        return job
+
     def render(self, seed: Optional[int] = None) -> None:
         """Render synchronously. ``seed`` is applied before rendering."""
         ctx = self._ctx
+        if self._job_is_running():
+            raise PhotaraRenderError(
+                "An asynchronous render is running; cancel or wait first"
+            )
+        self._active_job = None
         if seed is not None:
             seed = int(seed)
             if seed < 0:

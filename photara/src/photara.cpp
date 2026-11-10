@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -17,6 +18,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "device/denoise.h"
@@ -424,6 +426,14 @@ struct PhotaraContext {
     bool active = false;
   };
 
+  struct RenderJobRecord {
+    unsigned long long id = 0;
+    int state = PHOTARA_RENDER_DONE;
+    bool active = false;
+    std::string status;
+    std::string substatus;
+  };
+
   std::mutex mutex;
   std::string last_error;
   std::string device_name;
@@ -445,8 +455,16 @@ struct PhotaraContext {
   std::vector<LightRecord> lights;
   std::vector<int> free_light_slots;
 
+  unsigned long long next_job_id = 1;
+  RenderJobRecord render_job;
+
   ~PhotaraContext()
   {
+    if (session != nullptr && render_job.active &&
+        render_job.state == PHOTARA_RENDER_RUNNING)
+    {
+      session->cancel(true);
+    }
     session.reset();
   }
 };
@@ -458,8 +476,38 @@ void set_error(PhotaraContext *ctx, const std::string &message)
   ctx->last_error = message;
 }
 
+void ensure_render_idle(PhotaraContext *ctx)
+{
+  if (ctx->render_job.active && ctx->render_job.state == PHOTARA_RENDER_RUNNING) {
+    throw std::runtime_error("Cannot modify the scene while a render is running");
+  }
+}
+
 template<typename Function>
 int guarded(PhotaraContext *ctx, Function &&function)
+{
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    ensure_render_idle(ctx);
+    function();
+    return 0;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+template<typename Function>
+int guarded_read(PhotaraContext *ctx, Function &&function)
 {
   if (ctx == nullptr) {
     set_create_error("NULL Photara context");
@@ -489,6 +537,7 @@ int guarded_index(PhotaraContext *ctx, Function &&function)
   }
   const std::lock_guard<std::mutex> lock(ctx->mutex);
   try {
+    ensure_render_idle(ctx);
     const int result = function();
     return result >= 0 ? result : -1;
   }
@@ -1678,29 +1727,276 @@ int photara_set_samples(PhotaraContext *ctx, const int samples)
   });
 }
 
-int photara_render(PhotaraContext *ctx)
+int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
 {
-  return guarded(ctx, [&]() {
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+  if (job == nullptr) {
+    set_error(ctx, "NULL render job pointer");
+    return -1;
+  }
+
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    if (ctx->render_job.active && ctx->render_job.state == PHOTARA_RENDER_RUNNING) {
+      throw std::runtime_error("A render is already running");
+    }
+
+    ctx->last_error.clear();
     ctx->rendered = false;
     if (ctx->capture != nullptr) {
       ctx->capture->clear();
     }
 
+    /* A previous cancelled job leaves Progress::cancel set; clear it before
+     * starting the next render. No render is running at this point. */
+    ctx->session->progress.reset();
     ctx->session->reset(ctx->session_params, ctx->buffer_params);
     ctx->session->start();
-    ctx->session->wait();
 
-    if (ctx->session->progress.get_error()) {
-      throw std::runtime_error(ctx->session->progress.get_error_message());
+    const unsigned long long id = ctx->next_job_id++;
+    ctx->render_job = PhotaraContext::RenderJobRecord{};
+    ctx->render_job.id = id;
+    ctx->render_job.state = PHOTARA_RENDER_RUNNING;
+    ctx->render_job.active = true;
+    ctx->render_job.status = "Rendering";
+    *job = id;
+    return 0;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+int photara_render_poll(PhotaraContext *ctx,
+                        const unsigned long long job,
+                        PhotaraRenderProgress *progress_out)
+{
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+  if (progress_out == nullptr) {
+    set_error(ctx, "NULL render progress pointer");
+    return -1;
+  }
+
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    if (!ctx->render_job.active || ctx->render_job.id != job) {
+      throw std::runtime_error("Render job is invalid or was superseded");
     }
-    if (ctx->session->device->have_error()) {
-      throw std::runtime_error(ctx->session->device->error_message());
+
+    PhotaraContext::RenderJobRecord &record = ctx->render_job;
+    Progress &progress = ctx->session->progress;
+
+    if (record.state == PHOTARA_RENDER_RUNNING) {
+      if (!ctx->session->is_rendering()) {
+        ctx->session->wait();
+
+        if (progress.get_error()) {
+          record.state = PHOTARA_RENDER_FAILED;
+          record.status = progress.get_error_message();
+          record.substatus.clear();
+          set_error(ctx, record.status);
+          ctx->rendered = false;
+        }
+        else if (ctx->session->device->have_error()) {
+          record.state = PHOTARA_RENDER_FAILED;
+          record.status = ctx->session->device->error_message();
+          record.substatus.clear();
+          set_error(ctx, record.status);
+          ctx->rendered = false;
+        }
+        else if (progress.get_cancel()) {
+          record.state = PHOTARA_RENDER_CANCELLED;
+          const std::string message = progress.get_cancel_message();
+          record.status = message.empty() ? "Cancelled" : message;
+          record.substatus.clear();
+          ctx->rendered = false;
+        }
+        else if (ctx->capture != nullptr && ctx->capture->has_data()) {
+          record.state = PHOTARA_RENDER_DONE;
+          record.status = "Finished";
+          record.substatus.clear();
+          ctx->rendered = true;
+        }
+        else {
+          record.state = PHOTARA_RENDER_FAILED;
+          record.status = "Renderer finished without producing a render result";
+          record.substatus.clear();
+          set_error(ctx, record.status);
+          ctx->rendered = false;
+        }
+      }
+      else {
+        progress.get_status(record.status, record.substatus);
+      }
     }
-    if (ctx->capture != nullptr && !ctx->capture->has_data()) {
-      throw std::runtime_error("Renderer finished without producing a render result");
+
+    progress_out->state = record.state;
+    progress_out->progress = (record.state == PHOTARA_RENDER_DONE) ?
+                                 1.0f :
+                                 progress.get_progress();
+    progress_out->current_sample = progress.get_current_sample();
+    progress_out->num_samples = ctx->session_params.samples;
+    progress_out->status = record.status.c_str();
+    progress_out->substatus = record.substatus.c_str();
+    return 0;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+int photara_render_cancel(PhotaraContext *ctx, const unsigned long long job)
+{
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    if (!ctx->render_job.active || ctx->render_job.id != job) {
+      throw std::runtime_error("Render job is invalid or was superseded");
     }
-    ctx->rendered = true;
-  });
+
+    PhotaraContext::RenderJobRecord &record = ctx->render_job;
+    if (record.state == PHOTARA_RENDER_CANCELLED) {
+      return 0;
+    }
+    if (record.state != PHOTARA_RENDER_RUNNING) {
+      throw std::runtime_error("Render job is not running");
+    }
+
+    Progress &progress = ctx->session->progress;
+
+    /* Cancelling while the scene is still being uploaded can invalidate CUDA
+     * module handles. Wait until the render loop has produced its first sample
+     * (or finished) before requesting cancellation. */
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (ctx->session->is_rendering() && progress.get_current_sample() == 0 &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (!ctx->session->is_rendering()) {
+      if (progress.get_error()) {
+        record.state = PHOTARA_RENDER_FAILED;
+        record.status = progress.get_error_message();
+        set_error(ctx, record.status);
+        ctx->rendered = false;
+      }
+      else if (ctx->capture != nullptr && ctx->capture->has_data()) {
+        record.state = PHOTARA_RENDER_DONE;
+        record.status = "Finished";
+        ctx->rendered = true;
+      }
+      else {
+        record.state = PHOTARA_RENDER_CANCELLED;
+        const std::string message = progress.get_cancel_message();
+        record.status = message.empty() ? "Cancelled" : message;
+        ctx->rendered = false;
+      }
+    }
+    else {
+      /* Use the non-quick path: force-cancelling device work while kernels are
+       * still being loaded can invalidate CUDA module handles. The progress
+       * cancel flag stops the path tracer at its next safe polling point. */
+      ctx->session->cancel(false);
+      if (progress.get_error()) {
+        record.state = PHOTARA_RENDER_FAILED;
+        record.status = progress.get_error_message();
+        set_error(ctx, record.status);
+      }
+      else {
+        record.state = PHOTARA_RENDER_CANCELLED;
+        const std::string message = progress.get_cancel_message();
+        record.status = message.empty() ? "Cancelled" : message;
+      }
+      ctx->rendered = false;
+    }
+    record.substatus.clear();
+    return 0;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+int photara_render_finish(PhotaraContext *ctx, const unsigned long long job)
+{
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    if (!ctx->render_job.active || ctx->render_job.id != job) {
+      throw std::runtime_error("Render job is invalid or was superseded");
+    }
+    if (ctx->render_job.state == PHOTARA_RENDER_DONE) {
+      return 0;
+    }
+    if (ctx->render_job.state == PHOTARA_RENDER_RUNNING) {
+      throw std::runtime_error("Render job is still running");
+    }
+
+    const std::string message = ctx->render_job.status.empty() ?
+                                    "Render was cancelled or failed" :
+                                    ctx->render_job.status;
+    set_error(ctx, message);
+    return -1;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+int photara_render(PhotaraContext *ctx)
+{
+  unsigned long long job = 0;
+  if (photara_render_begin(ctx, &job) != 0) {
+    return -1;
+  }
+
+  PhotaraRenderProgress progress = {};
+  for (;;) {
+    if (photara_render_poll(ctx, job, &progress) != 0) {
+      return -1;
+    }
+    if (progress.state != PHOTARA_RENDER_RUNNING) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  return photara_render_finish(ctx, job);
 }
 
 int photara_render_width(const PhotaraContext *ctx)
@@ -1741,7 +2037,7 @@ int photara_pass_channels(const PhotaraContext *ctx, const char *name)
 
 int photara_copy_pass(PhotaraContext *ctx, const char *name, float *dst, const size_t dst_count)
 {
-  return guarded(ctx, [&]() {
+  return guarded_read(ctx, [&]() {
     if (name == nullptr || dst == nullptr) {
       throw std::runtime_error("NULL pass name or destination buffer");
     }

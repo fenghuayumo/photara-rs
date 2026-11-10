@@ -593,6 +593,45 @@ class Context {
     }
   }
 
+  unsigned long long render_begin()
+  {
+    unsigned long long job = 0;
+    if (photara_render_begin(context_, &job) != 0) {
+      throw_last_error();
+    }
+    return job;
+  }
+
+  py::dict render_poll(const unsigned long long job)
+  {
+    PhotaraRenderProgress progress = {};
+    if (photara_render_poll(context_, job, &progress) != 0) {
+      throw_last_error();
+    }
+    py::dict result;
+    result["state"] = progress.state;
+    result["progress"] = progress.progress;
+    result["current_sample"] = progress.current_sample;
+    result["num_samples"] = progress.num_samples;
+    result["status"] = progress.status ? progress.status : "";
+    result["substatus"] = progress.substatus ? progress.substatus : "";
+    return result;
+  }
+
+  void render_cancel(const unsigned long long job)
+  {
+    if (photara_render_cancel(context_, job) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void render_finish(const unsigned long long job)
+  {
+    if (photara_render_finish(context_, job) != 0) {
+      throw_last_error();
+    }
+  }
+
   void render()
   {
     if (photara_render(context_) != 0) {
@@ -960,6 +999,13 @@ PYBIND11_MODULE(_photara, module)
            py::arg("strength") = 1.0f)
       .def("set_seed", &Context::set_seed, py::arg("seed"))
       .def("set_samples", &Context::set_samples, py::arg("samples"))
+      .def("render_begin", &Context::render_begin)
+      .def("render_poll", &Context::render_poll, py::arg("job"))
+      .def("render_cancel",
+           &Context::render_cancel,
+           py::arg("job"),
+           py::call_guard<py::gil_scoped_release>())
+      .def("render_finish", &Context::render_finish, py::arg("job"))
       .def("render", &Context::render, py::call_guard<py::gil_scoped_release>())
       .def("get_pass", &Context::get_pass, py::arg("name"))
       .def_property_readonly("width", &Context::width)
