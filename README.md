@@ -19,9 +19,11 @@ data generation.
 - Standalone executable: `photara_rs`.
 - Stable C ABI: `photara/include/photara/photara.h`.
 - Python package and wheel: distribution `photara-rs`, import `photara_rs`.
-- Mutable scene handles for batch rendering: objects can be instanced,
-  transformed, hidden, re-materialized and removed; materials and lights can be
-  updated in place; a session can render many frames without being rebuilt.
+- Blender-style Python scene graph: `Scene`, `Object`, `Mesh`, `Material`,
+  `Light`, `Camera`, `World` and `RenderResult`, with data-block collections.
+  Objects can be instanced, transformed, hidden, re-materialized and removed;
+  materials and lights update in place; a scene renders many frames without
+  being rebuilt. A low-level handle-based `Session` remains available.
 - Supported device: **OptiX**. The HIP, HIPRT, Metal, oneAPI and multi-device
   backends and the user-facing CPU/CUDA selection have been removed. CUDA host
   code and non-ray-tracing kernel binaries remain as OptiX dependencies, and a
@@ -78,7 +80,7 @@ python scripts\stage_python_package.py
 python -m pip wheel --no-build-isolation --no-deps -w dist photara\python
 ```
 
-Install the resulting wheel and use the numpy-friendly API:
+Install the resulting wheel and use the Scene/Object API:
 
 ```bat
 pip install dist\photara_rs-0.1.0-cp311-cp311-win_amd64.whl
@@ -88,30 +90,41 @@ pip install dist\photara_rs-0.1.0-cp311-cp311-win_amd64.whl
 import numpy as np
 import photara_rs as pr
 
-session = pr.Session(1280, 720, samples=64, device="OPTIX")
-material = session.add_material(pr.Material(base_color=(0.7, 0.2, 0.1)))
-object_handle = session.add_mesh(vertices, triangles, normals=normals, material=material)
-instance = session.add_instance(object_handle, transform)
-session.set_camera(position=(3, 2, -4), target=(0, 0, 0))
-light = session.add_area_light(position=(2, 4, -1), target=(0, 0, 0), size=(2, 2))
-session.set_background(color=(0.05, 0.08, 0.12))
-session.render(seed=0)
+scene = pr.Scene(width=1280, height=720, samples=64, device="OPTIX")
 
-beauty = session.beauty()   # (H, W, 4), linear RGBA
-depth = session.depth()     # (H, W)
+material = scene.materials.new("prop", base_color=(0.7, 0.2, 0.1), roughness=0.3)
+mesh = scene.meshes.new("prop", vertices, triangles, normals=normals, material=material)
+prop = scene.objects.new("prop", mesh, location=(0.0, 1.0, 0.0), object_id=1)
+instance = scene.objects.new("prop.001", mesh, location=(2.0, 1.0, 0.0), object_id=2)
 
-# Reuse the session for later frames.
-session.set_object_transform(object_handle, next_transform)
-session.update_material(material, base_color=(0.2, 0.5, 0.8))
-session.update_area_light(light, position=(1, 3, -1), target=(0, 0, 0),
-                          size=(2, 2), color=(1, 1, 1), strength=800)
-session.render(seed=1)
+scene.camera.location = (3.0, 2.0, -4.0)
+scene.camera.target = (0.0, 0.0, 0.0)
+scene.lights.new_area("key", position=(2.0, 4.0, -1.0), target=(0.0, 0.0, 0.0),
+                      size=(2.0, 2.0), strength=400.0)
+scene.lights.new_sun("sun", direction=(-0.4, -1.0, 0.2))
+scene.world.color = (0.05, 0.08, 0.12)
+
+frame = scene.render(seed=0)
+frame.beauty            # (H, W, 4), linear RGBA, top-down
+frame.depth             # (H, W); use frame.depth_valid as the miss mask
+frame.object_id         # (H, W), int32
+frame.save_npz("frame_0000.npz")
+
+# Reuse the scene for later frames.
+prop.location = (0.0, 1.2, 0.0)
+material.base_color = (0.2, 0.5, 0.8)
+frame = scene.render(seed=1)
 ```
 
-Meshes, instances and lights return integer handles. Objects can be
-transformed, hidden, given a new pass id/material, removed, or cleared; the
-scene uses dynamic BVH so these changes apply to the next `render()` without
-rebuilding the session.
+`Scene.objects` contains mesh objects and lights. `Scene.meshes` can be shared
+by several objects, and `Scene.materials`, `Scene.meshes`, `Scene.objects` and
+`Scene.lights` are name-addressable collections. The scene uses dynamic BVH, so
+object transforms, instances, material/light edits and removals apply on the
+next `render()` without rebuilding the scene. The low-level handle-based
+`pr.Session` remains available for custom scene builders and render farms.
+
+This wheel currently targets **Windows x64, CPython 3.11 and RTX 50-series
+(sm_120)**. Other Python versions or GPU generations need a matching rebuild.
 
 See `photara/python/README.md`, `photara/python/examples/render_test.py` and
 `photara/python/examples/batch_sim2real.py` for more details.

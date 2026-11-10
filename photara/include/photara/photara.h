@@ -187,6 +187,13 @@ PHOTARA_API int photara_update_area_light(PhotaraContext *ctx,
 PHOTARA_API int photara_update_sun_light(PhotaraContext *ctx,
                                          int light,
                                          const PhotaraSunLightDesc *desc);
+/* Replace only the light object's transform (same layout as PhotaraMeshDesc). */
+PHOTARA_API int photara_set_light_transform(PhotaraContext *ctx,
+                                            int light,
+                                            const float matrix[16]);
+/* Non-zero enables the light; zero turns it off. Light objects stay hidden
+ * from camera rays while enabled. */
+PHOTARA_API int photara_set_light_visible(PhotaraContext *ctx, int light, int visible);
 PHOTARA_API int photara_remove_light(PhotaraContext *ctx, int light);
 PHOTARA_API int photara_clear_lights(PhotaraContext *ctx);
 

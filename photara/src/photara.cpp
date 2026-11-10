@@ -1245,6 +1245,32 @@ int photara_update_sun_light(PhotaraContext *ctx,
   });
 }
 
+int photara_set_light_transform(PhotaraContext *ctx,
+                                const int light_handle,
+                                const float matrix[16])
+{
+  return guarded(ctx, [&]() {
+    if (matrix == nullptr) {
+      throw std::runtime_error("NULL light transform");
+    }
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    record.object->set_tfm(transform_from_matrix(matrix));
+    record.object->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_light_visible(PhotaraContext *ctx,
+                              const int light_handle,
+                              const int visible)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    record.object->set_visibility(
+        visible ? (PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA) : 0);
+    record.object->tag_update(ctx->scene);
+  });
+}
+
 int photara_remove_light(PhotaraContext *ctx, const int light_handle)
 {
   return guarded(ctx, [&]() {

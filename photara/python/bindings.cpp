@@ -372,6 +372,21 @@ class Context {
     }
   }
 
+  void set_light_transform(const int light, const FloatArray &matrix)
+  {
+    const FloatArray matrix_array = require_matrix(matrix, "matrix");
+    if (photara_set_light_transform(context_, light, matrix_array.data()) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_light_visible(const int light, const bool visible)
+  {
+    if (photara_set_light_visible(context_, light, visible ? 1 : 0) != 0) {
+      throw_last_error();
+    }
+  }
+
   void remove_light(const int light)
   {
     if (photara_remove_light(context_, light) != 0) {
@@ -676,6 +691,14 @@ PYBIND11_MODULE(_photara, module)
            py::arg("color"),
            py::arg("strength") = 1.0f,
            py::arg("angle_degrees") = 0.0f)
+      .def("set_light_transform",
+           &Context::set_light_transform,
+           py::arg("light"),
+           py::arg("matrix"))
+      .def("set_light_visible",
+           &Context::set_light_visible,
+           py::arg("light"),
+           py::arg("visible"))
       .def("remove_light", &Context::remove_light, py::arg("light"))
       .def("clear_lights", &Context::clear_lights)
       .def("clear_scene", &Context::clear_scene)

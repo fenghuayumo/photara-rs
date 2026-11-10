@@ -27,14 +27,18 @@ Working, OptiX-first MVP:
   per-vertex normals/UVs, transforms, Principled materials, area and sun
   lights, constant-color world, perspective camera, OptiX/OIDN denoising, and
   `combined`/`depth`/`normal`/`albedo`/`object_id` passes.
-- Mutable batch API: meshes, instances and lights return handles; objects can
-  be transformed, hidden, re-materialized and removed; materials and lights can
-  be updated in place; scenes can be cleared and rebuilt; seed and samples can
-  be changed per frame. The session uses dynamic BVH so new instances and
-  transform changes are picked up on the next render.
+- Blender-style Scene/Object API: `Scene`, `Object`, `Mesh`, `Material`,
+  `Light`, `Camera`, `World`, `RenderResult` and name-addressable data-block
+  collections. Objects can share meshes (instances), be transformed, hidden,
+  re-materialized and removed; materials and lights update in place; seed and
+  samples can change per frame. A low-level handle-based `Session` remains for
+  custom scene builders and render farms.
+- The facade uses dynamic BVH so new instances and transform changes are picked
+  up on the next render.
 - A self-contained local wheel bundles the native module, runtime DLLs and
   OptiX/CUDA kernels. It has been installed outside the repository and
-  verified with OptiX rendering.
+  verified with OptiX rendering. It currently targets Windows x64, CPython 3.11
+  and sm_120; general multi-version/multi-GPU distribution is deferred.
 
 The device backends are now OptiX-only from the user's perspective. HIP, HIPRT,
 Metal, oneAPI and multi-device backends were removed, and CPU/CUDA are no longer
@@ -103,8 +107,9 @@ scripts/                 Windows build and packaging helpers
 
 The C ABI facade keeps the renderer session alive, owns the scene, captures
 full-frame passes through a custom `OutputDriver`, and copies results into the
-caller's buffers. The Python wrapper exposes a small numpy-friendly API and
-converts bottom-up render rows to top-down images.
+caller's buffers. The Python layer wraps the C ABI with a Blender-style
+Scene/Object graph, converts bottom-up render rows to top-down images, and
+captures all passes once per frame into a `RenderResult`.
 
 ## Known issues
 
@@ -122,11 +127,15 @@ converts bottom-up render rows to top-down images.
   sim2real pipelines.
 - Colour is linear; use `photara_rs.linear_to_srgb` / `save_png` for display.
 - Materials and light emission shaders are append-only at the Cycles scene
-  level; removing a light clears its nodes but not the shader graph. For long
-  batch runs, reuse material slots/light handles or recreate the session
-  periodically instead of adding new materials every frame.
+  level; removing a light clears its nodes but not the shader graph.
+  `Scene.materials.remove()` only detaches an unused material from the Python
+  scene. For long batch runs, reuse material slots/light handles or recreate the
+  scene periodically instead of adding new materials every frame.
 - Mesh vertex positions and topology cannot be edited in place yet. Remove and
   re-add the object, or animate it with transforms/instances.
+- The Python Scene layer represents a mesh data-block with a hidden prototype
+  object and materializes visible objects as instances sharing its geometry.
+  This is internal and does not appear in `Scene.objects`.
 - `photara/python/photara_rs/{bin,lib}` and the built `.pyd` are generated
   artifacts.
 
@@ -135,11 +144,13 @@ converts bottom-up render rows to top-down images.
 1. Optional further trim: remove unused CPU path-tracing and CPU-kernel code.
    The small CPU host device must remain for denoising/buffer transfers, and
    CUDA host/kernel code must remain for OptiX.
-2. USD/glTF/OBJ ingestion for sim2real scene loading.
-3. In-place mesh deformation/topology updates for cloth, soft bodies and other
+2. General distributed Python packaging: multiple Python versions, multiple RTX
+   generations, clean-install CI, third-party license notices, and PyPI or an
+   internal package index. This is deferred until the public API stabilizes.
+3. USD/glTF/OBJ ingestion for sim2real scene loading.
+4. In-place mesh deformation/topology updates for cloth, soft bodies and other
    simulation outputs.
-4. Point and spot lights, plus image textures and environment maps.
-5. Python 3.13 / additional wheel targets.
+5. Point and spot lights, plus image textures and environment maps.
 6. A dedicated realtime path (low samples + OptiX denoise + simplified
    materials), including async render/progress APIs.
 7. Blender integration remains paused.

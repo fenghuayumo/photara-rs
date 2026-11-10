@@ -33,6 +33,23 @@ python -m pip wheel --no-build-isolation --no-deps -w dist photara\python
 ```
 
 The wheel is written to `dist\photara_rs-<version>-cp311-cp311-win_amd64.whl`.
+`setup.py` rejects a build when the native `.pyd`, runtime DLLs or kernel blobs
+have not been staged, so run the first two commands after changing C++ code.
+
+Run the Python API tests with the development package on `PYTHONPATH`:
+
+```bat
+set PYTHONPATH=%CD%\photara\python
+python -m unittest discover -s photara\python\tests -v
+```
+
+Install the wheel into a clean environment and verify it without a repository
+checkout to test the packaged resource/DLL discovery:
+
+```bat
+python -m pip install --no-deps dist\photara_rs-<version>-cp311-cp311-win_amd64.whl
+python -c "import photara_rs; print(photara_rs.__version__)"
+```
 
 ## Build configuration
 

@@ -8,9 +8,24 @@ version = "0.1.0"
 description = "OptiX-first physically based renderer derived from Cycles"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.12"
 authors = [{name = "Photara"}]
+keywords = ["renderer", "optix", "path tracing", "sim2real", "synthetic data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+]
 dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+png = ["Pillow>=9"]
 
 [project.urls]
 Homepage = "https://github.com/fenghuayumo/photara-studio"
@@ -20,4 +35,4 @@ packages = ["photara_rs"]
 zip-safe = false
 
 [tool.setuptools.package-data]
-photara_rs = ["*.pyd", "bin/*.dll", "lib/*.zst"]
+photara_rs = ["*.pyd", "bin/*.dll", "lib/*.zst", "py.typed"]
