@@ -405,6 +405,8 @@ struct PhotaraContext {
   enum LightType {
     LIGHT_TYPE_AREA,
     LIGHT_TYPE_SUN,
+    LIGHT_TYPE_POINT,
+    LIGHT_TYPE_SPOT,
   };
 
   struct ObjectRecord {
@@ -669,6 +671,101 @@ void apply_sun_light_desc(Scene *scene,
   shader->tag_update(scene);
 
   object->set_tfm(basis_transform(right, up, forward, make_float3(0.0f, 0.0f, 0.0f)));
+  object->tag_update(scene);
+}
+
+void validate_point_light_desc(const PhotaraPointLightDesc &desc)
+{
+  for (int i = 0; i < 3; i++) {
+    if (!std::isfinite(desc.position[i])) {
+      throw std::runtime_error("Point light position must be finite");
+    }
+    if (!std::isfinite(desc.color[i]) || desc.color[i] < 0.0f) {
+      throw std::runtime_error("Point light color must be finite and non-negative");
+    }
+  }
+  if (!std::isfinite(desc.strength) || desc.strength < 0.0f) {
+    throw std::runtime_error("Point light strength must be finite and non-negative");
+  }
+  if (!std::isfinite(desc.radius) || desc.radius < 0.0f) {
+    throw std::runtime_error("Point light radius must be finite and non-negative");
+  }
+}
+
+void validate_spot_light_desc(const PhotaraSpotLightDesc &desc)
+{
+  for (int i = 0; i < 3; i++) {
+    if (!std::isfinite(desc.position[i]) || !std::isfinite(desc.direction[i]) ||
+        !std::isfinite(desc.up[i]))
+    {
+      throw std::runtime_error("Spot light position/direction/up must be finite");
+    }
+    if (!std::isfinite(desc.color[i]) || desc.color[i] < 0.0f) {
+      throw std::runtime_error("Spot light color must be finite and non-negative");
+    }
+  }
+  if (!(dot(float3_from_ptr(desc.direction), float3_from_ptr(desc.direction)) > 1e-20f)) {
+    throw std::runtime_error("Spot light direction must be non-zero");
+  }
+  if (!std::isfinite(desc.strength) || desc.strength < 0.0f) {
+    throw std::runtime_error("Spot light strength must be finite and non-negative");
+  }
+  if (!std::isfinite(desc.radius) || desc.radius < 0.0f) {
+    throw std::runtime_error("Spot light radius must be finite and non-negative");
+  }
+  if (!std::isfinite(desc.angle_degrees) || desc.angle_degrees <= 0.0f ||
+      desc.angle_degrees >= 180.0f)
+  {
+    throw std::runtime_error("Spot light angle must be in (0, 180) degrees");
+  }
+  if (!std::isfinite(desc.smooth)) {
+    throw std::runtime_error("Spot light smooth must be finite");
+  }
+}
+
+void apply_point_light_desc(Scene *scene,
+                            PointLight *light,
+                            Object *object,
+                            EmissionNode *emission,
+                            Shader *shader,
+                            const PhotaraPointLightDesc &desc)
+{
+  light->set_radius(desc.radius);
+  light->set_is_sphere(desc.radius > 0.0f);
+  light->set_use_mis(desc.radius > 0.0f);
+  light->tag_update(scene);
+  emission->set_color(float3_from_ptr(desc.color));
+  emission->set_strength(desc.strength);
+  shader->tag_update(scene);
+
+  object->set_tfm(basis_transform(make_float3(1.0f, 0.0f, 0.0f),
+                                  make_float3(0.0f, 1.0f, 0.0f),
+                                  make_float3(0.0f, 0.0f, 1.0f),
+                                  float3_from_ptr(desc.position)));
+  object->tag_update(scene);
+}
+
+void apply_spot_light_desc(Scene *scene,
+                           SpotLight *light,
+                           Object *object,
+                           EmissionNode *emission,
+                           Shader *shader,
+                           const PhotaraSpotLightDesc &desc)
+{
+  float3 right, up, forward;
+  make_orthonormal_basis(-float3_from_ptr(desc.direction), desc.up, right, up, forward);
+
+  light->set_radius(desc.radius);
+  light->set_is_sphere(desc.radius > 0.0f);
+  light->set_use_mis(desc.radius > 0.0f);
+  light->set_angle(desc.angle_degrees * kPi / 180.0f);
+  light->set_smooth(std::clamp(desc.smooth, 1e-4f, 1.0f));
+  light->tag_update(scene);
+  emission->set_color(float3_from_ptr(desc.color));
+  emission->set_strength(desc.strength);
+  shader->tag_update(scene);
+
+  object->set_tfm(basis_transform(right, up, forward, float3_from_ptr(desc.position)));
   object->tag_update(scene);
 }
 
@@ -1242,6 +1339,100 @@ int photara_update_sun_light(PhotaraContext *ctx,
                          record.emission,
                          record.shader,
                          *desc);
+  });
+}
+
+int photara_add_point_light(PhotaraContext *ctx, const PhotaraPointLightDesc *desc)
+{
+  return guarded_index(ctx, [&]() -> int {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL point light description");
+    }
+    validate_point_light_desc(*desc);
+
+    EmissionShader emission = make_emission_shader(
+        ctx->scene, float3_from_ptr(desc->color), desc->strength);
+
+    PointLight *light = ctx->scene->create_node<PointLight>();
+    assign_single_shader(light, emission.shader);
+
+    Object *object = ctx->scene->create_node<Object>();
+    object->set_geometry(light);
+    object->set_visibility(PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA);
+
+    apply_point_light_desc(ctx->scene, light, object, emission.node, emission.shader, *desc);
+
+    return register_light(
+        ctx, light, object, emission.shader, emission.node, PhotaraContext::LIGHT_TYPE_POINT);
+  });
+}
+
+int photara_update_point_light(PhotaraContext *ctx,
+                               const int light_handle,
+                               const PhotaraPointLightDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL point light description");
+    }
+    validate_point_light_desc(*desc);
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    if (record.type != PhotaraContext::LIGHT_TYPE_POINT) {
+      throw std::runtime_error("Light handle is not a point light");
+    }
+    apply_point_light_desc(ctx->scene,
+                           static_cast<PointLight *>(record.light),
+                           record.object,
+                           record.emission,
+                           record.shader,
+                           *desc);
+  });
+}
+
+int photara_add_spot_light(PhotaraContext *ctx, const PhotaraSpotLightDesc *desc)
+{
+  return guarded_index(ctx, [&]() -> int {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL spot light description");
+    }
+    validate_spot_light_desc(*desc);
+
+    EmissionShader emission = make_emission_shader(
+        ctx->scene, float3_from_ptr(desc->color), desc->strength);
+
+    SpotLight *light = ctx->scene->create_node<SpotLight>();
+    assign_single_shader(light, emission.shader);
+
+    Object *object = ctx->scene->create_node<Object>();
+    object->set_geometry(light);
+    object->set_visibility(PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA);
+
+    apply_spot_light_desc(ctx->scene, light, object, emission.node, emission.shader, *desc);
+
+    return register_light(
+        ctx, light, object, emission.shader, emission.node, PhotaraContext::LIGHT_TYPE_SPOT);
+  });
+}
+
+int photara_update_spot_light(PhotaraContext *ctx,
+                              const int light_handle,
+                              const PhotaraSpotLightDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL spot light description");
+    }
+    validate_spot_light_desc(*desc);
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    if (record.type != PhotaraContext::LIGHT_TYPE_SPOT) {
+      throw std::runtime_error("Light handle is not a spot light");
+    }
+    apply_spot_light_desc(ctx->scene,
+                          static_cast<SpotLight *>(record.light),
+                          record.object,
+                          record.emission,
+                          record.shader,
+                          *desc);
   });
 }
 

@@ -52,9 +52,9 @@ frame.save_png("frame_0000.png")   # requires Pillow
 - `scene.objects.new(name, mesh, location=..., rotation_euler=..., scale=...,
   object_id=...)` creates an object. Several objects can share one mesh
   (instanced geometry); `mesh.users` reports the number of users.
-- `scene.lights.new_area(...)`, `scene.lights.new_sun(...)`, or
-  `scene.lights.new(name, type="AREA"|"SUN", ...)` create lights. Lights are
-  also visible through `scene.objects`.
+- `scene.lights.new_area(...)`, `new_sun(...)`, `new_point(...)` and
+  `new_spot(...)` create lights; `scene.lights.new(name, type=..., ...)`
+  dispatches. Lights are also visible through `scene.objects`.
 - `scene.camera` is the active perspective camera. It supports `location`,
   `rotation_euler`, `matrix_world`, `target`, `fov`, `near_clip`, `far_clip`.
 - `scene.world` is the constant-colour background (`color`, `strength`).
@@ -63,8 +63,9 @@ frame.save_png("frame_0000.png")   # requires Pillow
 - Objects support `.location`, `.rotation_euler` (XYZ Euler in radians),
   `.scale`, `.matrix_world`, `.visible`, `.object_id`, `.material`,
   `.remove()`.
-- Lights support transform properties, `.color`, `.strength`, `.size` (area)
-  or `.angle` (sun), `.target` (area) or `.direction` (sun), and `.visible`.
+- Lights support transform properties, `.color`, `.strength`, `.size` (area),
+  `.radius` (point/spot), `.spot_angle` and `.smooth` (spot), `.angle` (sun),
+  `.target` (area), `.direction` (sun/spot), and `.visible`.
 - `scene.samples` and `scene.seed` can change between renders. Resolution,
   maximum bounces, denoising and adaptive sampling are fixed for the lifetime
   of the scene.
@@ -130,7 +131,6 @@ pip install "photara-rs[png]"
   subdivision.
 - No OBJ/glTF/USD import; geometry is supplied as NumPy arrays.
 - Mesh vertices and topology cannot be edited in place yet.
-- Area and sun lights only; point/spot lights are not exposed.
 - One perspective camera per scene; no orthographic, panoramic, DOF or motion
   blur controls.
 - Fixed passes only: combined, depth, normal, albedo and object-id.

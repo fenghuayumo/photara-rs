@@ -24,7 +24,7 @@ Working, OptiX-first MVP:
 - Stable C ABI in `photara/include/photara/photara.h` and
   `photara/src/photara.cpp`.
 - Python package (`photara-rs`, import `photara_rs`) with triangle meshes,
-  per-vertex normals/UVs, transforms, Principled materials, area and sun
+  per-vertex normals/UVs, transforms, Principled materials, area/sun/point/spot
   lights, constant-color world, perspective camera, OptiX/OIDN denoising, and
   `combined`/`depth`/`normal`/`albedo`/`object_id` passes.
 - Blender-style Scene/Object API: `Scene`, `Object`, `Mesh`, `Material`,
@@ -150,7 +150,7 @@ captures all passes once per frame into a `RenderResult`.
 3. USD/glTF/OBJ ingestion for sim2real scene loading.
 4. In-place mesh deformation/topology updates for cloth, soft bodies and other
    simulation outputs.
-5. Point and spot lights, plus image textures and environment maps.
+5. Image textures and environment maps.
 6. A dedicated realtime path (low samples + OptiX denoise + simplified
    materials), including async render/progress APIs.
 7. Blender integration remains paused.

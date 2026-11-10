@@ -130,6 +130,30 @@ typedef struct PhotaraSunLightDesc {
   float angle_degrees;
 } PhotaraSunLightDesc;
 
+typedef struct PhotaraPointLightDesc {
+  float position[3];
+  float color[3];
+  float strength;
+  /* Zero is a delta point light. Positive values make it a sphere light. */
+  float radius;
+} PhotaraPointLightDesc;
+
+typedef struct PhotaraSpotLightDesc {
+  float position[3];
+  /* Direction in which the light travels (the beam points along local -Z). */
+  float direction[3];
+  /* Optional up hint, defaults to (0, 1, 0). */
+  float up[3];
+  float color[3];
+  float strength;
+  /* Zero is a delta light; positive values make the spot a sphere light. */
+  float radius;
+  /* Full cone angle in degrees, strictly between 0 and 180. */
+  float angle_degrees;
+  /* Cone edge softness. Values are clamped to [1e-4, 1]. */
+  float smooth;
+} PhotaraSpotLightDesc;
+
 /* Lifecycle. Returns NULL on failure; see photara_last_error(NULL). */
 PHOTARA_API PhotaraContext *photara_create(const PhotaraOptions *options);
 PHOTARA_API void photara_destroy(PhotaraContext *ctx);
@@ -181,12 +205,22 @@ PHOTARA_API int photara_set_camera_matrix(PhotaraContext *ctx,
 /* Lights. Return a non-negative light handle, or -1 on error. */
 PHOTARA_API int photara_add_area_light(PhotaraContext *ctx, const PhotaraAreaLightDesc *desc);
 PHOTARA_API int photara_add_sun_light(PhotaraContext *ctx, const PhotaraSunLightDesc *desc);
+PHOTARA_API int photara_add_point_light(PhotaraContext *ctx,
+                                        const PhotaraPointLightDesc *desc);
+PHOTARA_API int photara_add_spot_light(PhotaraContext *ctx,
+                                       const PhotaraSpotLightDesc *desc);
 PHOTARA_API int photara_update_area_light(PhotaraContext *ctx,
                                           int light,
                                           const PhotaraAreaLightDesc *desc);
 PHOTARA_API int photara_update_sun_light(PhotaraContext *ctx,
                                          int light,
                                          const PhotaraSunLightDesc *desc);
+PHOTARA_API int photara_update_point_light(PhotaraContext *ctx,
+                                           int light,
+                                           const PhotaraPointLightDesc *desc);
+PHOTARA_API int photara_update_spot_light(PhotaraContext *ctx,
+                                          int light,
+                                          const PhotaraSpotLightDesc *desc);
 /* Replace only the light object's transform (same layout as PhotaraMeshDesc). */
 PHOTARA_API int photara_set_light_transform(PhotaraContext *ctx,
                                             int light,

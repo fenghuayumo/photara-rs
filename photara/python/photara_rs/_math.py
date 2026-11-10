@@ -125,6 +125,26 @@ def sun_light_matrix(direction: Sequence[float]) -> np.ndarray:
     return basis_matrix(right, up_vector, forward, (0.0, 0.0, 0.0))
 
 
+def spot_light_matrix(
+    position: Sequence[float],
+    direction: Sequence[float],
+    up: Sequence[float] = (0.0, 1.0, 0.0),
+) -> np.ndarray:
+    """Spot light local -Z is its travel direction."""
+    origin = as_float3(position, "position")
+    forward = normalize(-as_float3(direction, "direction"), "spot direction")
+    hint = normalize(up, "up")
+    if abs(float(np.dot(hint, forward))) > 0.9999:
+        hint = (
+            np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            if abs(float(forward[2])) < 0.9
+            else np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        )
+    right = normalize(np.cross(hint, forward), "right")
+    up_vector = np.cross(forward, right).astype(np.float32)
+    return basis_matrix(right, up_vector, forward, origin)
+
+
 def euler_to_matrix(euler: Sequence[float]) -> np.ndarray:
     """XYZ Euler (radians) to a 3x3 rotation matrix for column vectors."""
     rx, ry, rz = (float(value) for value in as_float3(euler, "rotation_euler"))
@@ -214,4 +234,5 @@ __all__ = [
     "matrix_to_euler",
     "normalize",
     "sun_light_matrix",
+    "spot_light_matrix",
 ]

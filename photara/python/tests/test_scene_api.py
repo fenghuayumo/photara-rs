@@ -159,6 +159,43 @@ class SceneApiTests(unittest.TestCase):
         with self.assertRaises(pr.PhotaraRemovedError):
             _ = self.ball.location
 
+    def test_point_and_spot_lights(self) -> None:
+        first = self.scene.render(seed=10)
+        point = self.scene.lights.new_point(
+            "point", position=(0.0, 2.0, -1.0), strength=200.0, radius=0.0
+        )
+        self.assertEqual(point.light_type, "POINT")
+        second = self.scene.render(seed=11)
+        self.assertGreater(float(np.abs(first.beauty - second.beauty).mean()), 1e-4)
+
+        point.location = (1.0, 2.5, -1.0)
+        point.strength = 300.0
+        point.radius = 0.5
+        self.assertEqual(point.radius, 0.5)
+        third = self.scene.render(seed=12)
+        self.assertGreater(float(np.abs(second.beauty - third.beauty).mean()), 1e-4)
+
+        spot = self.scene.lights.new_spot(
+            "spot",
+            position=(0.0, 3.0, -1.0),
+            direction=(0.0, -1.0, 0.2),
+            angle=30.0,
+            smooth=0.0,
+        )
+        self.assertEqual(spot.light_type, "SPOT")
+        fourth = self.scene.render(seed=13)
+        self.assertGreater(float(np.abs(third.beauty - fourth.beauty).mean()), 1e-4)
+        spot.spot_angle = 20.0
+        spot.direction = (0.2, -1.0, 0.1)
+        self.scene.render(seed=14)
+
+        with self.assertRaises(ValueError):
+            self.scene.lights.new_point("bad_point", radius=-1.0)
+        with self.assertRaises(ValueError):
+            self.scene.lights.new_spot("bad_spot", angle=0.0)
+        with self.assertRaises(RuntimeError):
+            self.scene.lights.new_spot("bad_spot", direction=(0.0, 0.0, 0.0))
+
     def test_camera_and_light_editing(self) -> None:
         camera = self.scene.camera
         camera.location = (3.0, 2.0, -5.0)

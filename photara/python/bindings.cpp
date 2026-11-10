@@ -372,6 +372,68 @@ class Context {
     }
   }
 
+  int add_point_light(const FloatArray &position,
+                      const FloatArray &color,
+                      const float strength,
+                      const float radius)
+  {
+    const PhotaraPointLightDesc desc = make_point_light_desc(
+        position, color, strength, radius);
+    const int result = photara_add_point_light(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  void update_point_light(const int light,
+                          const FloatArray &position,
+                          const FloatArray &color,
+                          const float strength,
+                          const float radius)
+  {
+    const PhotaraPointLightDesc desc = make_point_light_desc(
+        position, color, strength, radius);
+    if (photara_update_point_light(context_, light, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  int add_spot_light(const FloatArray &position,
+                     const FloatArray &direction,
+                     const py::object &up,
+                     const FloatArray &color,
+                     const float strength,
+                     const float radius,
+                     const float angle_degrees,
+                     const float smooth)
+  {
+    const PhotaraSpotLightDesc desc = make_spot_light_desc(
+        position, direction, up, color, strength, radius, angle_degrees, smooth);
+    const int result = photara_add_spot_light(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  void update_spot_light(const int light,
+                         const FloatArray &position,
+                         const FloatArray &direction,
+                         const py::object &up,
+                         const FloatArray &color,
+                         const float strength,
+                         const float radius,
+                         const float angle_degrees,
+                         const float smooth)
+  {
+    const PhotaraSpotLightDesc desc = make_spot_light_desc(
+        position, direction, up, color, strength, radius, angle_degrees, smooth);
+    if (photara_update_spot_light(context_, light, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
   void set_light_transform(const int light, const FloatArray &matrix)
   {
     const FloatArray matrix_array = require_matrix(matrix, "matrix");
@@ -561,6 +623,50 @@ class Context {
     return desc;
   }
 
+  static PhotaraPointLightDesc make_point_light_desc(const FloatArray &position,
+                                                     const FloatArray &color,
+                                                     const float strength,
+                                                     const float radius)
+  {
+    check_vector3(position, "position");
+    check_vector3(color, "color");
+
+    PhotaraPointLightDesc desc = {};
+    copy_vector3(position, desc.position);
+    copy_vector3(color, desc.color);
+    desc.strength = strength;
+    desc.radius = radius;
+    return desc;
+  }
+
+  static PhotaraSpotLightDesc make_spot_light_desc(const FloatArray &position,
+                                                   const FloatArray &direction,
+                                                   const py::object &up,
+                                                   const FloatArray &color,
+                                                   const float strength,
+                                                   const float radius,
+                                                   const float angle_degrees,
+                                                   const float smooth)
+  {
+    check_vector3(position, "position");
+    check_vector3(direction, "direction");
+    check_vector3(color, "color");
+
+    PhotaraSpotLightDesc desc = {};
+    copy_vector3(position, desc.position);
+    copy_vector3(direction, desc.direction);
+    copy_vector3(color, desc.color);
+    if (!up.is_none()) {
+      const FloatArray up_array = require_vector3(up, "up");
+      copy_vector3(up_array, desc.up);
+    }
+    desc.strength = strength;
+    desc.radius = radius;
+    desc.angle_degrees = angle_degrees;
+    desc.smooth = smooth;
+    return desc;
+  }
+
   [[noreturn]] void throw_last_error() const
   {
     throw std::runtime_error(photara_last_error(context_));
@@ -691,6 +797,40 @@ PYBIND11_MODULE(_photara, module)
            py::arg("color"),
            py::arg("strength") = 1.0f,
            py::arg("angle_degrees") = 0.0f)
+      .def("add_point_light",
+           &Context::add_point_light,
+           py::arg("position"),
+           py::arg("color"),
+           py::arg("strength") = 100.0f,
+           py::arg("radius") = 0.0f)
+      .def("update_point_light",
+           &Context::update_point_light,
+           py::arg("light"),
+           py::arg("position"),
+           py::arg("color"),
+           py::arg("strength") = 100.0f,
+           py::arg("radius") = 0.0f)
+      .def("add_spot_light",
+           &Context::add_spot_light,
+           py::arg("position"),
+           py::arg("direction"),
+           py::arg("up") = py::none(),
+           py::arg("color"),
+           py::arg("strength") = 100.0f,
+           py::arg("radius") = 0.0f,
+           py::arg("angle_degrees") = 45.0f,
+           py::arg("smooth") = 0.5f)
+      .def("update_spot_light",
+           &Context::update_spot_light,
+           py::arg("light"),
+           py::arg("position"),
+           py::arg("direction"),
+           py::arg("up") = py::none(),
+           py::arg("color"),
+           py::arg("strength") = 100.0f,
+           py::arg("radius") = 0.0f,
+           py::arg("angle_degrees") = 45.0f,
+           py::arg("smooth") = 0.5f)
       .def("set_light_transform",
            &Context::set_light_transform,
            py::arg("light"),

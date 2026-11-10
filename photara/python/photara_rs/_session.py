@@ -455,6 +455,100 @@ class Session:
             _as_float(angle, "angle", 0.0),
         )
 
+    def add_point_light(
+        self,
+        position: Sequence[float],
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+    ) -> int:
+        """Add a point light (radius 0) or sphere light (radius > 0)."""
+        return int(
+            self._ctx.add_point_light(
+                as_float3(position, "position"),
+                _as_color(color, "color"),
+                _as_float(strength, "strength", 0.0),
+                _as_float(radius, "radius", 0.0),
+            )
+        )
+
+    def update_point_light(
+        self,
+        light: int,
+        position: Sequence[float],
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+    ) -> None:
+        self._ctx.update_point_light(
+            int(light),
+            as_float3(position, "position"),
+            _as_color(color, "color"),
+            _as_float(strength, "strength", 0.0),
+            _as_float(radius, "radius", 0.0),
+        )
+
+    def add_spot_light(
+        self,
+        position: Sequence[float],
+        direction: Sequence[float],
+        up: Optional[Sequence[float]] = (0.0, 1.0, 0.0),
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+        angle: float = 45.0,
+        smooth: float = 0.5,
+    ) -> int:
+        """Add a spot light. ``direction`` is the beam travel direction."""
+        angle = _as_float(angle, "angle")
+        if angle <= 0.0 or angle >= 180.0:
+            raise ValueError("angle must be in (0, 180) degrees")
+        smooth = _as_float(smooth, "smooth")
+        if smooth < 0.0 or smooth > 1.0:
+            raise ValueError("smooth must be in [0, 1]")
+        return int(
+            self._ctx.add_spot_light(
+                as_float3(position, "position"),
+                as_float3(direction, "direction"),
+                None if up is None else as_float3(up, "up"),
+                _as_color(color, "color"),
+                _as_float(strength, "strength", 0.0),
+                _as_float(radius, "radius", 0.0),
+                angle,
+                smooth,
+            )
+        )
+
+    def update_spot_light(
+        self,
+        light: int,
+        position: Sequence[float],
+        direction: Sequence[float],
+        up: Optional[Sequence[float]] = (0.0, 1.0, 0.0),
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+        angle: float = 45.0,
+        smooth: float = 0.5,
+    ) -> None:
+        angle = _as_float(angle, "angle")
+        if angle <= 0.0 or angle >= 180.0:
+            raise ValueError("angle must be in (0, 180) degrees")
+        smooth = _as_float(smooth, "smooth")
+        if smooth < 0.0 or smooth > 1.0:
+            raise ValueError("smooth must be in [0, 1]")
+        self._ctx.update_spot_light(
+            int(light),
+            as_float3(position, "position"),
+            as_float3(direction, "direction"),
+            None if up is None else as_float3(up, "up"),
+            _as_color(color, "color"),
+            _as_float(strength, "strength", 0.0),
+            _as_float(radius, "radius", 0.0),
+            angle,
+            smooth,
+        )
+
     def set_light_transform(self, light: int, transform) -> None:
         self._ctx.set_light_transform(int(light), as_matrix4(transform, "transform"))
 

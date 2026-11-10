@@ -38,6 +38,7 @@ from ._math import (
     column,
     compose,
     decompose,
+    spot_light_matrix,
     sun_light_matrix,
 )
 from ._session import (
@@ -371,7 +372,7 @@ class Object(_TransformItem):
 
 
 class Light(_TransformItem):
-    """An area or sun light. It is linked to its Scene when created."""
+    """An area, sun, point or spot light linked to its Scene."""
 
     def __init__(
         self,
@@ -435,6 +436,22 @@ class Light(_TransformItem):
         self._sync_params()
 
     @property
+    def radius(self) -> float:
+        if self._light_type not in ("POINT", "SPOT"):
+            raise AttributeError("radius is only available on point and spot lights")
+        return self._params["radius"]
+
+    @radius.setter
+    def radius(self, value) -> None:
+        if self._light_type not in ("POINT", "SPOT"):
+            raise AttributeError("radius is only available on point and spot lights")
+        radius = float(value)
+        if not np.isfinite(radius) or radius < 0.0:
+            raise ValueError("radius must be a finite non-negative value")
+        self._params["radius"] = radius
+        self._sync_params()
+
+    @property
     def size(self) -> Tuple[float, float]:
         if self._light_type != "AREA":
             raise AttributeError("size is only available on area lights")
@@ -467,6 +484,38 @@ class Light(_TransformItem):
         self._sync_params()
 
     @property
+    def spot_angle(self) -> float:
+        if self._light_type != "SPOT":
+            raise AttributeError("spot_angle is only available on spot lights")
+        return self._params["spot_angle"]
+
+    @spot_angle.setter
+    def spot_angle(self, value) -> None:
+        if self._light_type != "SPOT":
+            raise AttributeError("spot_angle is only available on spot lights")
+        angle = float(value)
+        if not np.isfinite(angle) or angle <= 0.0 or angle >= 180.0:
+            raise ValueError("spot_angle must be in (0, 180) degrees")
+        self._params["spot_angle"] = angle
+        self._sync_params()
+
+    @property
+    def smooth(self) -> float:
+        if self._light_type != "SPOT":
+            raise AttributeError("smooth is only available on spot lights")
+        return self._params["smooth"]
+
+    @smooth.setter
+    def smooth(self, value) -> None:
+        if self._light_type != "SPOT":
+            raise AttributeError("smooth is only available on spot lights")
+        smooth = float(value)
+        if not np.isfinite(smooth) or smooth < 0.0 or smooth > 1.0:
+            raise ValueError("smooth must be in [0, 1]")
+        self._params["smooth"] = smooth
+        self._sync_params()
+
+    @property
     def target(self) -> np.ndarray:
         if self._light_type != "AREA":
             raise AttributeError("target is only available on area lights")
@@ -483,16 +532,21 @@ class Light(_TransformItem):
 
     @property
     def direction(self) -> np.ndarray:
-        if self._light_type != "SUN":
-            raise AttributeError("direction is only available on sun lights")
+        if self._light_type not in ("SUN", "SPOT"):
+            raise AttributeError("direction is only available on sun and spot lights")
         self._ensure_alive()
         return -column(self._matrix, 2)
 
     @direction.setter
     def direction(self, value) -> None:
-        if self._light_type != "SUN":
-            raise AttributeError("direction is only available on sun lights")
-        self._set_matrix(sun_light_matrix(value))
+        if self._light_type == "SUN":
+            self._set_matrix(sun_light_matrix(value))
+        elif self._light_type == "SPOT":
+            self._set_matrix(
+                spot_light_matrix(self.location, value, column(self._matrix, 1))
+            )
+        else:
+            raise AttributeError("direction is only available on sun and spot lights")
 
     def _sync_params(self) -> None:
         self._ensure_alive()
@@ -510,13 +564,33 @@ class Light(_TransformItem):
                 strength=self._params["strength"],
                 up=column(self._matrix, 1),
             )
-        else:
+        elif self._light_type == "SUN":
             session.update_sun_light(
                 self._handle,
                 -column(self._matrix, 2),
                 color=self._params["color"],
                 strength=self._params["strength"],
                 angle=self._params["angle"],
+            )
+        elif self._light_type == "POINT":
+            session.update_point_light(
+                self._handle,
+                self._matrix[:3, 3],
+                color=self._params["color"],
+                strength=self._params["strength"],
+                radius=self._params["radius"],
+            )
+        else:
+            session.update_spot_light(
+                self._handle,
+                self._matrix[:3, 3],
+                -column(self._matrix, 2),
+                up=column(self._matrix, 1),
+                color=self._params["color"],
+                strength=self._params["strength"],
+                radius=self._params["radius"],
+                angle=self._params["spot_angle"],
+                smooth=self._params["smooth"],
             )
 
     def remove(self) -> None:
@@ -950,13 +1024,86 @@ class _LightCollection(_Collection):
         )
         return self._link(light)
 
+    def new_point(
+        self,
+        name: Optional[str] = None,
+        position: Sequence[float] = (0.0, 1.0, 0.0),
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+    ) -> Light:
+        self._scene._ensure_open()
+        unique = self._scene.objects._unique_name(name, "Light")
+        handle = self._scene._session.add_point_light(
+            position, color=color, strength=strength, radius=radius
+        )
+        matrix = compose(position, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+        light = Light(
+            self._scene,
+            unique,
+            "POINT",
+            handle,
+            matrix,
+            {
+                "color": tuple(float(x) for x in as_float3(color, "color")),
+                "strength": float(strength),
+                "radius": float(radius),
+            },
+        )
+        return self._link(light)
+
+    def new_spot(
+        self,
+        name: Optional[str] = None,
+        position: Sequence[float] = (0.0, 1.0, 0.0),
+        direction: Sequence[float] = (0.0, -1.0, 0.0),
+        up: Sequence[float] = (0.0, 1.0, 0.0),
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 100.0,
+        radius: float = 0.0,
+        angle: float = 45.0,
+        smooth: float = 0.5,
+    ) -> Light:
+        self._scene._ensure_open()
+        unique = self._scene.objects._unique_name(name, "Light")
+        handle = self._scene._session.add_spot_light(
+            position,
+            direction,
+            up=up,
+            color=color,
+            strength=strength,
+            radius=radius,
+            angle=angle,
+            smooth=smooth,
+        )
+        matrix = spot_light_matrix(position, direction, up)
+        light = Light(
+            self._scene,
+            unique,
+            "SPOT",
+            handle,
+            matrix,
+            {
+                "color": tuple(float(x) for x in as_float3(color, "color")),
+                "strength": float(strength),
+                "radius": float(radius),
+                "spot_angle": float(angle),
+                "smooth": float(smooth),
+            },
+        )
+        return self._link(light)
+
     def new(self, name: Optional[str] = None, type: str = "AREA", **kwargs) -> Light:
         light_type = str(type).upper()
         if light_type == "AREA":
             return self.new_area(name=name, **kwargs)
         if light_type == "SUN":
             return self.new_sun(name=name, **kwargs)
-        raise ValueError("type must be 'AREA' or 'SUN'")
+        if light_type == "POINT":
+            return self.new_point(name=name, **kwargs)
+        if light_type == "SPOT":
+            return self.new_spot(name=name, **kwargs)
+        raise ValueError("type must be 'AREA', 'SUN', 'POINT' or 'SPOT'")
 
     def remove(self, light: Light) -> None:
         self._scene._ensure_open()
