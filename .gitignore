@@ -1,0 +1,42 @@
+# Generic files to ignore
+.*
+.*.swp
+
+# Python cache
+__pycache__/
+
+# Editors
+*~
+*.swp
+*.swo
+*#
+
+# QtCreator
+CMakeLists.txt.user
+
+# ms-windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local patches
+/*.patch
+/*.diff
+
+# Build folders
+bin-dbg
+bin-opt
+build*/
+install*/
+
+# Photara generated artifacts
+/dist/
+/test_outputs/
+/lib/windows_x64/
+/photara/python/photara_rs/*.pyd
+/photara/python/photara_rs/*.pdb
+/photara/python/photara_rs/bin/
+/photara/python/photara_rs/lib/
+
+# OSL compiled examples
+examples/osl/*.oso

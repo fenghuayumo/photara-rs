@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photara-rs"
+version = "0.1.0"
+description = "OptiX-first physically based renderer derived from Cycles"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.11"
+authors = [{name = "Photara"}]
+dependencies = ["numpy>=1.23"]
+
+[project.urls]
+Homepage = "https://github.com/fenghuayumo/photara-studio"
+
+[tool.setuptools]
+packages = ["photara_rs"]
+zip-safe = false
+
+[tool.setuptools.package-data]
+photara_rs = ["*.pyd", "bin/*.dll", "lib/*.zst"]

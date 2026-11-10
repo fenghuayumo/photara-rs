@@ -1,0 +1,427 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "photara/photara.h"
+
+namespace py = pybind11;
+
+namespace {
+
+using FloatArray = py::array_t<float, py::array::c_style | py::array::forcecast>;
+using IndexArray = py::array_t<int, py::array::c_style | py::array::forcecast>;
+
+FloatArray require_float_array(const py::handle &object, const char *name)
+{
+  FloatArray array = FloatArray::ensure(object);
+  if (!array) {
+    throw std::runtime_error(std::string(name) + " must be a numeric array");
+  }
+  return array;
+}
+
+FloatArray require_vector3(const py::handle &object, const char *name)
+{
+  FloatArray array = require_float_array(object, name);
+  if (array.ndim() != 1 || array.shape(0) != 3) {
+    throw std::runtime_error(std::string(name) + " must have shape (3,)");
+  }
+  return array;
+}
+
+FloatArray require_matrix(const py::handle &object, const char *name)
+{
+  FloatArray array = require_float_array(object, name);
+  if (array.ndim() != 2 || array.shape(0) != 4 || array.shape(1) != 4) {
+    throw std::runtime_error(std::string(name) + " must have shape (4, 4)");
+  }
+  return array;
+}
+
+PhotaraDevice parse_device(const std::string &device)
+{
+  std::string upper;
+  upper.reserve(device.size());
+  for (char c : device) {
+    upper.push_back(char(std::toupper(static_cast<unsigned char>(c))));
+  }
+
+  if (upper == "AUTO" || upper.empty()) {
+    return PHOTARA_DEVICE_AUTO;
+  }
+  if (upper == "OPTIX") {
+    return PHOTARA_DEVICE_OPTIX;
+  }
+  throw std::runtime_error("Unknown device '" + device + "' (expected AUTO or OPTIX)");
+}
+
+class Context {
+ public:
+  Context(const int width,
+          const int height,
+          const int samples,
+          const int seed,
+          const int max_bounces,
+          const bool use_denoise,
+          const bool use_adaptive_sampling,
+          const std::string &device,
+          const std::string &resource_dir)
+  {
+    PhotaraOptions options = {};
+    options.width = width;
+    options.height = height;
+    options.samples = samples;
+    options.seed = seed;
+    options.max_bounces = max_bounces;
+    options.use_denoise = use_denoise ? 1 : 0;
+    options.use_adaptive_sampling = use_adaptive_sampling ? 1 : 0;
+    options.device = parse_device(device);
+    options.resource_dir = resource_dir.c_str();
+
+    context_ = photara_create(&options);
+    if (context_ == nullptr) {
+      throw std::runtime_error(photara_last_error(nullptr));
+    }
+  }
+
+  ~Context()
+  {
+    if (context_ != nullptr) {
+      photara_destroy(context_);
+      context_ = nullptr;
+    }
+  }
+
+  Context(const Context &) = delete;
+  Context &operator=(const Context &) = delete;
+
+  int add_material(const FloatArray &base_color,
+                   const float metallic,
+                   const float roughness,
+                   const float ior,
+                   const float transmission,
+                   const FloatArray &emission_color,
+                   const float emission_strength)
+  {
+    check_vector3(base_color, "base_color");
+    check_vector3(emission_color, "emission_color");
+    PhotaraMaterialDesc desc = {};
+    copy_vector3(base_color, desc.base_color);
+    desc.metallic = metallic;
+    desc.roughness = roughness;
+    desc.ior = ior;
+    desc.transmission = transmission;
+    copy_vector3(emission_color, desc.emission_color);
+    desc.emission_strength = emission_strength;
+
+    const int result = photara_add_material(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  void add_mesh(const FloatArray &positions,
+                const IndexArray &indices,
+                const py::object &normals,
+                const py::object &uvs,
+                const py::object &matrix,
+                const int material_index,
+                const int object_id)
+  {
+    if (positions.ndim() != 2 || positions.shape(1) != 3) {
+      throw std::runtime_error("vertices must have shape (N, 3)");
+    }
+    if (indices.ndim() != 2 || indices.shape(1) != 3) {
+      throw std::runtime_error("indices must have shape (T, 3)");
+    }
+    if (positions.shape(0) <= 0 || indices.shape(0) <= 0) {
+      throw std::runtime_error("Mesh must contain vertices and triangles");
+    }
+
+    const int num_vertices = int(positions.shape(0));
+    const int num_triangles = int(indices.shape(0));
+
+    const float *normals_ptr = nullptr;
+    FloatArray normals_array;
+    if (!normals.is_none()) {
+      normals_array = require_float_array(normals, "normals");
+      if (normals_array.ndim() != 2 || normals_array.shape(0) != num_vertices ||
+          normals_array.shape(1) != 3)
+      {
+        throw std::runtime_error("normals must have shape (N, 3) matching vertices");
+      }
+      normals_ptr = normals_array.data();
+    }
+
+    const float *uvs_ptr = nullptr;
+    FloatArray uvs_array;
+    if (!uvs.is_none()) {
+      uvs_array = require_float_array(uvs, "uvs");
+      if (uvs_array.ndim() != 2 || uvs_array.shape(0) != num_vertices ||
+          uvs_array.shape(1) != 2)
+      {
+        throw std::runtime_error("uvs must have shape (N, 2) matching vertices");
+      }
+      uvs_ptr = uvs_array.data();
+    }
+
+    const float *matrix_ptr = nullptr;
+    FloatArray matrix_array;
+    if (!matrix.is_none()) {
+      matrix_array = require_matrix(matrix, "matrix");
+      matrix_ptr = matrix_array.data();
+    }
+
+    PhotaraMeshDesc desc = {};
+    desc.positions = positions.data();
+    desc.normals = normals_ptr;
+    desc.uvs = uvs_ptr;
+    desc.indices = indices.data();
+    desc.num_vertices = num_vertices;
+    desc.num_triangles = num_triangles;
+    desc.matrix = matrix_ptr;
+    desc.material_index = material_index;
+    desc.object_id = object_id;
+
+    if (photara_add_mesh(context_, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_camera(const FloatArray &position,
+                  const FloatArray &target,
+                  const py::object &up,
+                  const float fov_degrees,
+                  const float near_clip,
+                  const float far_clip)
+  {
+    check_vector3(position, "position");
+    check_vector3(target, "target");
+    PhotaraCameraDesc desc = {};
+    copy_vector3(position, desc.position);
+    copy_vector3(target, desc.target);
+    if (!up.is_none()) {
+      const FloatArray up_array = require_vector3(up, "up");
+      copy_vector3(up_array, desc.up);
+    }
+    desc.fov_degrees = fov_degrees;
+    desc.near_clip = near_clip;
+    desc.far_clip = far_clip;
+
+    if (photara_set_camera(context_, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void add_area_light(const FloatArray &position,
+                      const FloatArray &target,
+                      const py::object &up,
+                      const float size_u,
+                      const float size_v,
+                      const FloatArray &color,
+                      const float strength)
+  {
+    check_vector3(position, "position");
+    check_vector3(target, "target");
+    check_vector3(color, "color");
+    PhotaraAreaLightDesc desc = {};
+    copy_vector3(position, desc.position);
+    copy_vector3(target, desc.target);
+    if (!up.is_none()) {
+      const FloatArray up_array = require_vector3(up, "up");
+      copy_vector3(up_array, desc.up);
+    }
+    desc.size_u = size_u;
+    desc.size_v = size_v;
+    copy_vector3(color, desc.color);
+    desc.strength = strength;
+
+    if (photara_add_area_light(context_, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void add_sun_light(const FloatArray &direction,
+                     const FloatArray &color,
+                     const float strength,
+                     const float angle_degrees)
+  {
+    check_vector3(direction, "direction");
+    check_vector3(color, "color");
+    PhotaraSunLightDesc desc = {};
+    copy_vector3(direction, desc.direction);
+    copy_vector3(color, desc.color);
+    desc.strength = strength;
+    desc.angle_degrees = angle_degrees;
+
+    if (photara_add_sun_light(context_, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_background(const FloatArray &color, const float strength)
+  {
+    check_vector3(color, "color");
+    const float rgb[3] = {float(color.data()[0]),
+                          float(color.data()[1]),
+                          float(color.data()[2])};
+    if (photara_set_background(context_, rgb, strength) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void render()
+  {
+    if (photara_render(context_) != 0) {
+      throw_last_error();
+    }
+  }
+
+  py::array get_pass(const std::string &name)
+  {
+    const int channels = photara_pass_channels(context_, name.c_str());
+    if (channels < 0) {
+      throw std::runtime_error("Unknown render pass '" + name + "'");
+    }
+    const int width = photara_render_width(context_);
+    const int height = photara_render_height(context_);
+    if (width <= 0 || height <= 0) {
+      throw std::runtime_error("Render resolution is not available");
+    }
+
+    py::array_t<float> result(std::vector<py::ssize_t>{height, width, channels});
+    if (photara_copy_pass(context_, name.c_str(), result.mutable_data(), size_t(result.size())) !=
+        0)
+    {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  int width() const
+  {
+    return photara_render_width(context_);
+  }
+
+  int height() const
+  {
+    return photara_render_height(context_);
+  }
+
+  std::string device_name() const
+  {
+    return photara_device_name(context_);
+  }
+
+  std::string last_error() const
+  {
+    return photara_last_error(context_);
+  }
+
+ private:
+  static void check_vector3(const FloatArray &array, const char *name)
+  {
+    if (array.ndim() != 1 || array.shape(0) != 3) {
+      throw std::runtime_error(std::string(name) + " must have shape (3,)");
+    }
+  }
+
+  static void copy_vector3(const FloatArray &array, float dst[3])
+  {
+    const float *data = array.data();
+    dst[0] = data[0];
+    dst[1] = data[1];
+    dst[2] = data[2];
+  }
+
+  [[noreturn]] void throw_last_error() const
+  {
+    throw std::runtime_error(photara_last_error(context_));
+  }
+
+  PhotaraContext *context_ = nullptr;
+};
+
+} /* namespace */
+
+PYBIND11_MODULE(_photara, module)
+{
+  module.doc() = "Photara renderer native bindings";
+
+  py::class_<Context>(module, "Context")
+      .def(py::init<int,
+                    int,
+                    int,
+                    int,
+                    int,
+                    bool,
+                    bool,
+                    const std::string &,
+                    const std::string &>(),
+           py::arg("width"),
+           py::arg("height"),
+           py::arg("samples"),
+           py::arg("seed"),
+           py::arg("max_bounces"),
+           py::arg("use_denoise"),
+           py::arg("use_adaptive_sampling"),
+           py::arg("device"),
+           py::arg("resource_dir"))
+      .def("add_material",
+           &Context::add_material,
+           py::arg("base_color"),
+           py::arg("metallic"),
+           py::arg("roughness"),
+           py::arg("ior"),
+           py::arg("transmission"),
+           py::arg("emission_color"),
+           py::arg("emission_strength"))
+      .def("add_mesh",
+           &Context::add_mesh,
+           py::arg("positions"),
+           py::arg("indices"),
+           py::arg("normals") = py::none(),
+           py::arg("uvs") = py::none(),
+           py::arg("matrix") = py::none(),
+           py::arg("material_index") = -1,
+           py::arg("object_id") = 0)
+      .def("set_camera",
+           &Context::set_camera,
+           py::arg("position"),
+           py::arg("target"),
+           py::arg("up") = py::none(),
+           py::arg("fov_degrees") = 45.0f,
+           py::arg("near_clip") = 0.001f,
+           py::arg("far_clip") = 1000.0f)
+      .def("add_area_light",
+           &Context::add_area_light,
+           py::arg("position"),
+           py::arg("target"),
+           py::arg("up") = py::none(),
+           py::arg("size_u") = 1.0f,
+           py::arg("size_v") = 1.0f,
+           py::arg("color"),
+           py::arg("strength") = 10.0f)
+      .def("add_sun_light",
+           &Context::add_sun_light,
+           py::arg("direction"),
+           py::arg("color"),
+           py::arg("strength") = 1.0f,
+           py::arg("angle_degrees") = 0.0f)
+      .def("set_background",
+           &Context::set_background,
+           py::arg("color"),
+           py::arg("strength") = 1.0f)
+      .def("render", &Context::render)
+      .def("get_pass", &Context::get_pass, py::arg("name"))
+      .def_property_readonly("width", &Context::width)
+      .def_property_readonly("height", &Context::height)
+      .def_property_readonly("device_name", &Context::device_name)
+      .def_property_readonly("last_error", &Context::last_error);
+}
