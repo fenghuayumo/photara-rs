@@ -121,9 +121,21 @@ result.warnings       # non-fatal MTL/material issues
 
 OBJ support includes groups/objects, negative indices, quad/ngon fan
 triangulation, per-corner UV/normal seams (vertices are duplicated), generated
-smooth normals when absent, and MTL `Kd`/`Ke`/`Ns`/`map_Kd`. Static triangle
-geometry only; skinning, animation, morph targets, PBR texture sets and
-glTF/USD are not implemented yet.
+smooth normals when absent, and MTL `Kd`/`Ke`/`Ns`/`map_Kd`.
+
+glTF 2.0 `.gltf` and `.glb` files are supported for static triangle meshes:
+
+```python
+result = scene.import_gltf("assets/robot.glb", object_id_start=100)
+```
+
+Supported: node hierarchy/TRS and matrix transforms, multiple primitives and
+materials per mesh, POSITION/NORMAL/TEXCOORD_0, indices (including normalized
+and strided accessors), `baseColorFactor`, metallic/roughness/emissive factors,
+`baseColorTexture` (external, data URI, or embedded GLB bufferView), GLB
+containers, and sampler wrap/filter mapping. Cameras, punctual lights,
+animations, skins, morph targets, Draco/meshopt, alpha modes, sparse accessors
+and additional PBR texture maps are not imported.
 
 ## Batch rendering
 
@@ -203,8 +215,9 @@ pip install "photara-rs[png]"
 
 - No full PBR texture set (metallic/roughness/normal/emissive maps), volumes,
   hair/curves or subdivision.
-- OBJ import is available; glTF/USD import is not implemented yet. Geometry
-  can always be supplied directly as NumPy arrays.
+- OBJ and glTF/GLB static-mesh import are available; USD import and
+  animation/skinning are not implemented yet. Geometry can always be supplied
+  directly as NumPy arrays.
 - One perspective camera per scene; no orthographic, panoramic, DOF or motion
   blur controls.
 - Fixed passes only: combined, depth, normal, albedo and object-id.

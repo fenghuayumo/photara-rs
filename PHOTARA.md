@@ -148,7 +148,8 @@ captures all passes once per frame into a `RenderResult`.
 2. General distributed Python packaging: multiple Python versions, multiple RTX
    generations, clean-install CI, third-party license notices, and PyPI or an
    internal package index. This is deferred until the public API stabilizes.
-3. glTF/USD ingestion for sim2real scene loading (OBJ is implemented).
+3. USD ingestion plus skinning/animation support for imported assets
+   (OBJ and glTF static meshes are implemented).
 4. Full PBR texture sets, texture reload/UDIM, and background-light MIS.
 5. A dedicated realtime path (low samples + OptiX denoise + simplified
    materials).
