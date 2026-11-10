@@ -19,6 +19,7 @@ from ._errors import (
     PhotaraRenderError,
 )
 from ._material import Material, validate_values
+from ._texture import normalize_texture_config
 from ._math import as_float2, as_float3, as_matrix4
 
 _MAX_INT32 = 2**31 - 1
@@ -444,6 +445,32 @@ class Session:
         if bound is not None:
             bound._set_values(values, sync=False)
 
+    def set_material_base_color_texture(self, material_index: int, texture) -> None:
+        """Assign a Base Color image texture to an existing material."""
+        config = normalize_texture_config(texture)
+        index = int(material_index)
+        if index < 0 or index >= len(self._material_values):
+            raise IndexError(f"Material index {index} is out of range")
+        self._ctx.set_material_base_color_texture(
+            index,
+            config["path"],
+            config["colorspace"],
+            config["interpolation_index"],
+            config["extension_index"],
+        )
+        bound = self._material_objects.get(index)
+        if bound is not None:
+            bound._set_texture_config(config)
+
+    def clear_material_base_color_texture(self, material_index: int) -> None:
+        index = int(material_index)
+        if index < 0 or index >= len(self._material_values):
+            raise IndexError(f"Material index {index} is out of range")
+        self._ctx.clear_material_base_color_texture(index)
+        bound = self._material_objects.get(index)
+        if bound is not None:
+            bound._set_texture_config(None)
+
     # ------------------------------------------------------------------
     # Meshes and objects.
     # ------------------------------------------------------------------
@@ -796,6 +823,19 @@ class Session:
             _as_color(color, "color"),
             _as_float(strength, "strength", 0.0),
         )
+
+    def set_background_texture(self, texture) -> None:
+        """Use an equirectangular environment image as the world background."""
+        config = normalize_texture_config(texture, default_colorspace="scene_linear")
+        self._ctx.set_background_texture(
+            config["path"],
+            config["colorspace"],
+            config["interpolation_index"],
+            config["extension_index"],
+        )
+
+    def clear_background_texture(self) -> None:
+        self._ctx.clear_background_texture()
 
     # ------------------------------------------------------------------
     # Rendering.

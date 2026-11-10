@@ -182,12 +182,44 @@ typedef struct PhotaraSpotLightDesc {
 PHOTARA_API PhotaraContext *photara_create(const PhotaraOptions *options);
 PHOTARA_API void photara_destroy(PhotaraContext *ctx);
 
+typedef enum PhotaraTextureInterpolation {
+  PHOTARA_TEXTURE_LINEAR = 0,
+  PHOTARA_TEXTURE_CLOSEST = 1,
+  PHOTARA_TEXTURE_CUBIC = 2,
+  PHOTARA_TEXTURE_SMART = 3
+} PhotaraTextureInterpolation;
+
+typedef enum PhotaraTextureExtension {
+  PHOTARA_TEXTURE_REPEAT = 0,
+  PHOTARA_TEXTURE_EXTEND = 1,
+  PHOTARA_TEXTURE_CLIP = 2,
+  PHOTARA_TEXTURE_MIRROR = 3
+} PhotaraTextureExtension;
+
+typedef struct PhotaraTextureDesc {
+  /* Image file path. Absolute paths are recommended. */
+  const char *filename;
+  /* NULL/"" = auto, otherwise "sRGB", "scene_linear" or "data". */
+  const char *colorspace;
+  /* PhotaraTextureInterpolation. */
+  int interpolation;
+  /* PhotaraTextureExtension. Ignored by environment textures. */
+  int extension;
+} PhotaraTextureDesc;
+
 /* Materials. Return a non-negative material index, or -1 on error. */
 PHOTARA_API int photara_add_material(PhotaraContext *ctx, const PhotaraMaterialDesc *desc);
 /* Update a material in place. Meshes referencing it change on the next render. */
 PHOTARA_API int photara_update_material(PhotaraContext *ctx,
                                         int material_index,
                                         const PhotaraMaterialDesc *desc);
+/* Use an image as the Principled Base Color input. The material's base_color
+ * remains a multiplier over the texture. */
+PHOTARA_API int photara_set_material_base_color_texture(PhotaraContext *ctx,
+                                                        int material_index,
+                                                        const PhotaraTextureDesc *desc);
+PHOTARA_API int photara_clear_material_base_color_texture(PhotaraContext *ctx,
+                                                          int material_index);
 
 /* Mesh objects. Return a non-negative object handle, or -1 on error. */
 PHOTARA_API int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc);
@@ -267,6 +299,11 @@ PHOTARA_API int photara_clear_lights(PhotaraContext *ctx);
 PHOTARA_API int photara_set_background(PhotaraContext *ctx,
                                        const float color[3],
                                        float strength);
+/* Use an equirectangular environment image. The constant color remains stored
+ * and is restored by photara_clear_background_texture. */
+PHOTARA_API int photara_set_background_texture(PhotaraContext *ctx,
+                                               const PhotaraTextureDesc *desc);
+PHOTARA_API int photara_clear_background_texture(PhotaraContext *ctx);
 
 /* Remove all mesh objects and lights. Materials, camera and world are kept. */
 PHOTARA_API int photara_clear_scene(PhotaraContext *ctx);

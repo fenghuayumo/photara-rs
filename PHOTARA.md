@@ -24,8 +24,9 @@ Working, OptiX-first MVP:
 - Stable C ABI in `photara/include/photara/photara.h` and
   `photara/src/photara.cpp`.
 - Python package (`photara-rs`, import `photara_rs`) with triangle meshes,
-  per-vertex normals/UVs, transforms, Principled materials, area/sun/point/spot
-  lights, constant-color world, perspective camera, OptiX/OIDN denoising, and
+  per-vertex normals/UVs, transforms, Principled materials, Base Color image
+  textures, equirectangular environment maps, area/sun/point/spot lights,
+  constant-color world, perspective camera, OptiX/OIDN denoising, and
   `combined`/`depth`/`normal`/`albedo`/`object_id` passes.
 - Blender-style Scene/Object API: `Scene`, `Object`, `Mesh`, `Material`,
   `Light`, `Camera`, `World`, `RenderResult` and name-addressable data-block
@@ -53,8 +54,8 @@ the product surface.
 Blender integration is **paused by user decision**. The user's Blender source
 tree and build are not modified.
 
-Not implemented yet: textures, volumes, hair/curves, subdivision, OSL, USD, and
-Blender integration.
+Not implemented yet: full PBR texture sets, volumes, hair/curves, subdivision,
+OSL, USD, and Blender integration.
 
 ## Goals
 
@@ -115,10 +116,10 @@ captures all passes once per frame into a `RenderResult`.
 
 ## Known issues
 
-- **Do not assign `scene->background->shader` directly.** Configure
-  `scene->default_background` and update the existing `BackgroundNode` for
-  color/strength changes. Replacing the graph or setting the socket explicitly
-  crashed during the first render in testing.
+- **Do not assign `scene->background->shader` directly.** The C ABI configures
+  `scene->default_background`; color and environment changes rebuild that
+  shader graph through the supported path. Setting the Background node's shader
+  socket or replacing its graph outside this path is unsupported.
 - A transient ~9.8 GiB per-process CUDA allocation ceiling was observed on this
   machine. The integrator-state allocation retry halves the number of states
   until allocation succeeds; an `out of GPU memory` log followed by a successful
@@ -148,7 +149,7 @@ captures all passes once per frame into a `RenderResult`.
    generations, clean-install CI, third-party license notices, and PyPI or an
    internal package index. This is deferred until the public API stabilizes.
 3. USD/glTF/OBJ ingestion for sim2real scene loading.
-4. Image textures and environment maps.
+4. Full PBR texture sets, texture reload/UDIM, and background-light MIS.
 5. A dedicated realtime path (low samples + OptiX denoise + simplified
    materials).
 6. Blender integration remains paused.

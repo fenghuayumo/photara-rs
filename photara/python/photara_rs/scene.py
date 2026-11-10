@@ -48,6 +48,7 @@ from ._session import (
     linear_to_srgb,
     save_png,
 )
+from ._texture import normalize_texture_config
 
 
 def _readonly(array) -> np.ndarray:
@@ -778,6 +779,29 @@ class World:
         self._scene = scene
         self._color = (0.05, 0.05, 0.05)
         self._strength = 1.0
+        self._environment_texture = None
+
+    @property
+    def environment_texture(self) -> Optional[dict]:
+        """Equirectangular environment texture configuration, or None."""
+        if self._environment_texture is None:
+            return None
+        return {
+            "path": self._environment_texture["path"],
+            "colorspace": self._environment_texture["colorspace"],
+            "interpolation": self._environment_texture["interpolation"],
+        }
+
+    @environment_texture.setter
+    def environment_texture(self, value) -> None:
+        self._scene._ensure_open()
+        if value is None:
+            self._scene._session.clear_background_texture()
+            self._environment_texture = None
+            return
+        config = normalize_texture_config(value, default_colorspace="scene_linear")
+        self._scene._session.set_background_texture(value)
+        self._environment_texture = config
 
     @property
     def color(self) -> tuple[float, float, float]:

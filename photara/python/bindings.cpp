@@ -145,6 +145,51 @@ class Context {
     }
   }
 
+  void set_material_base_color_texture(const int material_index,
+                                       const std::string &filename,
+                                       const std::string &colorspace,
+                                       const int interpolation,
+                                       const int extension)
+  {
+    PhotaraTextureDesc desc = {};
+    desc.filename = filename.c_str();
+    desc.colorspace = colorspace.empty() ? nullptr : colorspace.c_str();
+    desc.interpolation = interpolation;
+    desc.extension = extension;
+    if (photara_set_material_base_color_texture(context_, material_index, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void clear_material_base_color_texture(const int material_index)
+  {
+    if (photara_clear_material_base_color_texture(context_, material_index) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_background_texture(const std::string &filename,
+                              const std::string &colorspace,
+                              const int interpolation,
+                              const int extension)
+  {
+    PhotaraTextureDesc desc = {};
+    desc.filename = filename.c_str();
+    desc.colorspace = colorspace.empty() ? nullptr : colorspace.c_str();
+    desc.interpolation = interpolation;
+    desc.extension = extension;
+    if (photara_set_background_texture(context_, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void clear_background_texture()
+  {
+    if (photara_clear_background_texture(context_) != 0) {
+      throw_last_error();
+    }
+  }
+
   int add_mesh(const FloatArray &positions,
                const IndexArray &indices,
                const py::object &normals,
@@ -856,6 +901,16 @@ PYBIND11_MODULE(_photara, module)
            py::arg("transmission"),
            py::arg("emission_color"),
            py::arg("emission_strength"))
+      .def("set_material_base_color_texture",
+           &Context::set_material_base_color_texture,
+           py::arg("material_index"),
+           py::arg("filename"),
+           py::arg("colorspace") = "",
+           py::arg("interpolation") = 0,
+           py::arg("extension") = 0)
+      .def("clear_material_base_color_texture",
+           &Context::clear_material_base_color_texture,
+           py::arg("material_index"))
       .def("add_mesh",
            &Context::add_mesh,
            py::arg("positions"),
@@ -997,6 +1052,13 @@ PYBIND11_MODULE(_photara, module)
            &Context::set_background,
            py::arg("color"),
            py::arg("strength") = 1.0f)
+      .def("set_background_texture",
+           &Context::set_background_texture,
+           py::arg("filename"),
+           py::arg("colorspace") = "",
+           py::arg("interpolation") = 0,
+           py::arg("extension") = 0)
+      .def("clear_background_texture", &Context::clear_background_texture)
       .def("set_seed", &Context::set_seed, py::arg("seed"))
       .def("set_samples", &Context::set_samples, py::arg("samples"))
       .def("render_begin", &Context::render_begin)

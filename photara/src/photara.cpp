@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -41,6 +42,7 @@
 #include "session/output_driver.h"
 #include "session/session.h"
 #include "util/array.h"
+#include "util/colorspace.h"
 #include "util/log.h"
 #include "util/math.h"
 #include "util/path.h"
@@ -222,33 +224,149 @@ void make_orthonormal_basis(const float3 &forward_in,
   up = cross(forward, right);
 }
 
-void apply_material_desc(PrincipledBsdfNode *bsdf, const PhotaraMaterialDesc &desc)
+ustring parse_texture_colorspace(const char *value)
 {
-  bsdf->set_base_color(float3_from_ptr(desc.base_color));
+  if (value == nullptr || value[0] == '\0') {
+    return u_colorspace_auto;
+  }
+
+  std::string name(value);
+  for (char &c : name) {
+    c = char(std::tolower(static_cast<unsigned char>(c)));
+  }
+
+  if (name == "auto") {
+    return u_colorspace_auto;
+  }
+  if (name == "srgb" || name == "__builtin_srgb") {
+    return u_colorspace_srgb;
+  }
+  if (name == "scene_linear" || name == "linear") {
+    return u_colorspace_scene_linear;
+  }
+  if (name == "data") {
+    return u_colorspace_data;
+  }
+  throw std::runtime_error(
+      std::string("Unknown texture colorspace '") + value +
+      "' (expected auto, sRGB, scene_linear or data)");
+}
+
+InterpolationType parse_texture_interpolation(const int value)
+{
+  if (value < INTERPOLATION_LINEAR || value >= INTERPOLATION_NUM_TYPES) {
+    throw std::runtime_error("Texture interpolation is out of range");
+  }
+  return static_cast<InterpolationType>(value);
+}
+
+ExtensionType parse_texture_extension(const int value)
+{
+  if (value < EXTENSION_REPEAT || value >= EXTENSION_NUM_TYPES) {
+    throw std::runtime_error("Texture extension is out of range");
+  }
+  return static_cast<ExtensionType>(value);
+}
+
+void configure_image_texture(ImageTextureNode *node, const PhotaraTextureDesc &desc)
+{
+  if (desc.filename == nullptr || desc.filename[0] == '\0') {
+    throw std::runtime_error("Texture filename is required");
+  }
+  const ustring colorspace = parse_texture_colorspace(desc.colorspace);
+  const InterpolationType interpolation = parse_texture_interpolation(desc.interpolation);
+  const ExtensionType extension = parse_texture_extension(desc.extension);
+
+  node->handle.clear();
+  node->set_filename(ustring(desc.filename));
+  node->set_colorspace(colorspace);
+  node->set_interpolation(interpolation);
+  node->set_extension(extension);
+  node->set_projection(NODE_IMAGE_PROJ_FLAT);
+  node->set_animated(false);
+}
+
+void configure_environment_texture(EnvironmentTextureNode *node,
+                                   const PhotaraTextureDesc &desc)
+{
+  if (desc.filename == nullptr || desc.filename[0] == '\0') {
+    throw std::runtime_error("Environment texture filename is required");
+  }
+  const ustring colorspace = parse_texture_colorspace(desc.colorspace);
+  const InterpolationType interpolation = parse_texture_interpolation(desc.interpolation);
+
+  node->handle.clear();
+  node->set_filename(ustring(desc.filename));
+  node->set_colorspace(colorspace);
+  node->set_interpolation(interpolation);
+  node->set_projection(NODE_ENVIRONMENT_EQUIRECTANGULAR);
+  node->set_animated(false);
+}
+
+void apply_material_desc(PrincipledBsdfNode *bsdf,
+                         MixColorNode *mix,
+                         const PhotaraMaterialDesc &desc)
+{
+  const float3 base_color = float3_from_ptr(desc.base_color);
+  bsdf->set_base_color(base_color);
   bsdf->set_metallic(desc.metallic);
   bsdf->set_roughness(desc.roughness);
   bsdf->set_ior(desc.ior);
   bsdf->set_transmission_weight(desc.transmission);
   bsdf->set_emission_color(float3_from_ptr(desc.emission_color));
   bsdf->set_emission_strength(desc.emission_strength);
+  if (mix != nullptr) {
+    mix->set_a(base_color);
+  }
+}
+
+unique_ptr<ShaderGraph> make_principled_graph(const PhotaraMaterialDesc &desc,
+                                              const PhotaraTextureDesc *texture,
+                                              PrincipledBsdfNode **bsdf_out,
+                                              MixColorNode **mix_out,
+                                              ImageTextureNode **texture_out)
+{
+  unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
+  PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
+  MixColorNode *mix = graph->create_node<MixColorNode>();
+  mix->set_blend_type(NODE_MIX_MUL);
+  mix->set_fac(1.0f);
+  mix->set_b(make_float3(1.0f, 1.0f, 1.0f));
+  apply_material_desc(bsdf, mix, desc);
+
+  graph->connect(mix->output("Result"), bsdf->input("Base Color"));
+  graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
+
+  ImageTextureNode *texture_node = nullptr;
+  if (texture != nullptr) {
+    texture_node = graph->create_node<ImageTextureNode>();
+    configure_image_texture(texture_node, *texture);
+    graph->connect(texture_node->output("Color"), mix->input("B"));
+  }
+
+  if (bsdf_out != nullptr) {
+    *bsdf_out = bsdf;
+  }
+  if (mix_out != nullptr) {
+    *mix_out = mix;
+  }
+  if (texture_out != nullptr) {
+    *texture_out = texture_node;
+  }
+  return graph;
 }
 
 Shader *make_principled_shader(Scene *scene,
                                const PhotaraMaterialDesc &desc,
-                               PrincipledBsdfNode **bsdf_out)
+                               PrincipledBsdfNode **bsdf_out,
+                               MixColorNode **mix_out)
 {
-  unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
-  PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
-  apply_material_desc(bsdf, desc);
-
-  graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
+  unique_ptr<ShaderGraph> graph = make_principled_graph(
+      desc, nullptr, bsdf_out, mix_out, nullptr);
 
   Shader *shader = scene->create_node<Shader>();
   shader->set_graph(std::move(graph));
   shader->tag_update(scene);
-  if (bsdf_out != nullptr) {
-    *bsdf_out = bsdf;
-  }
   return shader;
 }
 
@@ -271,9 +389,14 @@ EmissionShader make_emission_shader(Scene *scene, const float3 &color, const flo
   return {shader, emission};
 }
 
-BackgroundNode *configure_background_shader(Scene *scene,
-                                            const float3 &color,
-                                            const float strength)
+struct BackgroundShader {
+  BackgroundNode *background = nullptr;
+  EnvironmentTextureNode *texture = nullptr;
+};
+
+BackgroundShader configure_background_shader(Scene *scene,
+                                             const float3 &color,
+                                             const float strength)
 {
   unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
   BackgroundNode *background = graph->create_node<BackgroundNode>();
@@ -287,7 +410,28 @@ BackgroundNode *configure_background_shader(Scene *scene,
   Shader *shader = scene->default_background;
   shader->set_graph(std::move(graph));
   shader->tag_update(scene);
-  return background;
+  return {background, nullptr};
+}
+
+BackgroundShader configure_background_environment(Scene *scene,
+                                                  const PhotaraTextureDesc &desc,
+                                                  const float3 &color,
+                                                  const float strength)
+{
+  unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
+  BackgroundNode *background = graph->create_node<BackgroundNode>();
+  EnvironmentTextureNode *texture = graph->create_node<EnvironmentTextureNode>();
+
+  background->set_color(color);
+  background->set_strength(strength);
+  configure_environment_texture(texture, desc);
+  graph->connect(texture->output("Color"), background->input("Color"));
+  graph->connect(background->output("Background"), graph->output()->input("Surface"));
+
+  Shader *shader = scene->default_background;
+  shader->set_graph(std::move(graph));
+  shader->tag_update(scene);
+  return {background, texture};
 }
 
 void assign_single_shader(Light *light, Shader *shader)
@@ -402,6 +546,9 @@ struct PhotaraContext {
   struct MaterialRecord {
     Shader *shader = nullptr;
     PrincipledBsdfNode *bsdf = nullptr;
+    MixColorNode *mix = nullptr;
+    ImageTextureNode *texture = nullptr;
+    PhotaraMaterialDesc material_desc = {};
   };
 
   enum LightType {
@@ -447,6 +594,10 @@ struct PhotaraContext {
   BufferParams buffer_params;
   CaptureDriver *capture = nullptr;
   BackgroundNode *background_node = nullptr;
+  EnvironmentTextureNode *background_texture = nullptr;
+  bool background_texture_active = false;
+  float3 background_color = make_float3(0.05f, 0.05f, 0.05f);
+  float background_strength = 1.0f;
 
   std::vector<MaterialRecord> materials;
   std::vector<ObjectRecord> objects;
@@ -1016,8 +1167,13 @@ PhotaraContext *photara_create(const PhotaraOptions *options)
       /* Cycles uses scene->default_background as the fallback shader when the
        * Background node has no explicit shader. Configure that shader and leave
        * the socket empty, matching the XML loader. */
-      ctx->background_node = configure_background_shader(
-          scene, make_float3(0.05f, 0.05f, 0.05f), 1.0f);
+      const float3 background_color = make_float3(0.05f, 0.05f, 0.05f);
+      ctx->background_color = background_color;
+      ctx->background_strength = 1.0f;
+      const BackgroundShader background = configure_background_shader(
+          scene, background_color, 1.0f);
+      ctx->background_node = background.background;
+      ctx->background_texture = background.texture;
       scene->background->set_use_shader(true);
     }
 
@@ -1058,11 +1214,14 @@ int photara_add_material(PhotaraContext *ctx, const PhotaraMaterialDesc *desc)
     }
 
     PrincipledBsdfNode *bsdf = nullptr;
-    Shader *shader = make_principled_shader(ctx->scene, *desc, &bsdf);
+    MixColorNode *mix = nullptr;
+    Shader *shader = make_principled_shader(ctx->scene, *desc, &bsdf, &mix);
 
     PhotaraContext::MaterialRecord record;
     record.shader = shader;
     record.bsdf = bsdf;
+    record.mix = mix;
+    record.material_desc = *desc;
     ctx->materials.push_back(record);
     return int(ctx->materials.size()) - 1;
   });
@@ -1080,8 +1239,65 @@ int photara_update_material(PhotaraContext *ctx,
     if (record.bsdf == nullptr) {
       throw std::runtime_error("Material is not editable");
     }
-    apply_material_desc(record.bsdf, *desc);
+    apply_material_desc(record.bsdf, record.mix, *desc);
+    record.material_desc = *desc;
     record.shader->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_material_base_color_texture(PhotaraContext *ctx,
+                                            const int material_index,
+                                            const PhotaraTextureDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL texture description");
+    }
+    PhotaraContext::MaterialRecord &record = require_material(ctx, material_index);
+    if (record.shader == nullptr || record.mix == nullptr) {
+      throw std::runtime_error("Material is not editable");
+    }
+
+    /* A finalized shader graph cannot be modified, so rebuild it with the
+     * texture node before assigning it to the existing Shader. */
+    PrincipledBsdfNode *bsdf = nullptr;
+    MixColorNode *mix = nullptr;
+    ImageTextureNode *texture = nullptr;
+    unique_ptr<ShaderGraph> graph = make_principled_graph(
+        record.material_desc, desc, &bsdf, &mix, &texture);
+    record.shader->set_graph(std::move(graph));
+    record.bsdf = bsdf;
+    record.mix = mix;
+    record.texture = texture;
+
+    record.shader->tag_update(ctx->scene);
+    ctx->scene->image_manager->tag_update();
+  });
+}
+
+int photara_clear_material_base_color_texture(PhotaraContext *ctx,
+                                              const int material_index)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::MaterialRecord &record = require_material(ctx, material_index);
+    if (record.shader == nullptr || record.mix == nullptr) {
+      throw std::runtime_error("Material is not editable");
+    }
+    if (record.texture == nullptr) {
+      return;
+    }
+
+    PrincipledBsdfNode *bsdf = nullptr;
+    MixColorNode *mix = nullptr;
+    unique_ptr<ShaderGraph> graph = make_principled_graph(
+        record.material_desc, nullptr, &bsdf, &mix, nullptr);
+    record.shader->set_graph(std::move(graph));
+    record.bsdf = bsdf;
+    record.mix = mix;
+    record.texture = nullptr;
+
+    record.shader->tag_update(ctx->scene);
+    ctx->scene->image_manager->tag_update();
   });
 }
 
@@ -1687,18 +1903,66 @@ int photara_set_background(PhotaraContext *ctx, const float color[3], const floa
     if (color == nullptr) {
       throw std::runtime_error("NULL background color");
     }
+    const float3 background_color = float3_from_ptr(color);
+    ctx->background_color = background_color;
+    ctx->background_strength = strength;
+
     if (ctx->background_node == nullptr) {
-      ctx->background_node = configure_background_shader(
-          ctx->scene, float3_from_ptr(color), strength);
+      const BackgroundShader background = configure_background_shader(
+          ctx->scene, background_color, strength);
+      ctx->background_node = background.background;
+      ctx->background_texture = background.texture;
       ctx->scene->background->set_use_shader(true);
+    }
+
+    if (ctx->background_texture_active) {
+      /* The Background Color input is linked to the environment; only the
+       * strength is meaningful until the texture is cleared. */
+      ctx->background_node->set_strength(strength);
+    }
+    else {
+      ctx->background_node->set_color(background_color);
+      ctx->background_node->set_strength(strength);
+    }
+    ctx->scene->default_background->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_background_texture(PhotaraContext *ctx, const PhotaraTextureDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL texture description");
+    }
+
+    const BackgroundShader background = configure_background_environment(
+        ctx->scene, *desc, ctx->background_color, ctx->background_strength);
+    ctx->background_node = background.background;
+    ctx->background_texture = background.texture;
+    ctx->background_texture_active = true;
+    ctx->scene->background->set_use_shader(true);
+
+    ctx->scene->default_background->tag_update(ctx->scene);
+    ctx->scene->image_manager->tag_update();
+  });
+}
+
+int photara_clear_background_texture(PhotaraContext *ctx)
+{
+  return guarded(ctx, [&]() {
+    if (!ctx->background_texture_active) {
       return;
     }
-    /* Update the existing node instead of replacing the shader graph. Replacing
-     * the graph of the referenced default background has proven to leave the
-     * scene in an invalid state before the first render. */
-    ctx->background_node->set_color(float3_from_ptr(color));
-    ctx->background_node->set_strength(strength);
+
+    const BackgroundShader background = configure_background_shader(
+        ctx->scene, ctx->background_color, ctx->background_strength);
+    ctx->background_node = background.background;
+    ctx->background_texture = nullptr;
+    ctx->background_texture_active = false;
+    ctx->scene->background->set_use_shader(true);
+
     ctx->scene->default_background->tag_update(ctx->scene);
+    ctx->scene->image_manager->tag_update();
   });
 }
 

@@ -46,7 +46,7 @@ frame.save_png("frame_0000.png")   # requires Pillow
 - `scene.materials.new(name, **parameters)` creates a Principled BSDF material.
   Changing `material.base_color`, `.roughness`, `.metallic`, etc. updates the
   renderer immediately. `material.update(**kwargs)` sets several fields with one
-  update.
+  update. `material.base_color_texture` attaches a file-backed Base Color image.
 - `scene.meshes.new(name, vertices, indices, normals=None, uvs=None,
   material=None)` creates a mesh data-block. `mesh.update_positions(...)`
   deforms vertices/normals/UVs without changing topology;
@@ -60,7 +60,8 @@ frame.save_png("frame_0000.png")   # requires Pillow
   dispatches. Lights are also visible through `scene.objects`.
 - `scene.camera` is the active perspective camera. It supports `location`,
   `rotation_euler`, `matrix_world`, `target`, `fov`, `near_clip`, `far_clip`.
-- `scene.world` is the constant-colour background (`color`, `strength`).
+- `scene.world` controls the background: constant `color`/`strength` or an
+  equirectangular `environment_texture`.
 - Collections support name lookup (`scene.objects["prop"]`), iteration,
   `len()`, `.get()` and `.remove()`.
 - Objects support `.location`, `.rotation_euler` (XYZ Euler in radians),
@@ -74,6 +75,31 @@ frame.save_png("frame_0000.png")   # requires Pillow
   of the scene.
 - Removing a scene, mesh, object or light and then using it raises
   `PhotaraRemovedError`; using a closed scene raises `PhotaraClosedError`.
+
+## Textures and HDR environments
+
+```python
+# Base-color texture; base_color remains a multiplier (use white for the raw texture).
+material.base_color_texture = "C:/textures/albedo.png"   # sRGB, linear filtering, repeat
+material.base_color_texture = {
+    "path": "C:/textures/albedo.png",
+    "colorspace": "sRGB",       # auto | sRGB | scene_linear | data
+    "interpolation": "linear", # linear | closest | cubic | smart
+    "extension": "repeat",     # repeat | extend | clip | mirror
+}
+material.base_color_texture = None
+
+# Equirectangular environment map (PNG/JPG/EXR/HDR through OpenImageIO).
+scene.world.environment_texture = "C:/hdri/studio.hdr"  # scene_linear by default
+scene.world.environment_texture = {"path": "...", "colorspace": "sRGB"}
+scene.world.environment_texture = None   # restore the constant background colour
+```
+
+Textures are loaded by OpenImageIO and cached by path/parameters. Files are
+checked at assignment time. Reloading after an on-disk change is not exposed
+yet; assign the texture again to force a fresh handle. HDR environment
+lighting uses the background shader (background-light MIS is not implemented
+yet), so low-sample environment renders can be noisier than geometry lights.
 
 ## Batch rendering
 
@@ -151,8 +177,8 @@ pip install "photara-rs[png]"
 
 ## Current limitations
 
-- No image textures, environment/HDR lighting, volumes, hair/curves or
-  subdivision.
+- No full PBR texture set (metallic/roughness/normal/emissive maps), volumes,
+  hair/curves or subdivision.
 - No OBJ/glTF/USD import; geometry is supplied as NumPy arrays.
 - One perspective camera per scene; no orthographic, panoramic, DOF or motion
   blur controls.

@@ -6,7 +6,9 @@ from typing import Optional
 
 import numpy as np
 
+from ._errors import PhotaraError
 from ._math import as_float3
+from ._texture import normalize_texture_config
 
 _FIELD_NAMES = (
     "base_color",
@@ -98,6 +100,7 @@ class Material:
         self.name = str(name) if name is not None else "Material"
         self._session = None
         self._index = -1
+        self._texture = None
         self._values = validate_values(
             {
                 "base_color": base_color,
@@ -138,6 +141,9 @@ class Material:
         self._values = validate_values(values)
         if sync:
             self._sync()
+
+    def _set_texture_config(self, config: Optional[dict]) -> None:
+        self._texture = None if config is None else dict(config)
 
     # ------------------------------------------------------------------
     # Properties.
@@ -195,6 +201,33 @@ class Material:
     def emission_color(self, value) -> None:
         self._values["emission_color"] = _validate_color(value, "emission_color")
         self._sync()
+
+    @property
+    def base_color_texture(self) -> Optional[dict]:
+        """Base-color texture configuration, or None when no texture is used."""
+        if self._texture is None:
+            return None
+        return {
+            "path": self._texture["path"],
+            "colorspace": self._texture["colorspace"],
+            "interpolation": self._texture["interpolation"],
+            "extension": self._texture["extension"],
+        }
+
+    @base_color_texture.setter
+    def base_color_texture(self, value) -> None:
+        if value is None:
+            if self.bound:
+                self._session.clear_material_base_color_texture(self._index)
+            self._texture = None
+            return
+        if not self.bound:
+            raise PhotaraError(
+                "Material must be attached to a Scene or Session before assigning a texture"
+            )
+        config = normalize_texture_config(value)
+        self._session.set_material_base_color_texture(self._index, value)
+        self._texture = config
 
     @property
     def emission_strength(self) -> float:
