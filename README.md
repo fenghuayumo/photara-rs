@@ -7,8 +7,8 @@ data generation.
 
 > **Upstream attribution.** The renderer core is derived from the Cycles
 > renderer by the Blender Foundation, licensed under Apache-2.0. Original
-> copyright, license, and SPDX notices are preserved (see `LICENSE` and
-> `AUTHORS`). The name Cycles appears only as upstream provenance; the product
+> copyright, license, and SPDX notices are preserved (see `LICENSE`).
+> The name Cycles appears only as upstream provenance; the product
 > and all user-facing interfaces in this repository are Photara /
 > `photara_rs`.
 
@@ -19,6 +19,9 @@ data generation.
 - Standalone executable: `photara_rs`.
 - Stable C ABI: `photara/include/photara/photara.h`.
 - Python package and wheel: distribution `photara-rs`, import `photara_rs`.
+- Mutable scene handles for batch rendering: objects can be instanced,
+  transformed, hidden, re-materialized and removed; materials and lights can be
+  updated in place; a session can render many frames without being rebuilt.
 - Supported device: **OptiX**. The HIP, HIPRT, Metal, oneAPI and multi-device
   backends and the user-facing CPU/CUDA selection have been removed. CUDA host
   code and non-ray-tracing kernel binaries remain as OptiX dependencies, and a
@@ -87,18 +90,31 @@ import photara_rs as pr
 
 session = pr.Session(1280, 720, samples=64, device="OPTIX")
 material = session.add_material(pr.Material(base_color=(0.7, 0.2, 0.1)))
-session.add_mesh(vertices, triangles, normals=normals, material=material)
+object_handle = session.add_mesh(vertices, triangles, normals=normals, material=material)
+instance = session.add_instance(object_handle, transform)
 session.set_camera(position=(3, 2, -4), target=(0, 0, 0))
-session.add_area_light(position=(2, 4, -1), target=(0, 0, 0), size=(2, 2))
+light = session.add_area_light(position=(2, 4, -1), target=(0, 0, 0), size=(2, 2))
 session.set_background(color=(0.05, 0.08, 0.12))
-session.render()
+session.render(seed=0)
 
 beauty = session.beauty()   # (H, W, 4), linear RGBA
 depth = session.depth()     # (H, W)
+
+# Reuse the session for later frames.
+session.set_object_transform(object_handle, next_transform)
+session.update_material(material, base_color=(0.2, 0.5, 0.8))
+session.update_area_light(light, position=(1, 3, -1), target=(0, 0, 0),
+                          size=(2, 2), color=(1, 1, 1), strength=800)
+session.render(seed=1)
 ```
 
-See `photara/python/README.md` and `photara/python/examples/render_test.py` for
-more details.
+Meshes, instances and lights return integer handles. Objects can be
+transformed, hidden, given a new pass id/material, removed, or cleared; the
+scene uses dynamic BVH so these changes apply to the next `render()` without
+rebuilding the session.
+
+See `photara/python/README.md`, `photara/python/examples/render_test.py` and
+`photara/python/examples/batch_sim2real.py` for more details.
 
 ## Repository layout
 
@@ -117,5 +133,5 @@ fixes remain mergeable. They are not part of the product surface.
 
 ## License
 
-Apache-2.0. See `LICENSE` and `AUTHORS`. Original upstream copyright and SPDX
-headers are preserved.
+Apache-2.0. See `LICENSE`. Original upstream copyright and SPDX headers are
+preserved.

@@ -220,11 +220,8 @@ void make_orthonormal_basis(const float3 &forward_in,
   up = cross(forward, right);
 }
 
-Shader *make_principled_shader(Scene *scene, const PhotaraMaterialDesc &desc)
+void apply_material_desc(PrincipledBsdfNode *bsdf, const PhotaraMaterialDesc &desc)
 {
-  unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
-  PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
-
   bsdf->set_base_color(float3_from_ptr(desc.base_color));
   bsdf->set_metallic(desc.metallic);
   bsdf->set_roughness(desc.roughness);
@@ -232,16 +229,33 @@ Shader *make_principled_shader(Scene *scene, const PhotaraMaterialDesc &desc)
   bsdf->set_transmission_weight(desc.transmission);
   bsdf->set_emission_color(float3_from_ptr(desc.emission_color));
   bsdf->set_emission_strength(desc.emission_strength);
+}
+
+Shader *make_principled_shader(Scene *scene,
+                               const PhotaraMaterialDesc &desc,
+                               PrincipledBsdfNode **bsdf_out)
+{
+  unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
+  PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
+  apply_material_desc(bsdf, desc);
 
   graph->connect(bsdf->output("BSDF"), graph->output()->input("Surface"));
 
   Shader *shader = scene->create_node<Shader>();
   shader->set_graph(std::move(graph));
   shader->tag_update(scene);
+  if (bsdf_out != nullptr) {
+    *bsdf_out = bsdf;
+  }
   return shader;
 }
 
-Shader *make_emission_shader(Scene *scene, const float3 &color, const float strength)
+struct EmissionShader {
+  Shader *shader = nullptr;
+  EmissionNode *node = nullptr;
+};
+
+EmissionShader make_emission_shader(Scene *scene, const float3 &color, const float strength)
 {
   unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
   EmissionNode *emission = graph->create_node<EmissionNode>();
@@ -252,7 +266,7 @@ Shader *make_emission_shader(Scene *scene, const float3 &color, const float stre
   Shader *shader = scene->create_node<Shader>();
   shader->set_graph(std::move(graph));
   shader->tag_update(scene);
-  return shader;
+  return {shader, emission};
 }
 
 BackgroundNode *configure_background_shader(Scene *scene,
@@ -383,6 +397,31 @@ class CaptureDriver : public OutputDriver {
 } /* namespace */
 
 struct PhotaraContext {
+  struct MaterialRecord {
+    Shader *shader = nullptr;
+    PrincipledBsdfNode *bsdf = nullptr;
+  };
+
+  enum LightType {
+    LIGHT_TYPE_AREA,
+    LIGHT_TYPE_SUN,
+  };
+
+  struct ObjectRecord {
+    Object *object = nullptr;
+    Mesh *mesh = nullptr;
+    bool active = false;
+  };
+
+  struct LightRecord {
+    Light *light = nullptr;
+    Object *object = nullptr;
+    Shader *shader = nullptr;
+    EmissionNode *emission = nullptr;
+    int type = LIGHT_TYPE_AREA;
+    bool active = false;
+  };
+
   std::mutex mutex;
   std::string last_error;
   std::string device_name;
@@ -396,7 +435,13 @@ struct PhotaraContext {
   BufferParams buffer_params;
   CaptureDriver *capture = nullptr;
   BackgroundNode *background_node = nullptr;
-  std::vector<Shader *> materials;
+
+  std::vector<MaterialRecord> materials;
+  std::vector<ObjectRecord> objects;
+  std::vector<int> free_object_slots;
+  std::map<Mesh *, int> mesh_refs;
+  std::vector<LightRecord> lights;
+  std::vector<int> free_light_slots;
 
   ~PhotaraContext()
   {
@@ -431,6 +476,200 @@ int guarded(PhotaraContext *ctx, Function &&function)
     set_error(ctx, "Unknown error");
     return -1;
   }
+}
+
+template<typename Function>
+int guarded_index(PhotaraContext *ctx, Function &&function)
+{
+  if (ctx == nullptr) {
+    set_create_error("NULL Photara context");
+    return -1;
+  }
+  const std::lock_guard<std::mutex> lock(ctx->mutex);
+  try {
+    const int result = function();
+    return result >= 0 ? result : -1;
+  }
+  catch (const std::exception &exception) {
+    set_error(ctx, exception.what());
+    return -1;
+  }
+  catch (...) {
+    set_error(ctx, "Unknown error");
+    return -1;
+  }
+}
+
+PhotaraContext::MaterialRecord &require_material(PhotaraContext *ctx, const int index)
+{
+  if (index < 0 || size_t(index) >= ctx->materials.size()) {
+    throw std::runtime_error("Material index is out of range");
+  }
+  return ctx->materials[size_t(index)];
+}
+
+Shader *resolve_material_shader(PhotaraContext *ctx, const int index)
+{
+  if (index < 0) {
+    return ctx->scene->default_surface;
+  }
+  return require_material(ctx, index).shader;
+}
+
+PhotaraContext::ObjectRecord &require_object(PhotaraContext *ctx, const int handle)
+{
+  if (handle < 0 || size_t(handle) >= ctx->objects.size() ||
+      !ctx->objects[size_t(handle)].active)
+  {
+    throw std::runtime_error("Object handle is invalid or was removed");
+  }
+  return ctx->objects[size_t(handle)];
+}
+
+PhotaraContext::LightRecord &require_light(PhotaraContext *ctx, const int handle)
+{
+  if (handle < 0 || size_t(handle) >= ctx->lights.size() ||
+      !ctx->lights[size_t(handle)].active)
+  {
+    throw std::runtime_error("Light handle is invalid or was removed");
+  }
+  return ctx->lights[size_t(handle)];
+}
+
+int register_object(PhotaraContext *ctx, Object *object, Mesh *mesh)
+{
+  PhotaraContext::ObjectRecord record;
+  record.object = object;
+  record.mesh = mesh;
+  record.active = true;
+
+  int handle;
+  if (!ctx->free_object_slots.empty()) {
+    handle = ctx->free_object_slots.back();
+    ctx->free_object_slots.pop_back();
+    ctx->objects[size_t(handle)] = record;
+  }
+  else {
+    handle = int(ctx->objects.size());
+    ctx->objects.push_back(record);
+  }
+  return handle;
+}
+
+int register_light(PhotaraContext *ctx,
+                   Light *light,
+                   Object *object,
+                   Shader *shader,
+                   EmissionNode *emission,
+                   const int type)
+{
+  PhotaraContext::LightRecord record;
+  record.light = light;
+  record.object = object;
+  record.shader = shader;
+  record.emission = emission;
+  record.type = type;
+  record.active = true;
+
+  int handle;
+  if (!ctx->free_light_slots.empty()) {
+    handle = ctx->free_light_slots.back();
+    ctx->free_light_slots.pop_back();
+    ctx->lights[size_t(handle)] = record;
+  }
+  else {
+    handle = int(ctx->lights.size());
+    ctx->lights.push_back(record);
+  }
+  return handle;
+}
+
+void clear_objects_impl(PhotaraContext *ctx)
+{
+  std::vector<Mesh *> meshes;
+  meshes.reserve(ctx->mesh_refs.size());
+  for (const auto &entry : ctx->mesh_refs) {
+    meshes.push_back(entry.first);
+  }
+
+  for (PhotaraContext::ObjectRecord &record : ctx->objects) {
+    if (record.active) {
+      ctx->scene->delete_node(record.object);
+      record = PhotaraContext::ObjectRecord{};
+    }
+  }
+  for (Mesh *mesh : meshes) {
+    ctx->scene->delete_node(mesh);
+  }
+
+  ctx->objects.clear();
+  ctx->free_object_slots.clear();
+  ctx->mesh_refs.clear();
+}
+
+void clear_lights_impl(PhotaraContext *ctx)
+{
+  for (PhotaraContext::LightRecord &record : ctx->lights) {
+    if (record.active) {
+      ctx->scene->delete_node(record.object);
+      ctx->scene->delete_node(record.light);
+      record = PhotaraContext::LightRecord{};
+    }
+  }
+  ctx->lights.clear();
+  ctx->free_light_slots.clear();
+}
+
+void apply_area_light_desc(Scene *scene,
+                           AreaLight *light,
+                           Object *object,
+                           EmissionNode *emission,
+                           Shader *shader,
+                           const PhotaraAreaLightDesc &desc)
+{
+  if (!(desc.size_u > 0.0f) || !(desc.size_v > 0.0f)) {
+    throw std::runtime_error("Area light dimensions must be positive");
+  }
+
+  float3 right, up, forward;
+  /* Local +Z points from the target towards the light, so emission (-Z)
+   * points at the target. */
+  make_orthonormal_basis(float3_from_ptr(desc.position) - float3_from_ptr(desc.target),
+                         desc.up,
+                         right,
+                         up,
+                         forward);
+
+  light->set_sizeu(desc.size_u);
+  light->set_sizev(desc.size_v);
+  light->tag_update(scene);
+  emission->set_color(float3_from_ptr(desc.color));
+  emission->set_strength(desc.strength);
+  shader->tag_update(scene);
+
+  object->set_tfm(basis_transform(right, up, forward, float3_from_ptr(desc.position)));
+  object->tag_update(scene);
+}
+
+void apply_sun_light_desc(Scene *scene,
+                          SunLight *light,
+                          Object *object,
+                          EmissionNode *emission,
+                          Shader *shader,
+                          const PhotaraSunLightDesc &desc)
+{
+  /* Cycles' sun direction is -local Z. */
+  float3 right, up, forward;
+  make_orthonormal_basis(-float3_from_ptr(desc.direction), nullptr, right, up, forward);
+
+  light->set_angle(std::max(desc.angle_degrees, 0.0f) * kPi / 180.0f);
+  light->tag_update(scene);
+  emission->set_color(float3_from_ptr(desc.color));
+  emission->set_strength(desc.strength);
+  shader->tag_update(scene);
+
+  object->set_tfm(basis_transform(right, up, forward, make_float3(0.0f, 0.0f, 0.0f)));
+  object->tag_update(scene);
 }
 
 } /* namespace */
@@ -503,7 +742,10 @@ PhotaraContext *photara_create(const PhotaraOptions *options)
 
     SceneParams scene_params;
     scene_params.shadingsystem = SHADINGSYSTEM_SVM;
-    scene_params.bvh_type = BVH_TYPE_STATIC;
+    /* Dynamic BVH keeps object transforms separate from geometry, so instances
+     * can be added and animated after the first render. Static BVH bakes
+     * single-user transforms into the mesh and breaks later instancing. */
+    scene_params.bvh_type = BVH_TYPE_DYNAMIC;
 
     ctx->session = make_unique<Session>(params, scene_params);
     if (ctx->session->progress.get_error()) {
@@ -632,27 +874,42 @@ void photara_destroy(PhotaraContext *ctx)
 
 int photara_add_material(PhotaraContext *ctx, const PhotaraMaterialDesc *desc)
 {
-  if (ctx == nullptr) {
-    return -1;
-  }
-  const std::lock_guard<std::mutex> lock(ctx->mutex);
-  try {
+  return guarded_index(ctx, [&]() -> int {
     if (desc == nullptr) {
       throw std::runtime_error("NULL material description");
     }
-    Shader *shader = make_principled_shader(ctx->scene, *desc);
-    ctx->materials.push_back(shader);
+
+    PrincipledBsdfNode *bsdf = nullptr;
+    Shader *shader = make_principled_shader(ctx->scene, *desc, &bsdf);
+
+    PhotaraContext::MaterialRecord record;
+    record.shader = shader;
+    record.bsdf = bsdf;
+    ctx->materials.push_back(record);
     return int(ctx->materials.size()) - 1;
-  }
-  catch (const std::exception &exception) {
-    set_error(ctx, exception.what());
-    return -1;
-  }
+  });
+}
+
+int photara_update_material(PhotaraContext *ctx,
+                            const int material_index,
+                            const PhotaraMaterialDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL material description");
+    }
+    PhotaraContext::MaterialRecord &record = require_material(ctx, material_index);
+    if (record.bsdf == nullptr) {
+      throw std::runtime_error("Material is not editable");
+    }
+    apply_material_desc(record.bsdf, *desc);
+    record.shader->tag_update(ctx->scene);
+  });
 }
 
 int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc)
 {
-  return guarded(ctx, [&]() {
+  return guarded_index(ctx, [&]() -> int {
     if (desc == nullptr) {
       throw std::runtime_error("NULL mesh description");
     }
@@ -670,13 +927,7 @@ int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc)
       }
     }
 
-    Shader *shader = ctx->scene->default_surface;
-    if (desc->material_index >= 0) {
-      if (size_t(desc->material_index) >= ctx->materials.size()) {
-        throw std::runtime_error("Mesh material index is out of range");
-      }
-      shader = ctx->materials[size_t(desc->material_index)];
-    }
+    Shader *shader = resolve_material_shader(ctx, desc->material_index);
 
     Mesh *mesh = ctx->scene->create_node<Mesh>();
     mesh->resize_mesh(desc->num_vertices, desc->num_triangles);
@@ -730,7 +981,101 @@ int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc)
     object->set_geometry(mesh);
     object->set_tfm(desc->matrix ? transform_from_matrix(desc->matrix) : transform_identity());
     object->set_pass_id(desc->object_id);
+    object->tag_update(ctx->scene);
+
+    const int handle = register_object(ctx, object, mesh);
+    ctx->mesh_refs[mesh] = 1;
+    return handle;
   });
+}
+
+int photara_add_instance(PhotaraContext *ctx,
+                         const int source_object,
+                         const float *matrix,
+                         const int object_id)
+{
+  return guarded_index(ctx, [&]() -> int {
+    const PhotaraContext::ObjectRecord &source = require_object(ctx, source_object);
+
+    Object *object = ctx->scene->create_node<Object>();
+    object->set_geometry(source.mesh);
+    object->set_tfm(matrix ? transform_from_matrix(matrix) : transform_identity());
+    object->set_pass_id(object_id);
+    object->tag_update(ctx->scene);
+
+    const int handle = register_object(ctx, object, source.mesh);
+    ctx->mesh_refs[source.mesh] += 1;
+    return handle;
+  });
+}
+
+int photara_set_object_transform(PhotaraContext *ctx, const int object, const float matrix[16])
+{
+  return guarded(ctx, [&]() {
+    if (matrix == nullptr) {
+      throw std::runtime_error("NULL object transform");
+    }
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    record.object->set_tfm(transform_from_matrix(matrix));
+    record.object->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_object_visible(PhotaraContext *ctx, const int object, const int visible)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    record.object->set_visibility(visible ? PATH_RAY_VISIBILITY_ALL : 0);
+    record.object->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_object_id(PhotaraContext *ctx, const int object, const int object_id)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    record.object->set_pass_id(object_id);
+    record.object->tag_update(ctx->scene);
+  });
+}
+
+int photara_set_object_material(PhotaraContext *ctx, const int object, const int material_index)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    Shader *shader = resolve_material_shader(ctx, material_index);
+
+    array<Node *> used_shaders;
+    used_shaders.push_back_slow(shader);
+    record.mesh->set_used_shaders(used_shaders);
+    record.mesh->tag_shader_modified();
+    record.mesh->tag_update(ctx->scene, false);
+  });
+}
+
+int photara_remove_object(PhotaraContext *ctx, const int object)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    Mesh *mesh = record.mesh;
+
+    ctx->scene->delete_node(record.object);
+    record = PhotaraContext::ObjectRecord{};
+    ctx->free_object_slots.push_back(object);
+
+    const auto mesh_it = ctx->mesh_refs.find(mesh);
+    if (mesh_it != ctx->mesh_refs.end()) {
+      if (--mesh_it->second <= 0) {
+        ctx->scene->delete_node(mesh);
+        ctx->mesh_refs.erase(mesh_it);
+      }
+    }
+  });
+}
+
+int photara_clear_objects(PhotaraContext *ctx)
+{
+  return guarded(ctx, [&]() { clear_objects_impl(ctx); });
 }
 
 int photara_set_camera(PhotaraContext *ctx, const PhotaraCameraDesc *desc)
@@ -765,62 +1110,155 @@ int photara_set_camera(PhotaraContext *ctx, const PhotaraCameraDesc *desc)
   });
 }
 
-int photara_add_area_light(PhotaraContext *ctx, const PhotaraAreaLightDesc *desc)
+int photara_set_camera_matrix(PhotaraContext *ctx,
+                              const float matrix[16],
+                              const float fov_degrees,
+                              const float near_clip,
+                              const float far_clip)
 {
   return guarded(ctx, [&]() {
+    if (matrix == nullptr) {
+      throw std::runtime_error("NULL camera matrix");
+    }
+
+    Camera *camera = ctx->scene->camera;
+    camera->set_camera_type(CAMERA_PERSPECTIVE);
+    if (fov_degrees > 0.0f) {
+      camera->set_fov(fov_degrees * kPi / 180.0f);
+    }
+    if (near_clip > 0.0f) {
+      camera->set_nearclip(near_clip);
+    }
+    if (far_clip > 0.0f) {
+      camera->set_farclip(far_clip);
+    }
+    camera->set_full_width(ctx->width);
+    camera->set_full_height(ctx->height);
+    camera->set_matrix(transform_from_matrix(matrix));
+    camera->need_flags_update = true;
+    camera->compute_auto_viewplane();
+    camera->update(ctx->scene);
+  });
+}
+
+int photara_add_area_light(PhotaraContext *ctx, const PhotaraAreaLightDesc *desc)
+{
+  return guarded_index(ctx, [&]() -> int {
     if (desc == nullptr) {
       throw std::runtime_error("NULL area light description");
     }
     if (!(desc->size_u > 0.0f) || !(desc->size_v > 0.0f)) {
       throw std::runtime_error("Area light dimensions must be positive");
     }
+    const float3 delta = float3_from_ptr(desc->position) - float3_from_ptr(desc->target);
+    if (!(dot(delta, delta) > 1e-20f)) {
+      throw std::runtime_error("Area light position and target must differ");
+    }
 
-    float3 right, up, forward;
-    /* Local +Z points from the target towards the light, so emission (-Z)
-     * points at the target. */
-    make_orthonormal_basis(float3_from_ptr(desc->position) - float3_from_ptr(desc->target),
-                           desc->up,
-                           right,
-                           up,
-                           forward);
+    EmissionShader emission = make_emission_shader(
+        ctx->scene, float3_from_ptr(desc->color), desc->strength);
 
     AreaLight *light = ctx->scene->create_node<AreaLight>();
-    light->set_sizeu(desc->size_u);
-    light->set_sizev(desc->size_v);
     light->set_use_mis(true);
-    assign_single_shader(
-        light, make_emission_shader(ctx->scene, float3_from_ptr(desc->color), desc->strength));
+    assign_single_shader(light, emission.shader);
 
     Object *object = ctx->scene->create_node<Object>();
     object->set_geometry(light);
-    object->set_tfm(basis_transform(right, up, forward, float3_from_ptr(desc->position)));
     object->set_visibility(PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA);
+
+    apply_area_light_desc(
+        ctx->scene, light, object, emission.node, emission.shader, *desc);
+
+    return register_light(
+        ctx, light, object, emission.shader, emission.node, PhotaraContext::LIGHT_TYPE_AREA);
+  });
+}
+
+int photara_update_area_light(PhotaraContext *ctx,
+                              const int light_handle,
+                              const PhotaraAreaLightDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL area light description");
+    }
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    if (record.type != PhotaraContext::LIGHT_TYPE_AREA) {
+      throw std::runtime_error("Light handle is not an area light");
+    }
+    apply_area_light_desc(ctx->scene,
+                          static_cast<AreaLight *>(record.light),
+                          record.object,
+                          record.emission,
+                          record.shader,
+                          *desc);
   });
 }
 
 int photara_add_sun_light(PhotaraContext *ctx, const PhotaraSunLightDesc *desc)
 {
+  return guarded_index(ctx, [&]() -> int {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL sun light description");
+    }
+    const float3 direction = float3_from_ptr(desc->direction);
+    if (!(dot(direction, direction) > 1e-20f)) {
+      throw std::runtime_error("Sun light direction must be non-zero");
+    }
+
+    EmissionShader emission = make_emission_shader(
+        ctx->scene, float3_from_ptr(desc->color), desc->strength);
+
+    SunLight *light = ctx->scene->create_node<SunLight>();
+    light->set_use_mis(true);
+    assign_single_shader(light, emission.shader);
+
+    Object *object = ctx->scene->create_node<Object>();
+    object->set_geometry(light);
+    object->set_visibility(PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA);
+
+    apply_sun_light_desc(ctx->scene, light, object, emission.node, emission.shader, *desc);
+
+    return register_light(
+        ctx, light, object, emission.shader, emission.node, PhotaraContext::LIGHT_TYPE_SUN);
+  });
+}
+
+int photara_update_sun_light(PhotaraContext *ctx,
+                             const int light_handle,
+                             const PhotaraSunLightDesc *desc)
+{
   return guarded(ctx, [&]() {
     if (desc == nullptr) {
       throw std::runtime_error("NULL sun light description");
     }
-
-    /* Cycles' sun direction is -local Z. */
-    float3 right, up, forward;
-    make_orthonormal_basis(-float3_from_ptr(desc->direction), nullptr, right, up, forward);
-
-    SunLight *light = ctx->scene->create_node<SunLight>();
-    light->set_angle(std::max(desc->angle_degrees, 0.0f) * kPi / 180.0f);
-    light->set_use_mis(true);
-    assign_single_shader(
-        light, make_emission_shader(ctx->scene, float3_from_ptr(desc->color), desc->strength));
-
-    Object *object = ctx->scene->create_node<Object>();
-    object->set_geometry(light);
-    object->set_tfm(basis_transform(
-        right, up, forward, make_float3(0.0f, 0.0f, 0.0f)));
-    object->set_visibility(PATH_RAY_VISIBILITY_ALL & ~PATH_RAY_VISIBILITY_CAMERA);
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    if (record.type != PhotaraContext::LIGHT_TYPE_SUN) {
+      throw std::runtime_error("Light handle is not a sun light");
+    }
+    apply_sun_light_desc(ctx->scene,
+                         static_cast<SunLight *>(record.light),
+                         record.object,
+                         record.emission,
+                         record.shader,
+                         *desc);
   });
+}
+
+int photara_remove_light(PhotaraContext *ctx, const int light_handle)
+{
+  return guarded(ctx, [&]() {
+    PhotaraContext::LightRecord &record = require_light(ctx, light_handle);
+    ctx->scene->delete_node(record.object);
+    ctx->scene->delete_node(record.light);
+    record = PhotaraContext::LightRecord{};
+    ctx->free_light_slots.push_back(light_handle);
+  });
+}
+
+int photara_clear_lights(PhotaraContext *ctx)
+{
+  return guarded(ctx, [&]() { clear_lights_impl(ctx); });
 }
 
 int photara_set_background(PhotaraContext *ctx, const float color[3], const float strength)
@@ -841,6 +1279,31 @@ int photara_set_background(PhotaraContext *ctx, const float color[3], const floa
     ctx->background_node->set_color(float3_from_ptr(color));
     ctx->background_node->set_strength(strength);
     ctx->scene->default_background->tag_update(ctx->scene);
+  });
+}
+
+int photara_clear_scene(PhotaraContext *ctx)
+{
+  return guarded(ctx, [&]() {
+    clear_objects_impl(ctx);
+    clear_lights_impl(ctx);
+  });
+}
+
+int photara_set_seed(PhotaraContext *ctx, const int seed)
+{
+  return guarded(ctx, [&]() {
+    ctx->scene->integrator->set_seed(std::max(seed, 0));
+  });
+}
+
+int photara_set_samples(PhotaraContext *ctx, const int samples)
+{
+  return guarded(ctx, [&]() {
+    if (samples <= 0) {
+      throw std::runtime_error("Samples must be positive");
+    }
+    ctx->session_params.samples = samples;
   });
 }
 

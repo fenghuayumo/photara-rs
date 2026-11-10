@@ -108,16 +108,13 @@ class Context {
                    const FloatArray &emission_color,
                    const float emission_strength)
   {
-    check_vector3(base_color, "base_color");
-    check_vector3(emission_color, "emission_color");
-    PhotaraMaterialDesc desc = {};
-    copy_vector3(base_color, desc.base_color);
-    desc.metallic = metallic;
-    desc.roughness = roughness;
-    desc.ior = ior;
-    desc.transmission = transmission;
-    copy_vector3(emission_color, desc.emission_color);
-    desc.emission_strength = emission_strength;
+    const PhotaraMaterialDesc desc = make_material_desc(base_color,
+                                                        metallic,
+                                                        roughness,
+                                                        ior,
+                                                        transmission,
+                                                        emission_color,
+                                                        emission_strength);
 
     const int result = photara_add_material(context_, &desc);
     if (result < 0) {
@@ -126,13 +123,35 @@ class Context {
     return result;
   }
 
-  void add_mesh(const FloatArray &positions,
-                const IndexArray &indices,
-                const py::object &normals,
-                const py::object &uvs,
-                const py::object &matrix,
-                const int material_index,
-                const int object_id)
+  void update_material(const int material_index,
+                       const FloatArray &base_color,
+                       const float metallic,
+                       const float roughness,
+                       const float ior,
+                       const float transmission,
+                       const FloatArray &emission_color,
+                       const float emission_strength)
+  {
+    const PhotaraMaterialDesc desc = make_material_desc(base_color,
+                                                        metallic,
+                                                        roughness,
+                                                        ior,
+                                                        transmission,
+                                                        emission_color,
+                                                        emission_strength);
+
+    if (photara_update_material(context_, material_index, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  int add_mesh(const FloatArray &positions,
+               const IndexArray &indices,
+               const py::object &normals,
+               const py::object &uvs,
+               const py::object &matrix,
+               const int material_index,
+               const int object_id)
   {
     if (positions.ndim() != 2 || positions.shape(1) != 3) {
       throw std::runtime_error("vertices must have shape (N, 3)");
@@ -189,7 +208,68 @@ class Context {
     desc.material_index = material_index;
     desc.object_id = object_id;
 
-    if (photara_add_mesh(context_, &desc) != 0) {
+    const int result = photara_add_mesh(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  int add_instance(const int source_object, const py::object &matrix, const int object_id)
+  {
+    const float *matrix_ptr = nullptr;
+    FloatArray matrix_array;
+    if (!matrix.is_none()) {
+      matrix_array = require_matrix(matrix, "matrix");
+      matrix_ptr = matrix_array.data();
+    }
+
+    const int result = photara_add_instance(context_, source_object, matrix_ptr, object_id);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  void set_object_transform(const int object, const FloatArray &matrix)
+  {
+    const FloatArray matrix_array = require_matrix(matrix, "matrix");
+    if (photara_set_object_transform(context_, object, matrix_array.data()) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_object_visible(const int object, const bool visible)
+  {
+    if (photara_set_object_visible(context_, object, visible ? 1 : 0) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_object_id(const int object, const int object_id)
+  {
+    if (photara_set_object_id(context_, object, object_id) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_object_material(const int object, const int material_index)
+  {
+    if (photara_set_object_material(context_, object, material_index) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void remove_object(const int object)
+  {
+    if (photara_remove_object(context_, object) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void clear_objects()
+  {
+    if (photara_clear_objects(context_) != 0) {
       throw_last_error();
     }
   }
@@ -219,48 +299,96 @@ class Context {
     }
   }
 
-  void add_area_light(const FloatArray &position,
-                      const FloatArray &target,
-                      const py::object &up,
-                      const float size_u,
-                      const float size_v,
-                      const FloatArray &color,
-                      const float strength)
+  void set_camera_matrix(const FloatArray &matrix,
+                         const float fov_degrees,
+                         const float near_clip,
+                         const float far_clip)
   {
-    check_vector3(position, "position");
-    check_vector3(target, "target");
-    check_vector3(color, "color");
-    PhotaraAreaLightDesc desc = {};
-    copy_vector3(position, desc.position);
-    copy_vector3(target, desc.target);
-    if (!up.is_none()) {
-      const FloatArray up_array = require_vector3(up, "up");
-      copy_vector3(up_array, desc.up);
-    }
-    desc.size_u = size_u;
-    desc.size_v = size_v;
-    copy_vector3(color, desc.color);
-    desc.strength = strength;
-
-    if (photara_add_area_light(context_, &desc) != 0) {
+    const FloatArray matrix_array = require_matrix(matrix, "matrix");
+    if (photara_set_camera_matrix(
+            context_, matrix_array.data(), fov_degrees, near_clip, far_clip) != 0)
+    {
       throw_last_error();
     }
   }
 
-  void add_sun_light(const FloatArray &direction,
+  int add_area_light(const FloatArray &position,
+                     const FloatArray &target,
+                     const py::object &up,
+                     const float size_u,
+                     const float size_v,
                      const FloatArray &color,
-                     const float strength,
-                     const float angle_degrees)
+                     const float strength)
   {
-    check_vector3(direction, "direction");
-    check_vector3(color, "color");
-    PhotaraSunLightDesc desc = {};
-    copy_vector3(direction, desc.direction);
-    copy_vector3(color, desc.color);
-    desc.strength = strength;
-    desc.angle_degrees = angle_degrees;
+    const PhotaraAreaLightDesc desc = make_area_light_desc(
+        position, target, up, size_u, size_v, color, strength);
+    const int result = photara_add_area_light(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
 
-    if (photara_add_sun_light(context_, &desc) != 0) {
+  void update_area_light(const int light,
+                         const FloatArray &position,
+                         const FloatArray &target,
+                         const py::object &up,
+                         const float size_u,
+                         const float size_v,
+                         const FloatArray &color,
+                         const float strength)
+  {
+    const PhotaraAreaLightDesc desc = make_area_light_desc(
+        position, target, up, size_u, size_v, color, strength);
+    if (photara_update_area_light(context_, light, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  int add_sun_light(const FloatArray &direction,
+                    const FloatArray &color,
+                    const float strength,
+                    const float angle_degrees)
+  {
+    const PhotaraSunLightDesc desc = make_sun_light_desc(
+        direction, color, strength, angle_degrees);
+    const int result = photara_add_sun_light(context_, &desc);
+    if (result < 0) {
+      throw_last_error();
+    }
+    return result;
+  }
+
+  void update_sun_light(const int light,
+                        const FloatArray &direction,
+                        const FloatArray &color,
+                        const float strength,
+                        const float angle_degrees)
+  {
+    const PhotaraSunLightDesc desc = make_sun_light_desc(
+        direction, color, strength, angle_degrees);
+    if (photara_update_sun_light(context_, light, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void remove_light(const int light)
+  {
+    if (photara_remove_light(context_, light) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void clear_lights()
+  {
+    if (photara_clear_lights(context_) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void clear_scene()
+  {
+    if (photara_clear_scene(context_) != 0) {
       throw_last_error();
     }
   }
@@ -272,6 +400,20 @@ class Context {
                           float(color.data()[1]),
                           float(color.data()[2])};
     if (photara_set_background(context_, rgb, strength) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_seed(const int seed)
+  {
+    if (photara_set_seed(context_, seed) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void set_samples(const int samples)
+  {
+    if (photara_set_samples(context_, samples) != 0) {
       throw_last_error();
     }
   }
@@ -340,6 +482,70 @@ class Context {
     dst[2] = data[2];
   }
 
+  static PhotaraMaterialDesc make_material_desc(const FloatArray &base_color,
+                                                const float metallic,
+                                                const float roughness,
+                                                const float ior,
+                                                const float transmission,
+                                                const FloatArray &emission_color,
+                                                const float emission_strength)
+  {
+    check_vector3(base_color, "base_color");
+    check_vector3(emission_color, "emission_color");
+
+    PhotaraMaterialDesc desc = {};
+    copy_vector3(base_color, desc.base_color);
+    desc.metallic = metallic;
+    desc.roughness = roughness;
+    desc.ior = ior;
+    desc.transmission = transmission;
+    copy_vector3(emission_color, desc.emission_color);
+    desc.emission_strength = emission_strength;
+    return desc;
+  }
+
+  static PhotaraAreaLightDesc make_area_light_desc(const FloatArray &position,
+                                                   const FloatArray &target,
+                                                   const py::object &up,
+                                                   const float size_u,
+                                                   const float size_v,
+                                                   const FloatArray &color,
+                                                   const float strength)
+  {
+    check_vector3(position, "position");
+    check_vector3(target, "target");
+    check_vector3(color, "color");
+
+    PhotaraAreaLightDesc desc = {};
+    copy_vector3(position, desc.position);
+    copy_vector3(target, desc.target);
+    if (!up.is_none()) {
+      const FloatArray up_array = require_vector3(up, "up");
+      copy_vector3(up_array, desc.up);
+    }
+    desc.size_u = size_u;
+    desc.size_v = size_v;
+    copy_vector3(color, desc.color);
+    desc.strength = strength;
+    return desc;
+  }
+
+  static PhotaraSunLightDesc make_sun_light_desc(const FloatArray &direction,
+                                                 const FloatArray &color,
+                                                 const float strength,
+                                                 const float angle_degrees)
+  {
+    check_vector3(direction, "direction");
+    check_vector3(color, "color");
+
+    PhotaraSunLightDesc desc = {};
+    copy_vector3(direction, desc.direction);
+    copy_vector3(color, desc.color);
+    desc.strength = strength;
+    desc.angle_degrees = angle_degrees;
+    return desc;
+  }
+
   [[noreturn]] void throw_last_error() const
   {
     throw std::runtime_error(photara_last_error(context_));
@@ -382,6 +588,16 @@ PYBIND11_MODULE(_photara, module)
            py::arg("transmission"),
            py::arg("emission_color"),
            py::arg("emission_strength"))
+      .def("update_material",
+           &Context::update_material,
+           py::arg("material_index"),
+           py::arg("base_color"),
+           py::arg("metallic"),
+           py::arg("roughness"),
+           py::arg("ior"),
+           py::arg("transmission"),
+           py::arg("emission_color"),
+           py::arg("emission_strength"))
       .def("add_mesh",
            &Context::add_mesh,
            py::arg("positions"),
@@ -391,6 +607,29 @@ PYBIND11_MODULE(_photara, module)
            py::arg("matrix") = py::none(),
            py::arg("material_index") = -1,
            py::arg("object_id") = 0)
+      .def("add_instance",
+           &Context::add_instance,
+           py::arg("source_object"),
+           py::arg("matrix") = py::none(),
+           py::arg("object_id") = 0)
+      .def("set_object_transform",
+           &Context::set_object_transform,
+           py::arg("object"),
+           py::arg("matrix"))
+      .def("set_object_visible",
+           &Context::set_object_visible,
+           py::arg("object"),
+           py::arg("visible"))
+      .def("set_object_id",
+           &Context::set_object_id,
+           py::arg("object"),
+           py::arg("object_id"))
+      .def("set_object_material",
+           &Context::set_object_material,
+           py::arg("object"),
+           py::arg("material_index"))
+      .def("remove_object", &Context::remove_object, py::arg("object"))
+      .def("clear_objects", &Context::clear_objects)
       .def("set_camera",
            &Context::set_camera,
            py::arg("position"),
@@ -399,8 +638,24 @@ PYBIND11_MODULE(_photara, module)
            py::arg("fov_degrees") = 45.0f,
            py::arg("near_clip") = 0.001f,
            py::arg("far_clip") = 1000.0f)
+      .def("set_camera_matrix",
+           &Context::set_camera_matrix,
+           py::arg("matrix"),
+           py::arg("fov_degrees") = 45.0f,
+           py::arg("near_clip") = 0.001f,
+           py::arg("far_clip") = 1000.0f)
       .def("add_area_light",
            &Context::add_area_light,
+           py::arg("position"),
+           py::arg("target"),
+           py::arg("up") = py::none(),
+           py::arg("size_u") = 1.0f,
+           py::arg("size_v") = 1.0f,
+           py::arg("color"),
+           py::arg("strength") = 10.0f)
+      .def("update_area_light",
+           &Context::update_area_light,
+           py::arg("light"),
            py::arg("position"),
            py::arg("target"),
            py::arg("up") = py::none(),
@@ -414,11 +669,23 @@ PYBIND11_MODULE(_photara, module)
            py::arg("color"),
            py::arg("strength") = 1.0f,
            py::arg("angle_degrees") = 0.0f)
+      .def("update_sun_light",
+           &Context::update_sun_light,
+           py::arg("light"),
+           py::arg("direction"),
+           py::arg("color"),
+           py::arg("strength") = 1.0f,
+           py::arg("angle_degrees") = 0.0f)
+      .def("remove_light", &Context::remove_light, py::arg("light"))
+      .def("clear_lights", &Context::clear_lights)
+      .def("clear_scene", &Context::clear_scene)
       .def("set_background",
            &Context::set_background,
            py::arg("color"),
            py::arg("strength") = 1.0f)
-      .def("render", &Context::render)
+      .def("set_seed", &Context::set_seed, py::arg("seed"))
+      .def("set_samples", &Context::set_samples, py::arg("samples"))
+      .def("render", &Context::render, py::call_guard<py::gil_scoped_release>())
       .def("get_pass", &Context::get_pass, py::arg("name"))
       .def_property_readonly("width", &Context::width)
       .def_property_readonly("height", &Context::height)

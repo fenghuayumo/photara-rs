@@ -7,7 +7,7 @@ the renderer core, a C ABI, and the `photara_rs` Python package.
 > Blender Foundation.
 > - Upstream: <https://github.com/blender/cycles>
 > - Base commit: `83a06e5e79613e82f2e6d3fc7c3fdb98192c6786` (2026-11-04)
-> - License: Apache-2.0, see `LICENSE` and `AUTHORS`. Original copyright and
+> - License: Apache-2.0, see `LICENSE`. Original copyright and
 >   SPDX headers are preserved. Modifications made for Photara are also
 >   distributed under Apache-2.0 unless a file states otherwise.
 >
@@ -27,6 +27,11 @@ Working, OptiX-first MVP:
   per-vertex normals/UVs, transforms, Principled materials, area and sun
   lights, constant-color world, perspective camera, OptiX/OIDN denoising, and
   `combined`/`depth`/`normal`/`albedo`/`object_id` passes.
+- Mutable batch API: meshes, instances and lights return handles; objects can
+  be transformed, hidden, re-materialized and removed; materials and lights can
+  be updated in place; scenes can be cleared and rebuilt; seed and samples can
+  be changed per frame. The session uses dynamic BVH so new instances and
+  transform changes are picked up on the next render.
 - A self-contained local wheel bundles the native module, runtime DLLs and
   OptiX/CUDA kernels. It has been installed outside the repository and
   verified with OptiX rendering.
@@ -116,6 +121,12 @@ converts bottom-up render rows to top-down images.
 - Depth passes contain `1e10` for rays that miss geometry. Clamp or mask them in
   sim2real pipelines.
 - Colour is linear; use `photara_rs.linear_to_srgb` / `save_png` for display.
+- Materials and light emission shaders are append-only at the Cycles scene
+  level; removing a light clears its nodes but not the shader graph. For long
+  batch runs, reuse material slots/light handles or recreate the session
+  periodically instead of adding new materials every frame.
+- Mesh vertex positions and topology cannot be edited in place yet. Remove and
+  re-add the object, or animate it with transforms/instances.
 - `photara/python/photara_rs/{bin,lib}` and the built `.pyd` are generated
   artifacts.
 
@@ -124,9 +135,11 @@ converts bottom-up render rows to top-down images.
 1. Optional further trim: remove unused CPU path-tracing and CPU-kernel code.
    The small CPU host device must remain for denoising/buffer transfers, and
    CUDA host/kernel code must remain for OptiX.
-2. USD/glTF ingestion for sim2real scene loading.
-3. Python 3.13 / additional wheel targets.
-4. Texture support and additional BSDF parameters.
-5. A dedicated realtime path (low samples + OptiX denoise + simplified
-   materials).
-6. Blender integration remains paused.
+2. USD/glTF/OBJ ingestion for sim2real scene loading.
+3. In-place mesh deformation/topology updates for cloth, soft bodies and other
+   simulation outputs.
+4. Point and spot lights, plus image textures and environment maps.
+5. Python 3.13 / additional wheel targets.
+6. A dedicated realtime path (low samples + OptiX denoise + simplified
+   materials), including async render/progress APIs.
+7. Blender integration remains paused.

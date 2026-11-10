@@ -100,11 +100,25 @@ class Material:
     emission_strength: float = 0.0
 
 
+def _material_args(material: Material):
+    return (
+        _vec3(material.base_color, "base_color"),
+        float(material.metallic),
+        float(material.roughness),
+        float(material.ior),
+        float(material.transmission),
+        _vec3(material.emission_color, "emission_color"),
+        float(material.emission_strength),
+    )
+
+
 class Session:
     """A single scene and OptiX render session.
 
-    A session owns its scene. Build the scene first, then call :meth:`render`
-    and read passes. Creating several sessions is supported but each one holds
+    A session owns its scene and can render it repeatedly. Mesh, instance and
+    light creation returns handles that can be transformed, hidden, updated,
+    removed or cleared between renders, so the same session can drive a batch
+    or sim2real loop. Creating several sessions is supported but each one holds
     its own device context and GPU memory.
     """
 
@@ -145,17 +159,25 @@ class Session:
         elif kwargs:
             raise TypeError("Pass either a Material or keyword arguments, not both")
 
-        return int(
-            self._context.add_material(
-                _vec3(material.base_color, "base_color"),
-                float(material.metallic),
-                float(material.roughness),
-                float(material.ior),
-                float(material.transmission),
-                _vec3(material.emission_color, "emission_color"),
-                float(material.emission_strength),
-            )
-        )
+        return int(self._context.add_material(*_material_args(material)))
+
+    def update_material(
+        self,
+        index: int,
+        material: Optional[Material] = None,
+        **kwargs,
+    ) -> None:
+        """Update an existing material. All fields are replaced.
+
+        Reusing material slots avoids creating new shader graphs every frame,
+        which matters for long batch runs.
+        """
+        if material is None:
+            material = Material(**kwargs)
+        elif kwargs:
+            raise TypeError("Pass either a Material or keyword arguments, not both")
+
+        self._context.update_material(int(index), *_material_args(material))
 
     def add_mesh(
         self,
@@ -187,6 +209,11 @@ class Session:
             default material.
         object_id:
             Value written to the ``object_id`` pass.
+
+        Returns
+        -------
+        int
+            Object handle used by the update, instance and remove methods.
         """
         vertices = np.ascontiguousarray(vertices, dtype=np.float32)
         indices = np.ascontiguousarray(indices, dtype=np.int32)
@@ -213,15 +240,70 @@ class Session:
             if matrix_array.shape != (4, 4):
                 raise ValueError("transform must have shape (4, 4)")
 
-        self._context.add_mesh(
-            vertices,
-            indices,
-            normals_array,
-            uvs_array,
-            matrix_array,
-            int(material),
-            int(object_id),
+        return int(
+            self._context.add_mesh(
+                vertices,
+                indices,
+                normals_array,
+                uvs_array,
+                matrix_array,
+                int(material),
+                int(object_id),
+            )
         )
+
+    def add_instance(
+        self,
+        source_object: int,
+        transform=None,
+        object_id: int = 0,
+    ) -> int:
+        """Add an object sharing the mesh of ``source_object``.
+
+        Instances share geometry and material; give each one its own transform
+        and object id. This is the cheap way to populate a batch scene with
+        repeated props.
+        """
+        matrix_array = None
+        if transform is not None:
+            matrix_array = np.ascontiguousarray(transform, dtype=np.float32)
+            if matrix_array.shape != (4, 4):
+                raise ValueError("transform must have shape (4, 4)")
+
+        return int(
+            self._context.add_instance(int(source_object), matrix_array, int(object_id))
+        )
+
+    def set_object_transform(self, object_handle: int, transform) -> None:
+        """Replace an object's 4x4 transform."""
+        matrix_array = np.ascontiguousarray(transform, dtype=np.float32)
+        if matrix_array.shape != (4, 4):
+            raise ValueError("transform must have shape (4, 4)")
+        self._context.set_object_transform(int(object_handle), matrix_array)
+
+    def set_object_visible(self, object_handle: int, visible: bool = True) -> None:
+        """Toggle an object's visibility to all rays."""
+        self._context.set_object_visible(int(object_handle), bool(visible))
+
+    def set_object_id(self, object_handle: int, object_id: int) -> None:
+        """Set the value written for this object to the object_id pass."""
+        self._context.set_object_id(int(object_handle), int(object_id))
+
+    def set_object_material(self, object_handle: int, material: int) -> None:
+        """Assign a material index to the object's mesh.
+
+        The mesh is shared by instances, so all of its instances change too.
+        Pass ``-1`` for the default material.
+        """
+        self._context.set_object_material(int(object_handle), int(material))
+
+    def remove_object(self, object_handle: int) -> None:
+        """Remove an object. Its mesh is freed with the last instance."""
+        self._context.remove_object(int(object_handle))
+
+    def clear_objects(self) -> None:
+        """Remove all mesh objects while keeping materials, lights and camera."""
+        self._context.clear_objects()
 
     def set_camera(
         self,
@@ -242,6 +324,28 @@ class Session:
             float(far_clip),
         )
 
+    def set_camera_matrix(
+        self,
+        matrix,
+        fov: float = 45.0,
+        near_clip: float = 0.001,
+        far_clip: float = 1000.0,
+    ) -> None:
+        """Set the camera from a 4x4 transform (translation in the last column).
+
+        Camera local +Z is the view direction, so this maps directly to
+        simulation camera poses.
+        """
+        matrix_array = np.ascontiguousarray(matrix, dtype=np.float32)
+        if matrix_array.shape != (4, 4):
+            raise ValueError("matrix must have shape (4, 4)")
+        self._context.set_camera_matrix(
+            matrix_array,
+            float(fov),
+            float(near_clip),
+            float(far_clip),
+        )
+
     def add_area_light(
         self,
         position: Sequence[float],
@@ -250,10 +354,35 @@ class Session:
         color: Sequence[float] = (1.0, 1.0, 1.0),
         strength: float = 10.0,
         up: Optional[Sequence[float]] = (0.0, 1.0, 0.0),
-    ) -> None:
-        """Add a rectangular area light facing ``target``."""
+    ) -> int:
+        """Add a rectangular area light facing ``target``; returns a handle."""
         size_u, size_v = _vec2(size, "size")
-        self._context.add_area_light(
+        return int(
+            self._context.add_area_light(
+                _vec3(position, "position"),
+                _vec3(target, "target"),
+                None if up is None else _vec3(up, "up"),
+                size_u,
+                size_v,
+                _vec3(color, "color"),
+                float(strength),
+            )
+        )
+
+    def update_area_light(
+        self,
+        light: int,
+        position: Sequence[float],
+        target: Sequence[float],
+        size=(1.0, 1.0),
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 10.0,
+        up: Optional[Sequence[float]] = (0.0, 1.0, 0.0),
+    ) -> None:
+        """Replace all parameters of an existing area light (for domain randomization)."""
+        size_u, size_v = _vec2(size, "size")
+        self._context.update_area_light(
+            int(light),
             _vec3(position, "position"),
             _vec3(target, "target"),
             None if up is None else _vec3(up, "up"),
@@ -269,14 +398,45 @@ class Session:
         color: Sequence[float] = (1.0, 1.0, 1.0),
         strength: float = 1.0,
         angle: float = 0.0,
+    ) -> int:
+        """Add a sun light; returns a handle. ``direction`` is travel direction."""
+        return int(
+            self._context.add_sun_light(
+                _vec3(direction, "direction"),
+                _vec3(color, "color"),
+                float(strength),
+                float(angle),
+            )
+        )
+
+    def update_sun_light(
+        self,
+        light: int,
+        direction: Sequence[float],
+        color: Sequence[float] = (1.0, 1.0, 1.0),
+        strength: float = 1.0,
+        angle: float = 0.0,
     ) -> None:
-        """Add a sun light. ``direction`` is the direction the light travels."""
-        self._context.add_sun_light(
+        """Replace all parameters of an existing sun light."""
+        self._context.update_sun_light(
+            int(light),
             _vec3(direction, "direction"),
             _vec3(color, "color"),
             float(strength),
             float(angle),
         )
+
+    def remove_light(self, light: int) -> None:
+        """Remove a light handle."""
+        self._context.remove_light(int(light))
+
+    def clear_lights(self) -> None:
+        """Remove all lights while keeping meshes, materials and camera."""
+        self._context.clear_lights()
+
+    def clear_scene(self) -> None:
+        """Remove all mesh objects and lights. Materials, camera and world remain."""
+        self._context.clear_scene()
 
     def set_background(
         self,
@@ -289,8 +449,22 @@ class Session:
     # ------------------------------------------------------------------
     # Rendering.
     # ------------------------------------------------------------------
-    def render(self) -> None:
-        """Render synchronously."""
+    def set_seed(self, seed: int) -> None:
+        """Set the integrator seed used by subsequent renders."""
+        self._context.set_seed(int(seed))
+
+    def set_samples(self, samples: int) -> None:
+        """Set the sample count used by subsequent renders."""
+        self._context.set_samples(int(samples))
+
+    def render(self, seed: Optional[int] = None) -> None:
+        """Render synchronously.
+
+        ``seed`` is a convenience for batch loops: it is applied before this
+        frame is rendered.
+        """
+        if seed is not None:
+            self._context.set_seed(int(seed))
         self._context.render()
 
     def get_pass(self, name: str = "combined", flip: bool = True) -> np.ndarray:

@@ -24,9 +24,15 @@ extern "C" {
  * Photara renderer C API.
  *
  * The API is intentionally small and stateful: create a context, describe a
- * scene (materials, meshes, lights, camera, world), render once, then read the
- * named render passes. All data is copied during the call, so the caller's
- * pointers only need to stay valid for the duration of the function.
+ * scene (materials, meshes, lights, camera, world), render, then read the named
+ * render passes. The scene can be modified and rendered repeatedly, which is
+ * the intended path for batch and sim2real use. All data is copied during the
+ * call, so the caller's pointers only need to stay valid for the duration of
+ * the function.
+ *
+ * Meshes, instances and lights return non-negative handles. A handle stays
+ * valid until that object or light is removed, its group is cleared, or the
+ * context is destroyed.
  *
  * Coordinates are right-handed, +Y up, distances in meters. Camera and light
  * transforms use the same convention as Cycles: local +Z is the camera view
@@ -128,16 +134,72 @@ typedef struct PhotaraSunLightDesc {
 PHOTARA_API PhotaraContext *photara_create(const PhotaraOptions *options);
 PHOTARA_API void photara_destroy(PhotaraContext *ctx);
 
-/* Scene construction. Return 0 on success, -1 on error.
- * photara_add_material returns a non-negative material index instead. */
+/* Materials. Return a non-negative material index, or -1 on error. */
 PHOTARA_API int photara_add_material(PhotaraContext *ctx, const PhotaraMaterialDesc *desc);
+/* Update a material in place. Meshes referencing it change on the next render. */
+PHOTARA_API int photara_update_material(PhotaraContext *ctx,
+                                        int material_index,
+                                        const PhotaraMaterialDesc *desc);
+
+/* Mesh objects. Return a non-negative object handle, or -1 on error. */
 PHOTARA_API int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc);
+/* Add an object sharing the mesh of source_object (instancing). The new object
+ * inherits the source material; matrix and object_id follow the mesh desc
+ * conventions. Returns an object handle, or -1 on error. */
+PHOTARA_API int photara_add_instance(PhotaraContext *ctx,
+                                     int source_object,
+                                     const float *matrix,
+                                     int object_id);
+/* Replace an object transform. matrix has the same layout as PhotaraMeshDesc. */
+PHOTARA_API int photara_set_object_transform(PhotaraContext *ctx,
+                                             int object,
+                                             const float matrix[16]);
+/* Non-zero makes the object visible to all rays; zero hides it entirely. */
+PHOTARA_API int photara_set_object_visible(PhotaraContext *ctx, int object, int visible);
+/* Set the value written to the object_id pass for this object. */
+PHOTARA_API int photara_set_object_id(PhotaraContext *ctx, int object, int object_id);
+/* Assign a material index (or -1 for the default material) to the object's
+ * mesh. Instances sharing the mesh are affected as well. */
+PHOTARA_API int photara_set_object_material(PhotaraContext *ctx,
+                                            int object,
+                                            int material_index);
+PHOTARA_API int photara_remove_object(PhotaraContext *ctx, int object);
+/* Remove every mesh object (including instances). Materials are kept. */
+PHOTARA_API int photara_clear_objects(PhotaraContext *ctx);
+
+/* Camera. photara_set_camera places a perspective camera by look-at. */
 PHOTARA_API int photara_set_camera(PhotaraContext *ctx, const PhotaraCameraDesc *desc);
+/* Set the camera from a 4x4 transform using the PhotaraMeshDesc matrix layout.
+ * Camera local +Z is the view direction. fov <= 0 keeps the current FOV;
+ * non-positive clip values keep the current clipping range. */
+PHOTARA_API int photara_set_camera_matrix(PhotaraContext *ctx,
+                                          const float matrix[16],
+                                          float fov_degrees,
+                                          float near_clip,
+                                          float far_clip);
+
+/* Lights. Return a non-negative light handle, or -1 on error. */
 PHOTARA_API int photara_add_area_light(PhotaraContext *ctx, const PhotaraAreaLightDesc *desc);
 PHOTARA_API int photara_add_sun_light(PhotaraContext *ctx, const PhotaraSunLightDesc *desc);
+PHOTARA_API int photara_update_area_light(PhotaraContext *ctx,
+                                          int light,
+                                          const PhotaraAreaLightDesc *desc);
+PHOTARA_API int photara_update_sun_light(PhotaraContext *ctx,
+                                         int light,
+                                         const PhotaraSunLightDesc *desc);
+PHOTARA_API int photara_remove_light(PhotaraContext *ctx, int light);
+PHOTARA_API int photara_clear_lights(PhotaraContext *ctx);
+
 PHOTARA_API int photara_set_background(PhotaraContext *ctx,
                                        const float color[3],
                                        float strength);
+
+/* Remove all mesh objects and lights. Materials, camera and world are kept. */
+PHOTARA_API int photara_clear_scene(PhotaraContext *ctx);
+
+/* Per-frame render controls. */
+PHOTARA_API int photara_set_seed(PhotaraContext *ctx, int seed);
+PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
 
 /* Render synchronously and store the requested passes. */
 PHOTARA_API int photara_render(PhotaraContext *ctx);
