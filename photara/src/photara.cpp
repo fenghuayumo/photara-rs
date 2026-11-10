@@ -769,6 +769,38 @@ void apply_spot_light_desc(Scene *scene,
   object->tag_update(scene);
 }
 
+void write_mesh_normals(Mesh *mesh, const float *normals)
+{
+  Attribute *attribute = mesh->attributes.find(ATTR_STD_VERTEX_NORMAL);
+  if (attribute == nullptr) {
+    attribute = mesh->attributes.add(ATTR_STD_VERTEX_NORMAL);
+  }
+  packed_normal *dst = attribute->data_for_write<packed_normal>();
+  const size_t num_vertices = mesh->num_verts();
+  for (size_t i = 0; i < num_vertices; i++) {
+    dst[i] = packed_normal(float3_from_ptr(normals + i * 3));
+  }
+  attribute->modified = true;
+}
+
+void write_mesh_uvs(Mesh *mesh, const float *uvs)
+{
+  Attribute *attribute = mesh->attributes.find(ATTR_STD_UV);
+  if (attribute == nullptr) {
+    attribute = mesh->attributes.add(ATTR_STD_UV);
+  }
+  float2 *dst = attribute->data_for_write<float2>();
+  const int *indices = mesh->get_triangles().data();
+  const size_t num_triangles = mesh->num_triangles();
+  for (size_t triangle = 0; triangle < num_triangles; triangle++) {
+    for (int corner = 0; corner < 3; corner++) {
+      const int vertex = indices[triangle * 3 + corner];
+      dst[triangle * 3 + corner] = make_float2(uvs[vertex * 2 + 0], uvs[vertex * 2 + 1]);
+    }
+  }
+  attribute->modified = true;
+}
+
 } /* namespace */
 
 extern "C" {
@@ -1147,6 +1179,128 @@ int photara_set_object_material(PhotaraContext *ctx, const int object, const int
     record.mesh->set_used_shaders(used_shaders);
     record.mesh->tag_shader_modified();
     record.mesh->tag_update(ctx->scene, false);
+  });
+}
+
+int photara_update_mesh(PhotaraContext *ctx,
+                        const int object,
+                        const PhotaraMeshUpdateDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL mesh update description");
+    }
+    if (desc->positions == nullptr) {
+      throw std::runtime_error("Mesh positions are required");
+    }
+    if (desc->num_vertices <= 0) {
+      throw std::runtime_error("Mesh must have at least one vertex");
+    }
+
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    Mesh *mesh = record.mesh;
+    if (mesh == nullptr) {
+      throw std::runtime_error("Object does not reference a mesh");
+    }
+    if (size_t(desc->num_vertices) != mesh->num_verts()) {
+      throw std::runtime_error(
+          "Mesh vertex count does not match; use photara_replace_mesh for topology changes");
+    }
+
+    packed_float3 *positions = mesh->get_position_for_write();
+    for (int i = 0; i < desc->num_vertices; i++) {
+      positions[i] = packed_float3(make_float3(desc->positions[i * 3 + 0],
+                                               desc->positions[i * 3 + 1],
+                                               desc->positions[i * 3 + 2]));
+    }
+    mesh->tag_position_modified();
+
+    if (desc->normals != nullptr) {
+      write_mesh_normals(mesh, desc->normals);
+    }
+    if (desc->uvs != nullptr) {
+      write_mesh_uvs(mesh, desc->uvs);
+    }
+
+    mesh->tag_update(ctx->scene, false);
+  });
+}
+
+int photara_replace_mesh(PhotaraContext *ctx,
+                         const int object,
+                         const PhotaraMeshReplaceDesc *desc)
+{
+  return guarded(ctx, [&]() {
+    if (desc == nullptr) {
+      throw std::runtime_error("NULL mesh replace description");
+    }
+    if (desc->positions == nullptr || desc->indices == nullptr) {
+      throw std::runtime_error("Mesh positions and indices are required");
+    }
+    if (desc->num_vertices <= 0 || desc->num_triangles <= 0) {
+      throw std::runtime_error("Mesh must have at least one vertex and one triangle");
+    }
+    for (int i = 0; i < desc->num_triangles * 3; i++) {
+      if (desc->indices[i] < 0 || desc->indices[i] >= desc->num_vertices) {
+        throw std::runtime_error("Mesh triangle index is out of range");
+      }
+    }
+
+    PhotaraContext::ObjectRecord &record = require_object(ctx, object);
+    Mesh *mesh = record.mesh;
+    if (mesh == nullptr) {
+      throw std::runtime_error("Object does not reference a mesh");
+    }
+
+    Shader *shader = nullptr;
+    if (desc->material_index >= 0) {
+      shader = resolve_material_shader(ctx, desc->material_index);
+    }
+
+    mesh->resize_mesh(desc->num_vertices, desc->num_triangles);
+
+    packed_float3 *positions = mesh->get_position_for_write();
+    for (int i = 0; i < desc->num_vertices; i++) {
+      positions[i] = packed_float3(make_float3(desc->positions[i * 3 + 0],
+                                               desc->positions[i * 3 + 1],
+                                               desc->positions[i * 3 + 2]));
+    }
+
+    std::memcpy(mesh->get_triangles().data(),
+                desc->indices,
+                sizeof(int) * size_t(desc->num_triangles) * 3);
+
+    bool *smooth = mesh->get_smooth().data();
+    int *shaders = mesh->get_shader().data();
+    std::fill(smooth, smooth + desc->num_triangles, true);
+    std::fill(shaders, shaders + desc->num_triangles, 0);
+
+    if (shader != nullptr) {
+      array<Node *> used_shaders;
+      used_shaders.push_back_slow(shader);
+      mesh->set_used_shaders(used_shaders);
+    }
+
+    if (mesh->attributes.find(ATTR_STD_VERTEX_NORMAL) != nullptr) {
+      mesh->attributes.remove(ATTR_STD_VERTEX_NORMAL);
+    }
+    if (desc->normals != nullptr) {
+      write_mesh_normals(mesh, desc->normals);
+    }
+
+    if (mesh->attributes.find(ATTR_STD_UV) != nullptr) {
+      mesh->attributes.remove(ATTR_STD_UV);
+    }
+    if (desc->uvs != nullptr) {
+      write_mesh_uvs(mesh, desc->uvs);
+    }
+
+    mesh->tag_position_modified();
+    mesh->tag_triangles_modified();
+    mesh->tag_shader_modified();
+    mesh->tag_smooth_modified();
+    mesh->tag_update(ctx->scene, true);
+    record.object->tag_update(ctx->scene);
   });
 }
 

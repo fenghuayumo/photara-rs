@@ -231,6 +231,104 @@ class Context {
     return result;
   }
 
+  void update_mesh(const int object,
+                   const FloatArray &positions,
+                   const py::object &normals,
+                   const py::object &uvs)
+  {
+    if (positions.ndim() != 2 || positions.shape(1) != 3 || positions.shape(0) <= 0) {
+      throw std::runtime_error("positions must have shape (N, 3) with N > 0");
+    }
+    const int num_vertices = int(positions.shape(0));
+
+    const float *normals_ptr = nullptr;
+    FloatArray normals_array;
+    if (!normals.is_none()) {
+      normals_array = require_float_array(normals, "normals");
+      if (normals_array.ndim() != 2 || normals_array.shape(0) != num_vertices ||
+          normals_array.shape(1) != 3)
+      {
+        throw std::runtime_error("normals must have shape (N, 3) matching vertices");
+      }
+      normals_ptr = normals_array.data();
+    }
+
+    const float *uvs_ptr = nullptr;
+    FloatArray uvs_array;
+    if (!uvs.is_none()) {
+      uvs_array = require_float_array(uvs, "uvs");
+      if (uvs_array.ndim() != 2 || uvs_array.shape(0) != num_vertices ||
+          uvs_array.shape(1) != 2)
+      {
+        throw std::runtime_error("uvs must have shape (N, 2) matching vertices");
+      }
+      uvs_ptr = uvs_array.data();
+    }
+
+    PhotaraMeshUpdateDesc desc = {};
+    desc.positions = positions.data();
+    desc.normals = normals_ptr;
+    desc.uvs = uvs_ptr;
+    desc.num_vertices = num_vertices;
+
+    if (photara_update_mesh(context_, object, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void replace_mesh(const int object,
+                    const FloatArray &positions,
+                    const IndexArray &indices,
+                    const py::object &normals,
+                    const py::object &uvs,
+                    const int material_index)
+  {
+    if (positions.ndim() != 2 || positions.shape(1) != 3 || positions.shape(0) <= 0) {
+      throw std::runtime_error("positions must have shape (N, 3) with N > 0");
+    }
+    if (indices.ndim() != 2 || indices.shape(1) != 3 || indices.shape(0) <= 0) {
+      throw std::runtime_error("indices must have shape (T, 3) with T > 0");
+    }
+    const int num_vertices = int(positions.shape(0));
+
+    const float *normals_ptr = nullptr;
+    FloatArray normals_array;
+    if (!normals.is_none()) {
+      normals_array = require_float_array(normals, "normals");
+      if (normals_array.ndim() != 2 || normals_array.shape(0) != num_vertices ||
+          normals_array.shape(1) != 3)
+      {
+        throw std::runtime_error("normals must have shape (N, 3) matching vertices");
+      }
+      normals_ptr = normals_array.data();
+    }
+
+    const float *uvs_ptr = nullptr;
+    FloatArray uvs_array;
+    if (!uvs.is_none()) {
+      uvs_array = require_float_array(uvs, "uvs");
+      if (uvs_array.ndim() != 2 || uvs_array.shape(0) != num_vertices ||
+          uvs_array.shape(1) != 2)
+      {
+        throw std::runtime_error("uvs must have shape (N, 2) matching vertices");
+      }
+      uvs_ptr = uvs_array.data();
+    }
+
+    PhotaraMeshReplaceDesc desc = {};
+    desc.positions = positions.data();
+    desc.normals = normals_ptr;
+    desc.uvs = uvs_ptr;
+    desc.indices = indices.data();
+    desc.num_vertices = num_vertices;
+    desc.num_triangles = int(indices.shape(0));
+    desc.material_index = material_index;
+
+    if (photara_replace_mesh(context_, object, &desc) != 0) {
+      throw_last_error();
+    }
+  }
+
   void set_object_transform(const int object, const FloatArray &matrix)
   {
     const FloatArray matrix_array = require_matrix(matrix, "matrix");
@@ -733,6 +831,20 @@ PYBIND11_MODULE(_photara, module)
            py::arg("source_object"),
            py::arg("matrix") = py::none(),
            py::arg("object_id") = 0)
+      .def("update_mesh",
+           &Context::update_mesh,
+           py::arg("object"),
+           py::arg("positions"),
+           py::arg("normals") = py::none(),
+           py::arg("uvs") = py::none())
+      .def("replace_mesh",
+           &Context::replace_mesh,
+           py::arg("object"),
+           py::arg("positions"),
+           py::arg("indices"),
+           py::arg("normals") = py::none(),
+           py::arg("uvs") = py::none(),
+           py::arg("material_index") = -1)
       .def("set_object_transform",
            &Context::set_object_transform,
            py::arg("object"),

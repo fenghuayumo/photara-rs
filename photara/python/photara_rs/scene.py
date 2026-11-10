@@ -272,6 +272,54 @@ class Mesh(_SceneItem):
         self._ensure_alive()
         return tuple(self._objects)
 
+    def update_positions(self, positions, normals=None, uvs=None) -> None:
+        """Update vertex data without changing topology.
+
+        All objects sharing this mesh see the new data. Omitted normals/UVs
+        keep their current values.
+        """
+        self._ensure_alive()
+        self._scene._session.update_mesh(
+            self._handle, positions, normals=normals, uvs=uvs
+        )
+        self._vertices = _readonly(np.asarray(positions, dtype=np.float32))
+        if normals is not None:
+            self._normals = _readonly(np.asarray(normals, dtype=np.float32))
+        if uvs is not None:
+            self._uvs = _readonly(np.asarray(uvs, dtype=np.float32))
+
+    def update_topology(
+        self,
+        vertices,
+        indices,
+        normals=None,
+        uvs=None,
+        material: Optional[Material] = None,
+    ) -> None:
+        """Replace topology and vertex data in place.
+
+        ``material=None`` keeps the current material. Supplying no normals/UVs
+        removes those attributes, matching a complete mesh replacement.
+        """
+        self._ensure_alive()
+        resolved = None if material is None else self._scene._resolve_material(material)
+        self._scene._session.replace_mesh(
+            self._handle,
+            vertices,
+            indices,
+            normals=normals,
+            uvs=uvs,
+            material=-1 if resolved is None else resolved.index,
+        )
+        self._vertices = _readonly(np.asarray(vertices, dtype=np.float32))
+        self._indices = _readonly(np.asarray(indices, dtype=np.int32))
+        self._normals = (
+            _readonly(np.asarray(normals, dtype=np.float32)) if normals is not None else None
+        )
+        self._uvs = _readonly(np.asarray(uvs, dtype=np.float32)) if uvs is not None else None
+        if resolved is not None:
+            self._material = resolved
+
     def remove(self) -> None:
         self._ensure_alive()
         self._scene.meshes.remove(self)

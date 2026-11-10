@@ -147,6 +147,50 @@ class SceneApiTests(unittest.TestCase):
         self.assertNotIn(3, np.unique(second.object_id))
         self.assertNotAlmostEqual(first_mean, float(second.rgb.mean()), places=3)
 
+    def test_mesh_deformation_and_topology(self) -> None:
+        before = self.scene.render(seed=20)
+        vertices = self.ball_mesh.vertices.copy()
+        deformed = vertices.copy()
+        deformed[:, 0] *= 0.8
+        deformed[:, 1] *= 1.3
+
+        self.ball_mesh.update_positions(deformed)
+        after_deform = self.scene.render(seed=21)
+        self.assertGreater(
+            float(np.abs(before.beauty - after_deform.beauty).mean()), 1e-4
+        )
+        self.assertEqual(self.ball_mesh.users, 2)
+
+        normals = deformed / np.linalg.norm(deformed, axis=1, keepdims=True)
+        uvs = np.zeros((deformed.shape[0], 2), dtype=np.float32)
+        self.ball_mesh.update_positions(deformed, normals=normals, uvs=uvs)
+        self.scene.render(seed=22)
+
+        new_vertices = np.array(
+            [(-1.0, 0.0, -1.0), (1.0, 0.0, -1.0), (0.0, 2.0, 0.0), (0.0, 0.0, 1.0)],
+            dtype=np.float32,
+        )
+        new_indices = np.array(
+            [(0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)], dtype=np.int32
+        )
+        material_before = self.ball_mesh.material
+        self.ball_mesh.update_topology(new_vertices, new_indices)
+        self.assertEqual(self.ball_mesh.vertices.shape, (4, 3))
+        self.assertEqual(self.ball_mesh.indices.shape, (4, 3))
+        self.assertEqual(self.ball_mesh.users, 2)
+        self.assertIs(self.ball_mesh.material, material_before)
+
+        after_topology = self.scene.render(seed=23)
+        self.assertIn(2, np.unique(after_topology.object_id))
+        self.assertIn(3, np.unique(after_topology.object_id))
+
+        with self.assertRaises(RuntimeError):
+            self.ball_mesh.update_positions(np.zeros((3, 3), dtype=np.float32))
+        with self.assertRaises(ValueError):
+            self.ball_mesh.update_topology(
+                new_vertices, np.array([(0, 1, 9)], dtype=np.int32)
+            )
+
     def test_instances_and_removal(self) -> None:
         self.assertEqual(self.ball_mesh.users, 2)
         self.scene.objects.remove(self.instance)

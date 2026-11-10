@@ -316,6 +316,55 @@ class Session:
         matrix_array = None if transform is None else as_matrix4(transform, "transform")
         return int(ctx.add_instance(source_object, matrix_array, _as_object_id(object_id)))
 
+    def update_mesh(
+        self,
+        object_handle: int,
+        positions,
+        normals=None,
+        uvs=None,
+    ) -> None:
+        """Update vertex data without changing topology.
+
+        The object handle may reference any object sharing the mesh; all
+        instances of that mesh are updated.
+        """
+        ctx = self._ctx
+        vertices_array = _as_vertices(positions)
+        normals_array = _as_optional_normals(normals, int(vertices_array.shape[0]))
+        uvs_array = _as_optional_uvs(uvs, int(vertices_array.shape[0]))
+        ctx.update_mesh(int(object_handle), vertices_array, normals_array, uvs_array)
+
+    def replace_mesh(
+        self,
+        object_handle: int,
+        positions,
+        indices,
+        normals=None,
+        uvs=None,
+        material: int = -1,
+    ) -> None:
+        """Replace mesh topology and vertex data in place.
+
+        The mesh/object handle stays valid and all instances sharing the mesh
+        see the new topology.
+        """
+        ctx = self._ctx
+        vertices_array = _as_vertices(positions)
+        indices_array = _as_indices(indices, int(vertices_array.shape[0]))
+        normals_array = _as_optional_normals(normals, int(vertices_array.shape[0]))
+        uvs_array = _as_optional_uvs(uvs, int(vertices_array.shape[0]))
+        material = int(material)
+        if material < -1 or material >= len(self._material_values):
+            raise IndexError(f"Material index {material} is out of range")
+        ctx.replace_mesh(
+            int(object_handle),
+            vertices_array,
+            indices_array,
+            normals_array,
+            uvs_array,
+            material,
+        )
+
     def set_object_transform(self, object_handle: int, transform) -> None:
         self._ctx.set_object_transform(int(object_handle), as_matrix4(transform, "transform"))
 

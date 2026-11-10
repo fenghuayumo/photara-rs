@@ -97,6 +97,30 @@ typedef struct PhotaraMeshDesc {
   int object_id;
 } PhotaraMeshDesc;
 
+/* Fixed-topology mesh update. Vertex/triangle counts and indices are kept. */
+typedef struct PhotaraMeshUpdateDesc {
+  /* Vertex positions, 3 floats per vertex. Required. */
+  const float *positions;
+  /* Optional per-vertex normals, 3 floats per vertex. */
+  const float *normals;
+  /* Optional per-vertex UVs, 2 floats per vertex. */
+  const float *uvs;
+  /* Must match the vertex count of the mesh being updated. */
+  int num_vertices;
+} PhotaraMeshUpdateDesc;
+
+/* Mesh topology replacement. The mesh object and its handle stay valid. */
+typedef struct PhotaraMeshReplaceDesc {
+  const float *positions;
+  const float *normals;
+  const float *uvs;
+  const int *indices;
+  int num_vertices;
+  int num_triangles;
+  /* -1 keeps the current material, otherwise an index from photara_add_material. */
+  int material_index;
+} PhotaraMeshReplaceDesc;
+
 typedef struct PhotaraCameraDesc {
   float position[3];
   float target[3];
@@ -187,6 +211,15 @@ PHOTARA_API int photara_set_object_id(PhotaraContext *ctx, int object, int objec
 PHOTARA_API int photara_set_object_material(PhotaraContext *ctx,
                                             int object,
                                             int material_index);
+/* Update vertex data without changing topology. Any object sharing the mesh
+ * updates it for all users. */
+PHOTARA_API int photara_update_mesh(PhotaraContext *ctx,
+                                    int object,
+                                    const PhotaraMeshUpdateDesc *desc);
+/* Replace vertex data and topology in place. The mesh/object handle stays valid. */
+PHOTARA_API int photara_replace_mesh(PhotaraContext *ctx,
+                                     int object,
+                                     const PhotaraMeshReplaceDesc *desc);
 PHOTARA_API int photara_remove_object(PhotaraContext *ctx, int object);
 /* Remove every mesh object (including instances). Materials are kept. */
 PHOTARA_API int photara_clear_objects(PhotaraContext *ctx);

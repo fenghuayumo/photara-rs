@@ -131,8 +131,6 @@ captures all passes once per frame into a `RenderResult`.
   `Scene.materials.remove()` only detaches an unused material from the Python
   scene. For long batch runs, reuse material slots/light handles or recreate the
   scene periodically instead of adding new materials every frame.
-- Mesh vertex positions and topology cannot be edited in place yet. Remove and
-  re-add the object, or animate it with transforms/instances.
 - The Python Scene layer represents a mesh data-block with a hidden prototype
   object and materializes visible objects as instances sharing its geometry.
   This is internal and does not appear in `Scene.objects`.
@@ -148,9 +146,7 @@ captures all passes once per frame into a `RenderResult`.
    generations, clean-install CI, third-party license notices, and PyPI or an
    internal package index. This is deferred until the public API stabilizes.
 3. USD/glTF/OBJ ingestion for sim2real scene loading.
-4. In-place mesh deformation/topology updates for cloth, soft bodies and other
-   simulation outputs.
-5. Image textures and environment maps.
-6. A dedicated realtime path (low samples + OptiX denoise + simplified
+4. Image textures and environment maps.
+5. A dedicated realtime path (low samples + OptiX denoise + simplified
    materials), including async render/progress APIs.
-7. Blender integration remains paused.
+6. Blender integration remains paused.

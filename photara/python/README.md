@@ -48,7 +48,10 @@ frame.save_png("frame_0000.png")   # requires Pillow
   renderer immediately. `material.update(**kwargs)` sets several fields with one
   update.
 - `scene.meshes.new(name, vertices, indices, normals=None, uvs=None,
-  material=None)` creates a mesh data-block.
+  material=None)` creates a mesh data-block. `mesh.update_positions(...)`
+  deforms vertices/normals/UVs without changing topology;
+  `mesh.update_topology(...)` replaces triangles/material in place. All objects
+  sharing the mesh update together.
 - `scene.objects.new(name, mesh, location=..., rotation_euler=..., scale=...,
   object_id=...)` creates an object. Several objects can share one mesh
   (instanced geometry); `mesh.users` reports the number of users.
@@ -130,7 +133,6 @@ pip install "photara-rs[png]"
 - No image textures, environment/HDR lighting, volumes, hair/curves or
   subdivision.
 - No OBJ/glTF/USD import; geometry is supplied as NumPy arrays.
-- Mesh vertices and topology cannot be edited in place yet.
 - One perspective camera per scene; no orthographic, panoramic, DOF or motion
   blur controls.
 - Fixed passes only: combined, depth, normal, albedo and object-id.
