@@ -156,13 +156,14 @@ def run_viewport(scene, cube, material):
     from photara_rs_engine import engine
 
     # Observe the actual engine callbacks, GPU upload and texture draw.
-    counts = {"uploads": 0, "draws": 0}
+    counts = {"uploads": 0, "draws": 0, "sample_levels": []}
     upload = engine.ViewportState._upload_result
     draw = engine.ViewportState.draw
     def checked_upload(self, frame):
         upload(self, frame)
         assert self.texture is not None
         counts["uploads"] += 1
+        counts["sample_levels"].append(self.pending_samples)
     def checked_draw(self, context):
         draw(self, context)
         if self.texture is not None:
@@ -182,15 +183,16 @@ def run_viewport(scene, cube, material):
             assert not failures, failures
             if time.monotonic() - start > 90:
                 raise AssertionError(f"Viewport timed out: {counts}")
-            if counts['uploads'] >= 1 and stage == 0:
+            if len(set(counts['sample_levels'])) >= 2 and stage == 0:
                 stage = 1
+                counts['before_edit'] = counts['uploads']
                 cube.location.z += 0.3
                 scene.photara.max_bounces = 3
                 scene.photara.viewport_samples = 6
                 area.spaces.active.region_3d.view_distance *= 1.1
                 bpy.context.view_layer.update()
                 area.tag_redraw()
-            elif counts['uploads'] >= 2 and counts['draws'] >= 2:
+            elif stage == 1 and counts['uploads'] > counts['before_edit'] and counts['draws'] >= 3:
                 print("PHOTARA_VIEWPORT_TEST_OK", json.dumps(counts), flush=True)
                 (OUTPUT / "viewport_verification.json").write_text(json.dumps(counts), encoding='utf-8')
                 bpy.ops.wm.quit_blender()

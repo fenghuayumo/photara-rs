@@ -335,6 +335,7 @@ def sync_world(state, blender_world):
                         import bpy
 
                         env_path = bpy.path.abspath(image.filepath)
+                        color = (1.0, 1.0, 1.0)
             else:
                 color = tuple(float(x) for x in color_socket.default_value[:3])
         if strength_socket is not None:

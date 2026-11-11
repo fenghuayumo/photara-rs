@@ -229,3 +229,13 @@ pip install "photara-rs[png]"
 - Fixed passes only: combined, depth, normal, albedo and object-id.
 - Materials cannot be deleted from the renderer; `materials.remove()` only
   detaches an unused material from the Python scene.
+
+## Denoiser configuration
+
+`Scene` and `Session` accept `denoiser="AUTO" | "OPTIX" | "OPENIMAGEDENOISE"`,
+`denoise_passes="RGB" | "RGB_ALBEDO" | "RGB_ALBEDO_NORMAL"`,
+`denoise_prefilter="NONE" | "FAST" | "ACCURATE"`,
+`denoise_quality="HIGH" | "BALANCED" | "FAST"`, and `denoise_use_gpu=True`.
+Prefilter, quality and GPU preference apply to OIDN. Settings are fixed for the
+session lifetime. Use a rebuilt native wheel with this API; the local cp313
+wheel includes it. The render device remains OptiX even when denoising on CPU.

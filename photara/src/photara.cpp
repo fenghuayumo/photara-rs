@@ -2299,6 +2299,60 @@ int photara_pass_channels(const PhotaraContext *ctx, const char *name)
   return -1;
 }
 
+int photara_configure_film(PhotaraContext *ctx, float exposure, int transparent,
+                           int transparent_glass, float roughness_threshold,
+                           int filter_type, float filter_width)
+{
+  return guarded(ctx, [&]() {
+    if (!std::isfinite(exposure) || exposure < 0 || filter_type < 0 || filter_type > 2 ||
+        !std::isfinite(filter_width) || filter_width <= 0 ||
+        !std::isfinite(roughness_threshold) || roughness_threshold < 0 || roughness_threshold > 1) {
+      throw std::runtime_error("Invalid film configuration");
+    }
+    ctx->scene->film->set_exposure(exposure);
+    ctx->scene->film->set_filter_type(static_cast<FilterType>(filter_type));
+    ctx->scene->film->set_filter_width(filter_width);
+    ctx->scene->film->tag_modified();
+    ctx->scene->background->set_transparent(transparent != 0);
+    ctx->scene->background->set_transparent_glass(transparent && transparent_glass);
+    ctx->scene->background->set_transparent_roughness_threshold(roughness_threshold);
+    ctx->scene->background->tag_update(ctx->scene);
+  });
+}
+
+int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
+                               int prefilter, int quality, int use_gpu)
+{
+  return guarded(ctx, [&]() {
+    if (type != 0 && type != DENOISER_OPTIX && type != DENOISER_OPENIMAGEDENOISE) {
+      throw std::runtime_error("Unsupported denoiser type");
+    }
+    if (passes != 0 && passes != 1 && passes != 5) {
+      throw std::runtime_error("Unsupported denoiser input passes");
+    }
+    if (prefilter < 1 || prefilter > 3 || quality < 1 || quality > 3) {
+      throw std::runtime_error("Invalid denoiser prefilter or quality");
+    }
+    if (type == DENOISER_OPTIX && !(ctx->session_params.device.denoisers & DENOISER_OPTIX)) {
+      throw std::runtime_error("OptiX denoising is unavailable on this device");
+    }
+#ifndef WITH_OPENIMAGEDENOISE
+    if (type == DENOISER_OPENIMAGEDENOISE) {
+      throw std::runtime_error("This build does not include OpenImageDenoise");
+    }
+#endif
+    Integrator *integrator = ctx->scene->integrator;
+    if (type != 0) {
+      integrator->set_denoiser_type(static_cast<DenoiserType>(type));
+    }
+    integrator->set_denoiser_passes(passes);
+    integrator->set_denoiser_prefilter(static_cast<DenoiserPrefilter>(prefilter));
+    integrator->set_denoiser_quality(static_cast<DenoiserQuality>(quality));
+    integrator->set_denoise_use_gpu(use_gpu != 0);
+    integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
+  });
+}
+
 int photara_copy_pass(PhotaraContext *ctx, const char *name, float *dst, const size_t dst_count)
 {
   return guarded_read(ctx, [&]() {

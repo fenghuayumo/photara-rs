@@ -86,8 +86,7 @@ class PhotaraAddonPreferences(bpy.types.AddonPreferences):
 
 _classes = (
     properties.PhotaraSceneSettings,
-    ui.RENDER_PT_photara_sampling,
-    ui.RENDER_PT_photara_viewport,
+    *ui.classes,
     engine.PhotaraRenderEngine,
     PhotaraAddonPreferences,
 )
@@ -99,9 +98,13 @@ def register():
     bpy.types.Scene.photara = bpy.props.PointerProperty(
         type=properties.PhotaraSceneSettings
     )
+    bpy.types.RENDER_PT_context.append(ui.draw_device)
+    ui.register_color_management()
 
 
 def unregister():
+    ui.unregister_color_management()
+    bpy.types.RENDER_PT_context.remove(ui.draw_device)
     # Blender 5.x may already have released owner-tagged properties at
     # shutdown; guard so disabling/unloading never raises.
     if hasattr(bpy.types.Scene, "photara"):

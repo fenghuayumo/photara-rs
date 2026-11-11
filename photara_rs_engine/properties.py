@@ -3,7 +3,27 @@
 import bpy
 
 
+DENOISERS = [('AUTO', 'Automatic', 'Prefer OptiX'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]
+DENOISE_PASSES = [('RGB', 'None', 'Color only'), ('RGB_ALBEDO', 'Albedo', 'Albedo guidance'), ('RGB_ALBEDO_NORMAL', 'Albedo and Normal', 'Albedo and normal guidance')]
+PREFILTERS = [('NONE', 'None', 'Unfiltered guidance'), ('FAST', 'Fast', 'Filter jointly'), ('ACCURATE', 'Accurate', 'Prefilter guidance')]
+QUALITIES = [('HIGH', 'High', 'Best quality'), ('BALANCED', 'Balanced', 'Balanced quality'), ('FAST', 'Fast', 'Fastest')]
+
+
 class PhotaraSceneSettings(bpy.types.PropertyGroup):
+    device: bpy.props.EnumProperty(
+        name="Device",
+        items=[('OPTIX', "GPU Compute", "Render on NVIDIA GPU with OptiX")],
+        default='OPTIX',
+    )
+
+    viewport_denoise: bpy.props.BoolProperty(
+        name="Denoise", description="Denoise viewport renders", default=True,
+    )
+
+    viewport_adaptive_sampling: bpy.props.BoolProperty(
+        name="Adaptive Sampling", description="Stop sampling converged viewport pixels", default=True,
+    )
+
     samples: bpy.props.IntProperty(
         name="Samples",
         description="Path tracing samples per pixel for final renders",
@@ -47,3 +67,29 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         description="Stop sampling pixels that converged early",
         default=True,
     )  # type: ignore[attr-defined]
+
+    denoiser: bpy.props.EnumProperty(name="Denoiser", items=DENOISERS, default="AUTO")
+
+    denoise_passes: bpy.props.EnumProperty(name="Passes", items=DENOISE_PASSES, default="RGB_ALBEDO_NORMAL")
+
+    denoise_prefilter: bpy.props.EnumProperty(name="Prefilter", items=PREFILTERS, default="ACCURATE")
+
+    denoise_quality: bpy.props.EnumProperty(name="Quality", items=QUALITIES, default="HIGH")
+
+    denoise_use_gpu: bpy.props.BoolProperty(name="Use GPU", default=True)
+
+    viewport_denoiser: bpy.props.EnumProperty(name="Denoiser", items=DENOISERS, default="AUTO")
+
+    viewport_denoise_passes: bpy.props.EnumProperty(name="Passes", items=DENOISE_PASSES, default="RGB_ALBEDO_NORMAL")
+
+    viewport_denoise_prefilter: bpy.props.EnumProperty(name="Prefilter", items=PREFILTERS, default="ACCURATE")
+
+    viewport_denoise_quality: bpy.props.EnumProperty(name="Quality", items=QUALITIES, default="HIGH")
+
+    viewport_denoise_use_gpu: bpy.props.BoolProperty(name="Use GPU", default=True)
+
+    film_exposure: bpy.props.FloatProperty(name="Exposure", default=1.0, min=0.0, max=10.0)
+    film_transparent_glass: bpy.props.BoolProperty(name="Transparent Glass", default=False)
+    film_transparent_roughness: bpy.props.FloatProperty(name="Roughness Threshold", default=0.1, min=0.0, max=1.0)
+    pixel_filter_type: bpy.props.EnumProperty(name="Type", items=[('BOX', 'Box', 'Box filter'), ('GAUSSIAN', 'Gaussian', 'Gaussian filter'), ('BLACKMAN_HARRIS', 'Blackman-Harris', 'Blackman-Harris filter')], default='BLACKMAN_HARRIS')
+    filter_width: bpy.props.FloatProperty(name="Width", default=1.5, min=0.01, max=10.0)

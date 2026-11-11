@@ -14,6 +14,10 @@ add_definitions(
   -DCCL_NAMESPACE_END=}
 )
 
+if(WITH_OPENIMAGEDENOISE)
+  add_definitions(-DWITH_OPENIMAGEDENOISE)
+endif()
+
 if(WITH_CYCLES_DEBUG)
   add_definitions(-DWITH_CYCLES_DEBUG)
 endif()

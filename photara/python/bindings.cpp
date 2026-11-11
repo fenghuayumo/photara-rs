@@ -684,6 +684,22 @@ class Context {
     }
   }
 
+  void configure_film(float exposure, bool transparent, bool glass, float roughness,
+                      int filter_type, float filter_width)
+  {
+    if (photara_configure_film(context_, exposure, transparent, glass, roughness,
+                               filter_type, filter_width) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void configure_denoiser(int type, int passes, int prefilter, int quality, bool use_gpu)
+  {
+    if (photara_configure_denoiser(context_, type, passes, prefilter, quality, use_gpu) != 0) {
+      throw_last_error();
+    }
+  }
+
   py::array get_pass(const std::string &name)
   {
     const int channels = photara_pass_channels(context_, name.c_str());
@@ -1069,6 +1085,8 @@ PYBIND11_MODULE(_photara, module)
            py::call_guard<py::gil_scoped_release>())
       .def("render_finish", &Context::render_finish, py::arg("job"))
       .def("render", &Context::render, py::call_guard<py::gil_scoped_release>())
+      .def("configure_film", &Context::configure_film)
+      .def("configure_denoiser", &Context::configure_denoiser)
       .def("get_pass", &Context::get_pass, py::arg("name"))
       .def_property_readonly("width", &Context::width)
       .def_property_readonly("height", &Context::height)

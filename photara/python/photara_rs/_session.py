@@ -295,7 +295,22 @@ class Session:
         denoise: bool = True,
         adaptive_sampling: bool = True,
         device: str = "AUTO",
+        denoiser: str = "AUTO",
+        denoise_passes: str = "RGB_ALBEDO_NORMAL",
+        denoise_prefilter: str = "ACCURATE",
+        denoise_quality: str = "HIGH",
+        denoise_use_gpu: bool = True,
     ) -> None:
+        try:
+            denoise_args = (
+                {"AUTO": 0, "OPTIX": 2, "OPENIMAGEDENOISE": 4}[denoiser],
+                {"RGB": 0, "RGB_ALBEDO": 1, "RGB_ALBEDO_NORMAL": 5}[denoise_passes],
+                {"NONE": 1, "FAST": 2, "ACCURATE": 3}[denoise_prefilter],
+                {"HIGH": 1, "BALANCED": 2, "FAST": 3}[denoise_quality],
+                bool(denoise_use_gpu),
+            )
+        except KeyError as exc:
+            raise ValueError(f"Invalid denoiser setting: {exc.args[0]}") from None
         width = int(width)
         height = int(height)
         if width <= 0 or height <= 0:
@@ -334,6 +349,13 @@ class Session:
             self._device,
             resource_dir(),
         )
+        if self._denoise:
+            try:
+                self._context.configure_denoiser(*denoise_args)
+            except Exception:
+                self.close()
+                raise
+
 
     # ------------------------------------------------------------------
     # Session state.
@@ -898,6 +920,15 @@ class Session:
             ctx.set_seed(seed)
             self._seed = seed
         ctx.render()
+
+    def configure_film(self, *, exposure=1.0, transparent=False, transparent_glass=False,
+                       roughness_threshold=0.1, filter_type="BLACKMAN_HARRIS", filter_width=1.5):
+        """Configure an idle session's film; exposure is a linear multiplier."""
+        filters = {"BOX": 0, "GAUSSIAN": 1, "BLACKMAN_HARRIS": 2}
+        if filter_type not in filters:
+            raise ValueError(f"Unknown pixel filter: {filter_type}")
+        self._ctx.configure_film(float(exposure), bool(transparent), bool(transparent_glass),
+                                 float(roughness_threshold), filters[filter_type], float(filter_width))
 
     def get_pass(self, name: str = "combined", flip: bool = True) -> np.ndarray:
         """Return a render pass as a top-down ``(H, W, C)`` float32 array."""

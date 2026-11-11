@@ -1219,6 +1219,11 @@ class Scene:
         denoise: bool = True,
         adaptive_sampling: bool = True,
         device: str = "AUTO",
+        denoiser: str = "AUTO",
+        denoise_passes: str = "RGB_ALBEDO_NORMAL",
+        denoise_prefilter: str = "ACCURATE",
+        denoise_quality: str = "HIGH",
+        denoise_use_gpu: bool = True,
     ) -> None:
         self._session = Session(
             width=width,
@@ -1229,6 +1234,9 @@ class Scene:
             denoise=denoise,
             adaptive_sampling=adaptive_sampling,
             device=device,
+            denoiser=denoiser, denoise_passes=denoise_passes,
+            denoise_prefilter=denoise_prefilter, denoise_quality=denoise_quality,
+            denoise_use_gpu=denoise_use_gpu,
         )
         self._closed = False
         self._samples = int(samples)
@@ -1327,6 +1335,11 @@ class Scene:
             self._seed = seed
         self._session.render(seed=seed)
         return RenderResult(self._session, seed=self._seed)
+
+    def configure_film(self, **settings):
+        """Configure film exposure, transparency and pixel filtering."""
+        self._ensure_open()
+        self._session.configure_film(**settings)
 
     def render_async(self, seed: Optional[int] = None) -> RenderJob:
         """Start a non-blocking render and return a :class:`RenderJob`."""

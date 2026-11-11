@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """The Photara Blender render engine.
 
-Final renders (F12) run a full-quality ``photara_rs`` job and write the
-combined and depth passes into Blender's render result. Viewport renders run
-an asynchronous job per camera state and display the finished frame as a GPU
-texture, restarting whenever the camera or scene changes.
+Final renders (F12) write combined and depth passes into Blender's render
+result. Viewport renders display asynchronous frames at increasing sample
+counts, restarting whenever the camera or scene changes.
 """
 
 from __future__ import annotations
@@ -35,6 +34,22 @@ def _load_photara():
     error = ensure_photara_module()
     if error:
         raise RuntimeError(f"photara_rs is not importable: {error}")
+
+
+def _denoiser_options(settings, viewport=False):
+    prefix = 'viewport_' if viewport else ''
+    return {name: getattr(settings, prefix + name) for name in (
+        'denoiser', 'denoise_passes', 'denoise_prefilter',
+        'denoise_quality', 'denoise_use_gpu')}
+
+
+def _film_options(scene):
+    settings = scene.photara
+    return dict(exposure=settings.film_exposure,
+                transparent=scene.render.film_transparent,
+                transparent_glass=settings.film_transparent_glass,
+                roughness_threshold=settings.film_transparent_roughness,
+                filter_type=settings.pixel_filter_type, filter_width=settings.filter_width)
 
 
 class PhotaraRenderEngine(bpy.types.RenderEngine):
@@ -104,8 +119,10 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
                 max_bounces=settings.max_bounces,
                 denoise=settings.denoise,
                 adaptive_sampling=settings.adaptive_sampling,
-                device="AUTO",
+                device=settings.device,
+                **_denoiser_options(settings),
             )
+            scene.configure_film(**_film_options(blender_scene))
             state = sync.SceneSyncState(scene)
             state.sync(depsgraph)
             aspect = (width / height) * (render.pixel_aspect_x / max(1e-6, render.pixel_aspect_y))
@@ -250,6 +267,7 @@ class ViewportState:
         blender_scene = bpy.context.scene
         settings = blender_scene.photara
         self.samples = max(1, int(settings.viewport_samples))
+        self.current_samples = 1
         self.seed = int(settings.seed)
 
         self.scene = photara_rs.Scene(
@@ -258,10 +276,12 @@ class ViewportState:
             samples=self.samples,
             seed=self.seed,
             max_bounces=max(1, int(settings.max_bounces)),
-            denoise=bool(settings.denoise),
-            adaptive_sampling=bool(settings.adaptive_sampling),
-            device="AUTO",
+            denoise=bool(settings.viewport_denoise),
+            adaptive_sampling=bool(settings.viewport_adaptive_sampling),
+            device=settings.device,
+            **_denoiser_options(settings, viewport=True),
         )
+        self.scene.configure_film(**_film_options(blender_scene))
         self.sync_state = sync.SceneSyncState(self.scene)
 
     def close(self):
@@ -293,6 +313,8 @@ class ViewportState:
 
     def update_camera(self, context):
         self._cancel_job()
+        self.scene.configure_film(**_film_options(context.scene))
+        self._sync_viewport_world(context)
         region_data = context.region_data
         perspective = getattr(region_data, "is_perspective", None)
         if perspective is None:
@@ -325,7 +347,36 @@ class ViewportState:
             region_data.view_perspective,
             tuple(value for row in region_data.view_matrix for value in row),
             tuple(value for row in region_data.window_matrix for value in row),
+            ViewportState._world_signature(context),
+            tuple(_film_options(context.scene).values()),
         )
+
+    @staticmethod
+    def _world_signature(context):
+        shading = context.space_data.shading
+        return (shading.use_scene_world_render, shading.use_scene_lights_render,
+                shading.studio_light, shading.studiolight_intensity,
+                shading.studiolight_background_alpha,
+                context.scene.render.film_transparent)
+
+    def _sync_viewport_world(self, context):
+        # Match BlenderViewportParameters in Cycles' blender/viewport.cpp.
+        shading = context.space_data.shading
+        self.background_mix = 1.0
+        self.background_color = tuple(context.scene.world.color) if context.scene.world else (0, 0, 0)
+        self.transparent_background = context.scene.render.film_transparent
+        if shading.use_scene_world_render:
+            sync.sync_world(self.sync_state, context.scene.world)
+        else:
+            studio = shading.selected_studio_light
+            self.scene.world.environment_texture = None
+            self.scene.world.color = (1.0, 1.0, 1.0)
+            self.scene.world.strength = shading.studiolight_intensity
+            if studio and studio.path:
+                self.scene.world.environment_texture = {"path": studio.path}
+            self.background_mix = shading.studiolight_background_alpha
+        for light in self.scene.lights:
+            light.visible = shading.use_scene_lights_render
 
     def camera_changed(self, context):
         return self.camera_matrix != self._camera_signature(context)
@@ -349,6 +400,8 @@ class ViewportState:
             self.seed = int(settings.seed)
             self.scene.samples = self.samples
             self.settings_version = _settings_version()
+        self.current_samples = 1
+        self.scene.samples = self.current_samples
         self.scene.seed = self.seed
         self.job = self.scene.render_async()
 
@@ -372,8 +425,15 @@ class ViewportState:
                 return self.POLL_INTERVAL
             if progress.state == "done":
                 self.pending_frame = self.job.wait()
+                self.pending_samples = self.current_samples
                 self.job = None
+                if self.current_samples < self.samples:
+                    self.current_samples = min(self.samples, self.current_samples * 2)
+                    self.scene.samples = self.current_samples
+                    self.job = self.scene.render_async()
                 engine.tag_redraw()
+                if self.job is not None:
+                    return self.POLL_INTERVAL
             else:
                 engine._report_viewport_failure(RuntimeError(progress.status or progress.state))
                 self.job = None
@@ -389,16 +449,20 @@ class ViewportState:
 
         # GPUTexture data is bottom-up OpenGL order; flip the top-down result.
         rgba = np.flipud(frame.beauty).astype(np.float32)
-        alpha = rgba[..., 3:4]
-        # The viewport has no color management for engine output; approximate
-        # Blender's display transform with exposure + sRGB.
-        view = bpy.context.scene.view_settings
-        exposure = float(view.exposure)
-        if abs(exposure) > 1e-6:
-            rgb = rgba[..., :3] * (2.0 ** exposure)
-            rgba = np.concatenate([_srgb_encode(rgb), alpha], axis=-1)
-        else:
-            rgba = np.concatenate([_srgb_encode(rgba[..., :3]), alpha], axis=-1)
+        background = np.flipud(~frame.depth_valid)
+        if self.background_mix < 1.0 and not self.transparent_background:
+            rgba[background, :3] = (rgba[background, :3] * self.background_mix
+                                    + np.asarray(self.background_color) * (1.0 - self.background_mix))
+        # Keep pixels linear; Blender applies the display transfer at presentation.
+        rgba[..., :3] *= 2.0 ** float(bpy.context.scene.view_settings.exposure)
+        if self.transparent_background:
+            # Composite transparent film against a neutral checker, as Blender
+            # does for its viewport, using the native premultiplied film alpha.
+            yy, xx = np.indices((self.height, self.width))
+            checker = np.where(((xx // 8 + yy // 8) % 2) == 0, 0.18, 0.28)
+            alpha = rgba[..., 3:4]
+            rgba[..., :3] += checker[..., None] * (1.0 - alpha)
+        rgba[..., 3] = 1.0
 
         pixels = np.ascontiguousarray(rgba, dtype=np.float32).ravel()
         buffer = gpu.types.Buffer('FLOAT', pixels.size, pixels)
@@ -429,14 +493,17 @@ class ViewportState:
             (0.0, 0.0, 0.0, 1.0),
         )))
         blend = gpu.state.blend_get()
+        depth_test = gpu.state.depth_test_get()
         try:
+            gpu.state.depth_test_set('NONE')
+            gpu.state.blend_set('NONE')
             if self.texture is not None:
-                gpu.state.blend_set('ALPHA_PREMULT')
                 draw_texture_2d(self.texture, (0.0, 0.0), self.width, self.height)
             else:
                 self._draw_placeholder()
         finally:
             gpu.state.blend_set(blend)
+            gpu.state.depth_test_set(depth_test)
             gpu.matrix.pop()
 
     def _draw_placeholder(self):
@@ -466,6 +533,7 @@ def _settings_version():
         settings.viewport_samples,
         settings.seed,
         settings.max_bounces,
-        settings.denoise,
-        settings.adaptive_sampling,
+        settings.viewport_denoise,
+        settings.viewport_adaptive_sampling,
+        tuple(_denoiser_options(settings, viewport=True).values()),
     )

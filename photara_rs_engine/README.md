@@ -84,11 +84,28 @@ python scripts\package_blender_addon.py
 1. `Render Properties` 中把渲染引擎切换为 **Photara**。
 2. F12 最终渲染：输出 `Combined`（RGBA，线性）与 `Depth`（勾选
    `Z` pass 时）。
-3. 视口切换到 `Rendered` 着色模式：插件异步渲染当前视口相机视角，
-   渲染完成后显示；相机或场景变化会自动重新渲染。渲染期间可继续
-   操作视口。
-4. `Render Properties > Photara` 面板：采样数、种子、最大反弹次数、
-   降噪、自适应采样、视口采样数。
+3. 视口切换到 `Rendered` 着色模式：插件先显示低采样画面，再用更高
+   采样数刷新；相机或场景变化会自动重新渲染。当前通过多次独立渲染
+   实现渐进预览，每次需要重新采样，因此性能和 Cycles 的原生累积不同。
+4. Render Properties 按 Cycles 布局组织：顶部 `Device: GPU Compute`；
+   `Sampling > Viewport / Render` 分别设置采样数、自适应采样和降噪；
+   `Sampling > Advanced` 设置种子；`Light Paths > Max Bounces` 设置总反弹次数。
+   当前仅提供 OptiX 渲染设备；展开 Denoise 可选择 Automatic、OptiX 或
+   OpenImageDenoise，并设置 Passes。OIDN 另有 Prefilter、Quality 和 Use GPU。
+   视口和最终渲染分别保存降噪设置。尚未开放的噪声阈值、最小采样数、
+   各类反弹上限等选项不显示。
+
+视口遵循着色弹出面板的 `Scene World` / `Scene Lights` 开关。关闭
+`Scene World` 时使用 Blender 所选的预览 HDRI，并使用其强度和背景
+可见度；开启时显示场景 World（World 本身较暗时，背景也会较暗）。
+`Film` 提供曝光倍率、Transparent、Transparent Glass / Roughness Threshold，
+以及 Box / Gaussian / Blackman-Harris 像素滤镜。透明 Film 由原生核心产生
+预乘 RGBA，视口用该 alpha 合成棋盘格。
+
+`Color Management` 使用 Blender 原生面板；Display、View Transform、Look、
+Exposure、Gamma 等控制最终渲染的显示和输出。视口目前只有曝光和显示转换，
+尚未完整应用 AgX / Look / 曲线等设置。`Volumes` 显示尚未支持提示，体积
+材质和网格导出尚未实现，不能通过调节采样步长启用体积渲染。
 
 ## 已同步的数据
 
@@ -110,9 +127,10 @@ python scripts\package_blender_addon.py
 
 - 正交视口暂不支持；最终渲染遇到正交或 panorama 相机会明确报错。
 - 多材质网格使用第一个材质槽（photara 材质按网格整体指定）。
-- 视口颜色管理是近似（sRGB + 曝光）；最终渲染由 Blender 的视图变换
+- 视口颜色管理是近似（线性纹理 + 曝光，由 Blender 视口进行显示转换）；最终渲染由 Blender 的视图变换
   正确处理。
-- 渲染边框（Border render）、panorama 相机、体积、毛发、透明影棚等
+- 预览 HDRI 的旋转和背景模糊尚未同步。
+- 渲染边框（Border render）、panorama 相机、体积、毛发等
   暂未同步。
 - 当前保证透视相机、方形像素及无偏移的取景；camera shift、非方形像素、
   景深和运动模糊尚未同步。材质仅同步 Principled 数值参数，不转换完整节点图。
