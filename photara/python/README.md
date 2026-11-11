@@ -200,10 +200,16 @@ sRGB transform for display. Alpha is preserved for RGBA input.
 
 ## Installation requirements
 
-This wheel targets **Windows x64, CPython 3.11, NVIDIA RTX 50-series (sm_120)**
+Available wheels target **Windows x64, CPython 3.11 or 3.13, NVIDIA RTX 50-series (sm_120)**
 and requires a recent NVIDIA driver with OptiX support. The native module,
 OptiX/CUDA kernels and runtime DLLs are bundled; no CUDA toolkit is needed at
 runtime. Other Python versions or GPU generations require a matching rebuild.
+
+Use the wheel whose `cp311`/`cp313` tag matches your interpreter. The local
+Blender 5.3 build uses Python 3.13.13 and requires the `cp313` wheel. The
+repository's `scripts/install_blender.py` selects and installs it automatically.
+This is a standalone native renderer: importing `photara_rs` does not require
+Blender, `bpy`, the source checkout, or a CUDA Toolkit installation.
 
 `save_png()` requires Pillow, available through the optional extra:
 

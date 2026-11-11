@@ -8,11 +8,10 @@ wheel with `pip wheel photara/python`.
 
 from __future__ import annotations
 
-import glob
-import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -70,11 +69,15 @@ def dependencies(path: Path) -> list[str]:
 
 
 def main() -> int:
-    pyds = sorted(PACKAGE.glob("_photara*.pyd"))
-    if not pyds:
-        print(f"No _photara*.pyd in {PACKAGE}; build scripts\\build_python_windows.bat first.")
+    pyd = PACKAGE / ("_photara" + sysconfig.get_config_var("EXT_SUFFIX"))
+    if not pyd.is_file():
+        print(f"No {pyd.name} in {PACKAGE}; build for this interpreter first.")
         return 1
-    pyd = pyds[-1]
+    others = [p for p in PACKAGE.glob("_photara*.pyd") if p != pyd]
+    if others:
+        print("Foreign ABI extensions found; move them out before staging: "
+              + ", ".join(p.name for p in others))
+        return 1
     if any("_d.dll" in dep for dep in dependencies(pyd)):
         print(f"{pyd.name} links debug external libraries; build the Release configuration instead.")
         return 1

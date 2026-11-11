@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "OptiX-first physically based renderer derived from Cycles"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.14"
 authors = [{name = "Photara"}]
 keywords = ["renderer", "optix", "path tracing", "sim2real", "synthetic data"]
 classifiers = [
@@ -20,6 +20,7 @@ classifiers = [
     "Operating System :: Microsoft :: Windows :: Windows 11",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: 3D Rendering",
 ]
 dependencies = ["numpy>=1.23"]

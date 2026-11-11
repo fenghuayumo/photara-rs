@@ -37,6 +37,7 @@ install*/
 /photara/python/photara_rs/*.pdb
 /photara/python/photara_rs/bin/
 /photara/python/photara_rs/lib/
+/photara/python/*.egg-info/
 
 # OSL compiled examples
 examples/osl/*.oso

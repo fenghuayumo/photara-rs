@@ -1,4 +1,5 @@
 from pathlib import Path
+import sysconfig
 
 from setuptools import Distribution, setup
 
@@ -9,6 +10,15 @@ def _check_native_payload() -> None:
     missing = []
     if not list(_PACKAGE_DIR.glob("_photara*.pyd")):
         missing.append("_photara*.pyd")
+    else:
+        expected = "_photara" + sysconfig.get_config_var("EXT_SUFFIX")
+        modules = list(_PACKAGE_DIR.glob("_photara*.pyd"))
+        if [module.name for module in modules] != [expected]:
+            raise SystemExit(
+                f"This interpreter requires {expected}; found "
+                + ", ".join(module.name for module in modules)
+                + ". Stage only the matching native extension before building a wheel."
+            )
     if not list((_PACKAGE_DIR / "bin").glob("*.dll")):
         missing.append("bin/*.dll")
     if not list((_PACKAGE_DIR / "lib").glob("*.zst")):

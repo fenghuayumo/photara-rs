@@ -78,7 +78,8 @@ if(PHOTARA_BUILD_PYTHON)
   target_link_libraries(photara_python PRIVATE photara_capi)
   target_compile_features(photara_python PRIVATE cxx_std_17)
 
-  set(PHOTARA_PYTHON_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/python/photara_rs")
+  set(PHOTARA_PYTHON_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/python/photara_rs"
+      CACHE PATH "Output directory for the Photara Python extension")
   set_target_properties(photara_python PROPERTIES
     OUTPUT_NAME "_photara"
     RUNTIME_OUTPUT_DIRECTORY "${PHOTARA_PYTHON_OUTPUT_DIR}"

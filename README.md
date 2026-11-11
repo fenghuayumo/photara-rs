@@ -32,7 +32,9 @@ data generation.
   backends and the user-facing CPU/CUDA selection have been removed. CUDA host
   code and non-ray-tracing kernel binaries remain as OptiX dependencies, and a
   small internal CPU host device remains for denoising and buffer transfers.
-- Blender integration is paused and is not part of this build.
+- Blender add-on: a `PHOTARA_RS` render engine driven by the `photara_rs`
+  package, with F12 final renders (Combined + Depth passes) and a rendered
+  viewport via asynchronous jobs. See `photara_rs_engine/README.md`.
 
 ## Requirements
 
@@ -127,11 +129,57 @@ object transforms, instances, material/light edits and removals apply on the
 next `render()` without rebuilding the scene. The low-level handle-based
 `pr.Session` remains available for custom scene builders and render farms.
 
-This wheel currently targets **Windows x64, CPython 3.11 and RTX 50-series
-(sm_120)**. Other Python versions or GPU generations need a matching rebuild.
+The wheels in `dist/` target **Windows x64, CPython 3.11 or 3.13 and RTX
+50-series (sm_120)**. Install the wheel matching your interpreter (`cp311` or
+`cp313`). Other Python versions or GPU generations need a matching rebuild.
+Wheel creation checks the extension ABI and rejects mismatched native modules.
 
 See `photara/python/README.md`, `photara/python/examples/render_test.py` and
 `photara/python/examples/batch_sim2real.py` for more details.
+
+## Blender integration
+
+Install into the specified Blender build and enable the engine automatically:
+
+```bat
+python scripts\install_blender.py --blender "D:\ProgramCode\C++\build_windows\bin"
+```
+
+The installer detects Blender's Python version, selects its matching wheel,
+installs the native package, packages and installs the add-on, checks OptiX,
+and saves the enabled add-on in Blender preferences. Close Blender before
+upgrading native binaries, then reopen it and select **Photara** as the render
+engine. No Blender source modifications or rebuild are needed.
+
+The local Blender **5.3.0 Beta / Python 3.13.13 / RTX 5090 D v2** has been
+verified with final Combined/Depth passes, multilayer EXR output, collection
+instances, linked lights, incremental edits and rendered viewport updates.
+The integration checks can be repeated with:
+
+```bat
+"D:\ProgramCode\C++\build_windows\bin\blender.exe" --background --python-exit-code 1 --python scripts\test_blender.py
+"D:\ProgramCode\C++\build_windows\bin\blender.exe" --factory-startup --python-exit-code 1 --python scripts\test_blender.py -- --viewport
+```
+
+Results, logs and `photara_demo.blend` are in `test_outputs/`.
+
+For manual installation:
+
+```bat
+python scripts\package_blender_addon.py
+```
+
+1. Install the `photara_rs` wheel matching Blender's bundled Python: `cp311`
+   for the Python 3.11 build, `cp313` for the local Python 3.13 build.
+2. Install `dist\photara_blender_addon-<version>.zip` through Blender's
+   add-on preferences and enable **Render: Photara Renderer**.
+3. Select the **Photara** engine in Render Properties.
+
+The add-on syncs meshes (with modifiers and instances), Principled BSDF
+materials, area/point/sun/spot lights, world backgrounds and HDR
+environments, and the camera incrementally via `depsgraph.updates` — the
+same strategy as Cycles' own `BlenderSync`. Current limitations are
+   documented in `photara_rs_engine/README.md`.
 
 ## Repository layout
 
