@@ -73,7 +73,10 @@ class PhotaraDenoisePanel:
         settings = context.scene.photara
         prefix = 'viewport_' if self.setting == 'viewport_denoise' else ''
         layout.prop(settings, prefix + 'denoiser')
-        layout.prop(settings, prefix + 'denoise_passes')
+        if getattr(settings, prefix + 'denoiser') == 'DLSS':
+            layout.prop(settings, prefix + 'denoise_upscale_quality')
+        else:
+            layout.prop(settings, prefix + 'denoise_passes')
         if getattr(settings, prefix + 'denoiser') == 'OPENIMAGEDENOISE':
             layout.prop(settings, prefix + 'denoise_prefilter')
             layout.prop(settings, prefix + 'denoise_quality')

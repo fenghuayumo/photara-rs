@@ -73,6 +73,9 @@ set(LIB
 )
 
 if(WITH_DLSS)
+  if(MSVC)
+    set_source_files_properties(denoiser_dlss.cpp PROPERTIES COMPILE_OPTIONS "/Zc:preprocessor")
+  endif()
   list(APPEND INC_SYS
     ${DLSS_INCLUDE_DIR}
   )

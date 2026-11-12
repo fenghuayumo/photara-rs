@@ -369,7 +369,7 @@ PHOTARA_API int photara_pass_channels(const PhotaraContext *ctx, const char *nam
  * Copy a pass into `dst`. Rows are bottom-up, matching Cycles render buffers.
  * `dst_count` must be at least width * height * channels.
  */
-/* Configure an idle session's denoiser. Type: 0 automatic, 2 OptiX, 4 OIDN.
+/* Configure an idle session's denoiser. Type: 0 automatic, 2 OptiX, 4 OIDN, 8 DLSS.
  * Passes: 0 color, 1 color+albedo, 5 color+albedo+normal.
  * Prefilter: 1 none, 2 fast, 3 accurate. Quality: 1 high, 2 balanced, 3 fast. */
 /* Film exposure is a linear multiplier. Filter: 0 box, 1 Gaussian, 2 Blackman-Harris. */
@@ -380,6 +380,8 @@ PHOTARA_API int photara_configure_film(PhotaraContext *ctx, float exposure, int 
                                      int transparent_glass, float roughness_threshold,
                                      int filter_type, float filter_width);
 
+/* DLSS upscale factor: 1 native, 1.5 quality, 1/0.58 balanced, 2 performance, 3 ultra. */
+PHOTARA_API int photara_configure_dlss(PhotaraContext *ctx, float factor);
 PHOTARA_API int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
                                          int prefilter, int quality, int use_gpu);
 

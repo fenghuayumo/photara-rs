@@ -737,6 +737,11 @@ class Context {
     }
   }
 
+  void configure_dlss(float factor)
+  {
+    if (photara_configure_dlss(context_, factor) != 0) { throw_last_error(); }
+  }
+
   void configure_denoiser(int type, int passes, int prefilter, int quality, bool use_gpu)
   {
     if (photara_configure_denoiser(context_, type, passes, prefilter, quality, use_gpu) != 0) {
@@ -1146,6 +1151,7 @@ PYBIND11_MODULE(_photara, module)
       .def("preview", &Context::preview)
       .def("resize", &Context::resize)
       .def("configure_film", &Context::configure_film)
+      .def("configure_dlss", &Context::configure_dlss)
       .def("configure_denoiser", &Context::configure_denoiser)
       .def("get_pass", &Context::get_pass, py::arg("name"))
       .def_property_readonly("width", &Context::width)

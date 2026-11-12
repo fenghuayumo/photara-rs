@@ -46,7 +46,7 @@ def _denoiser_options(settings, viewport=False):
     prefix = 'viewport_' if viewport else ''
     return {name: getattr(settings, prefix + name) for name in (
         'denoiser', 'denoise_passes', 'denoise_prefilter',
-        'denoise_quality', 'denoise_use_gpu')}
+        'denoise_quality', 'denoise_use_gpu', 'denoise_upscale_quality')}
 
 
 def _film_options(scene):

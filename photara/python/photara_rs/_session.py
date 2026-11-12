@@ -327,11 +327,13 @@ class Session:
         denoise_prefilter: str = "ACCURATE",
         denoise_quality: str = "HIGH",
         denoise_use_gpu: bool = True,
+        denoise_upscale_quality: str = "NONE",
         viewport: bool = False,
     ) -> None:
         try:
+            factor = {"NONE": 1.0, "QUALITY": 1.5, "BALANCED": 1.0 / 0.58, "PERFORMANCE": 2.0, "ULTRA_PERFORMANCE": 3.0}[denoise_upscale_quality]
             denoise_args = (
-                {"AUTO": 0, "OPTIX": 2, "OPENIMAGEDENOISE": 4}[denoiser],
+                {"AUTO": 0, "OPTIX": 2, "OPENIMAGEDENOISE": 4, "DLSS": 8}[denoiser],
                 {"RGB": 0, "RGB_ALBEDO": 1, "RGB_ALBEDO_NORMAL": 5}[denoise_passes],
                 {"NONE": 1, "FAST": 2, "ACCURATE": 3}[denoise_prefilter],
                 {"HIGH": 1, "BALANCED": 2, "FAST": 3}[denoise_quality],
@@ -381,6 +383,7 @@ class Session:
         if self._denoise:
             try:
                 self._context.configure_denoiser(*denoise_args)
+                self._context.configure_dlss(factor)
             except Exception:
                 self.close()
                 raise

@@ -2430,7 +2430,7 @@ int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
                                int prefilter, int quality, int use_gpu)
 {
   return guarded(ctx, [&]() {
-    if (type != 0 && type != DENOISER_OPTIX && type != DENOISER_OPENIMAGEDENOISE) {
+    if (type != 0 && type != DENOISER_OPTIX && type != DENOISER_OPENIMAGEDENOISE && type != DENOISER_DLSS) {
       throw std::runtime_error("Unsupported denoiser type");
     }
     if (passes != 0 && passes != 1 && passes != 5) {
@@ -2438,6 +2438,9 @@ int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
     }
     if (prefilter < 1 || prefilter > 3 || quality < 1 || quality > 3) {
       throw std::runtime_error("Invalid denoiser prefilter or quality");
+    }
+    if (type == DENOISER_DLSS && !(ctx->session_params.device.denoisers & DENOISER_DLSS)) {
+      throw std::runtime_error("DLSS Ray Reconstruction is unavailable in this build or on this device");
     }
     if (type == DENOISER_OPTIX && !(ctx->session_params.device.denoisers & DENOISER_OPTIX)) {
       throw std::runtime_error("OptiX denoising is unavailable on this device");
@@ -2455,6 +2458,21 @@ int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
     integrator->set_denoiser_prefilter(static_cast<DenoiserPrefilter>(prefilter));
     integrator->set_denoiser_quality(static_cast<DenoiserQuality>(quality));
     integrator->set_denoise_use_gpu(use_gpu != 0);
+    integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
+  });
+}
+
+int photara_configure_dlss(PhotaraContext *ctx, float factor)
+{
+  return guarded(ctx, [&]() {
+    if (!(factor >= 1.0f && factor <= 3.0f)) {
+      throw std::runtime_error("DLSS upscale factor must be between 1 and 3");
+    }
+    Integrator *integrator = ctx->scene->integrator;
+    if (factor != 1.0f && integrator->get_denoiser_type() != DENOISER_DLSS) {
+      throw std::runtime_error("Upscaling requires the DLSS denoiser");
+    }
+    integrator->set_denoiser_upscale_factor(factor);
     integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
   });
 }

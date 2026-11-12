@@ -23,7 +23,10 @@ OUTPUT = Path(__file__).resolve().parent.parent / 'test_outputs'
 OUTPUT.mkdir(exist_ok=True)
 scene, cube, material = prepare_scene()
 scene.photara.viewport_samples = 16
-scene.photara.viewport_denoise = False
+scene.photara.viewport_denoise = bool(os.environ.get('PHOTARA_TEST_DLSS'))
+if scene.photara.viewport_denoise:
+    scene.photara.viewport_denoiser = 'DLSS'
+    scene.photara.viewport_denoise_upscale_quality = os.environ['PHOTARA_TEST_DLSS']
 bpy.context.preferences.view.show_splash = False
 area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
 area.spaces.active.region_3d.view_perspective = 'PERSP'

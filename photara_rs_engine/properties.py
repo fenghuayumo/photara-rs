@@ -3,7 +3,7 @@
 import bpy
 
 
-DENOISERS = [('AUTO', 'Automatic', 'Prefer OptiX'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]
+DENOISERS = [('AUTO', 'Automatic', 'Prefer OptiX'), ('DLSS', 'DLSS Ray Reconstruction', 'NVIDIA DLSS denoising and optional upscaling'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]
 DENOISE_PASSES = [('RGB', 'None', 'Color only'), ('RGB_ALBEDO', 'Albedo', 'Albedo guidance'), ('RGB_ALBEDO_NORMAL', 'Albedo and Normal', 'Albedo and normal guidance')]
 PREFILTERS = [('NONE', 'None', 'Unfiltered guidance'), ('FAST', 'Fast', 'Filter jointly'), ('ACCURATE', 'Accurate', 'Prefilter guidance')]
 QUALITIES = [('HIGH', 'High', 'Best quality'), ('BALANCED', 'Balanced', 'Balanced quality'), ('FAST', 'Fast', 'Fastest')]
@@ -93,3 +93,6 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
     film_transparent_roughness: bpy.props.FloatProperty(name="Roughness Threshold", default=0.1, min=0.0, max=1.0)
     pixel_filter_type: bpy.props.EnumProperty(name="Type", items=[('BOX', 'Box', 'Box filter'), ('GAUSSIAN', 'Gaussian', 'Gaussian filter'), ('BLACKMAN_HARRIS', 'Blackman-Harris', 'Blackman-Harris filter')], default='BLACKMAN_HARRIS')
     filter_width: bpy.props.FloatProperty(name="Width", default=1.5, min=0.01, max=10.0)
+
+    denoise_upscale_quality: bpy.props.EnumProperty(name="DLSS Upscaling", items=[('NONE', 'Native Resolution', 'Denoise at full resolution'), ('QUALITY', 'Quality', '1.5x upscale'), ('BALANCED', 'Balanced', '1.724x upscale'), ('PERFORMANCE', 'Performance', '2x upscale'), ('ULTRA_PERFORMANCE', 'Ultra Performance', '3x upscale')], default='NONE')
+    viewport_denoise_upscale_quality: bpy.props.EnumProperty(name="DLSS Upscaling", items=[('NONE', 'Native Resolution', 'Denoise at full resolution'), ('QUALITY', 'Quality', '1.5x upscale'), ('BALANCED', 'Balanced', '1.724x upscale'), ('PERFORMANCE', 'Performance', '2x upscale'), ('ULTRA_PERFORMANCE', 'Ultra Performance', '3x upscale')], default='NONE')

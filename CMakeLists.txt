@@ -186,6 +186,7 @@ mark_as_advanced(WITH_CYCLES_PARALLEL_DEVICE_KERNEL_BUILD)
 option(WITH_STRICT_BUILD_OPTIONS "When requirements for a build option are not met, error instead of disabling the option" OFF)
 
 # Photara interfaces
+option(WITH_DLSS "Enable NVIDIA DLSS Ray Reconstruction" OFF)
 option(PHOTARA_BUILD_C_API "Build the Photara C API library" ON)
 option(PHOTARA_BUILD_PYTHON "Build the Photara Python module" OFF)
 

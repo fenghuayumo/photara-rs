@@ -1224,6 +1224,7 @@ class Scene:
         denoise_prefilter: str = "ACCURATE",
         denoise_quality: str = "HIGH",
         denoise_use_gpu: bool = True,
+        denoise_upscale_quality: str = "NONE",
         viewport: bool = False,
     ) -> None:
         self._session = Session(
@@ -1237,7 +1238,7 @@ class Scene:
             device=device,
             denoiser=denoiser, denoise_passes=denoise_passes,
             denoise_prefilter=denoise_prefilter, denoise_quality=denoise_quality,
-            denoise_use_gpu=denoise_use_gpu,
+            denoise_use_gpu=denoise_use_gpu, denoise_upscale_quality=denoise_upscale_quality,
             viewport=viewport,
         )
         self._closed = False

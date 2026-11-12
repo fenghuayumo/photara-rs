@@ -61,3 +61,17 @@ under `test_outputs/gpu_display_verification.json`.
 
 CPU denoising can itself require host pixel transfers; use the OptiX denoiser
 when validating an entirely GPU-resident rendering/denoising/display route.
+
+## DLSS denoising and upscaling
+
+Viewport and final-render Denoise panels both offer DLSS Ray Reconstruction.
+Each has an independent DLSS Upscaling selection: Native Resolution (default),
+Quality (1.5x), Balanced (1/0.58x), Performance (2x), Ultra Performance (3x).
+Output dimensions stay unchanged. Native Resolution performs no downscaling.
+Build Photara with `WITH_DLSS=ON` and `DLSS_INCLUDE_DIR` pointing to the NVIDIA
+SDK headers. An unsupported device/build reports an explicit error when DLSS is
+selected. The Python API accepts `denoiser="DLSS"` and
+`denoise_upscale_quality="QUALITY"` (or the other enum identifiers).
+
+Run `PHOTARA_TEST_DLSS=QUALITY` with the GPU display verification script to test
+DLSS through Blender's native display driver.
