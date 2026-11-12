@@ -1,0 +1,89 @@
+diff --git a/intern/cycles/blender/python.cpp b/intern/cycles/blender/python.cpp
+index 710fa54d1a2..321ecf26362 100644
+--- a/intern/cycles/blender/python.cpp
++++ b/intern/cycles/blender/python.cpp
+@@ -27,6 +27,11 @@
+ #include "util/types.h"
+ 
+ #include "GPU_state.hh"
++#include "GPU_context.hh"
++#include "GPU_shader.hh"
++#include "GPU_texture.hh"
++#include "GPU_platform.hh"
++#include "blender/display_driver.h"
+ 
+ #include "DNA_screen_types.h"
+ 
+@@ -899,7 +904,72 @@ static PyObject *clear_denoise_temporal_history_func(PyObject * /*self*/, PyObje
+   Py_RETURN_NONE;
+ }
+ 
++class PhotaraBlenderDisplayDriver : public BlenderDisplayDriver {
++ public:
++  using DeviceFill = void (*)(void *, int, const uint8_t *, size_t);
++  DeviceFill fill;
++  PhotaraBlenderDisplayDriver(blender::RenderEngine &engine, blender::Scene &scene,
++                             blender::RegionView3D *region, DeviceFill fill)
++      : BlenderDisplayDriver(engine, scene, region, false), fill(fill) {}
++  GraphicsInteropDevice graphics_interop_get_device() override {
++    GraphicsInteropDevice result;
++    auto uuid = blender::GPU_platform_uuid();
++    auto backend = blender::GPU_backend_get_type();
++    int type = backend == blender::GPU_BACKEND_VULKAN ? 2 :
++               backend == blender::GPU_BACKEND_OPENGL ? 1 : 0;
++    // The receiving module must allocate this vector: Blender uses MEM_* while
++    // the standalone renderer uses malloc/free. Do not cross allocator domains.
++    fill(&result, type, uuid.data(), uuid.size());
++    return result;
++  }
++  std::atomic<unsigned long long> gpu_updates{0}, cpu_maps{0};
++  half4 *map_texture_buffer() override {
++    ++cpu_maps;
++    return BlenderDisplayDriver::map_texture_buffer();
++  }
++  void graphics_interop_update_buffer() override {
++    ++gpu_updates;
++    BlenderDisplayDriver::graphics_interop_update_buffer();
++  }
++};
++
++static PyObject *photara_display_stats(PyObject *, PyObject *capsule)
++{
++  auto *driver = static_cast<PhotaraBlenderDisplayDriver *>(
++      PyCapsule_GetPointer(capsule, "photara.DisplayDriver.consumed"));
++  if (!driver) { return nullptr; }
++  return Py_BuildValue("{sK,sK}", "gpu_updates", driver->gpu_updates.load(),
++                      "cpu_maps", driver->cpu_maps.load());
++}
++
++/* Photara bridge: keep allocation, graphics contexts, fences and shaders in
++ * Blender. Both modules must use the identical session/display_driver.h ABI. */
++static void photara_display_capsule_free(PyObject *capsule)
++{
++  if (PyCapsule_IsValid(capsule, "photara.DisplayDriver.v1.4d9862575ebf7cca")) {
++    delete static_cast<DisplayDriver *>(PyCapsule_GetPointer(capsule, "photara.DisplayDriver.v1.4d9862575ebf7cca"));
++  }
++}
++
++static PyObject *photara_display_create(PyObject *, PyObject *args)
++{
++  PyObject *engine, *scene, *region, *allocator;
++  if (!PyArg_ParseTuple(args, "OOOO", &engine, &scene, &region, &allocator)) { return nullptr; }
++  auto *e = static_cast<blender::RenderEngine *>(PyLong_AsVoidPtr(engine));
++  auto *s = static_cast<blender::Scene *>(PyLong_AsVoidPtr(scene));
++  auto *r = static_cast<blender::RegionView3D *>(PyLong_AsVoidPtr(region));
++  if (PyErr_Occurred()) { return nullptr; }
++  if (!e || !s || !r) { return PyErr_Format(PyExc_ValueError, "Missing Blender viewport pointers"); }
++  auto fill = reinterpret_cast<PhotaraBlenderDisplayDriver::DeviceFill>(
++      PyCapsule_GetPointer(allocator, "photara.DisplayDeviceAllocator.v1"));
++  if (!fill) { return nullptr; }
++  DisplayDriver *driver = new PhotaraBlenderDisplayDriver(*e, *s, r, fill);
++  return PyCapsule_New(driver, "photara.DisplayDriver.v1.4d9862575ebf7cca", photara_display_capsule_free);
++}
++
+ static PyMethodDef methods[] = {
++    {"photara_display_stats", photara_display_stats, METH_O, "Display interop counters"},
++    {"photara_display_create", photara_display_create, METH_VARARGS, "Create a native display driver for Photara"},
+     {"clear_denoise_temporal_history", clear_denoise_temporal_history_func, METH_NOARGS, ""},
+     {"init", init_func, METH_VARARGS, ""},
+     {"exit", exit_func, METH_VARARGS, ""},

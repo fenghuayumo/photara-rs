@@ -159,18 +159,40 @@ def run_viewport(scene, cube, material):
     counts = {"uploads": 0, "draws": 0, "sample_levels": []}
     upload = engine.ViewportState._upload_result
     draw = engine.ViewportState.draw
+    invalidate = engine.ViewportState.invalidate
+    def checked_invalidate(self, depsgraph=None):
+        invalidate(self, depsgraph)
+        assert self.pending_frame is None, "Pending frames from the previous view must be discarded"
     def checked_upload(self, frame):
+        assert not self.gpu_display, "Native GPU display must never upload CPU pixels"
         upload(self, frame)
         assert self.texture is not None
+        assert frame.beauty.shape[:2] == (self.height, self.width), "Viewport must stay at full resolution"
         counts["uploads"] += 1
         counts["sample_levels"].append(self.pending_samples)
+        counts["settled"] = (self.pending_samples == 6 and frame.beauty.shape[:2] == (self.height, self.width))
+        counts["material_updated"] = any(
+            np.allclose(mat.base_color, (0.02, 0.8, 0.03)) for mat in self.scene.materials)
     def checked_draw(self, context):
         draw(self, context)
-        if self.texture is not None:
+        if self.gpu_display:
+            import _cycles
+            stats = _cycles.photara_display_stats(self._display_capsule)
+            counts['gpu_updates'] = stats['gpu_updates']
+            counts['cpu_maps'] = stats['cpu_maps']
+            assert stats['cpu_maps'] == 0, "Display silently fell back to CPU mapping"
+            if stats['gpu_updates']:
+                counts['draws'] += 1
+            counts['settled'] = (not self.needs_update and self.job is None
+                                  and self.current_samples == 6)
+            counts['material_updated'] = any(
+                np.allclose(mat.base_color, (0.02,0.8,0.03)) for mat in self.scene.materials)
+        elif self.texture is not None:
             counts["draws"] += 1
     failures = []
     engine.ViewportState._upload_result = checked_upload
     engine.ViewportState.draw = checked_draw
+    engine.ViewportState.invalidate = checked_invalidate
     engine.PhotaraRenderEngine._report_viewport_failure = lambda self, exc: failures.append(str(exc))
     area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
     area.spaces.active.region_3d.view_perspective = 'PERSP'
@@ -183,16 +205,20 @@ def run_viewport(scene, cube, material):
             assert not failures, failures
             if time.monotonic() - start > 90:
                 raise AssertionError(f"Viewport timed out: {counts}")
-            if len(set(counts['sample_levels'])) >= 2 and stage == 0:
+            if (counts.get('uploads', 0) >= 1 or counts.get('gpu_updates', 0) >= 1) and stage == 0:
                 stage = 1
                 counts['before_edit'] = counts['uploads']
                 cube.location.z += 0.3
+                material.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.02, 0.8, 0.03, 1)
+                cube.data.vertices[0].co.x += 0.15
+                cube.data.update()
                 scene.photara.max_bounces = 3
                 scene.photara.viewport_samples = 6
                 area.spaces.active.region_3d.view_distance *= 1.1
                 bpy.context.view_layer.update()
                 area.tag_redraw()
-            elif stage == 1 and counts['uploads'] > counts['before_edit'] and counts['draws'] >= 3:
+            elif (stage == 1 and counts.get('settled') and counts.get('material_updated')
+                  and counts['draws'] >= 3):
                 print("PHOTARA_VIEWPORT_TEST_OK", json.dumps(counts), flush=True)
                 (OUTPUT / "viewport_verification.json").write_text(json.dumps(counts), encoding='utf-8')
                 bpy.ops.wm.quit_blender()

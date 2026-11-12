@@ -43,6 +43,7 @@ class SessionParams {
   DeviceInfo denoise_device;
 
   bool headless;
+  double preview_update_interval = 0.0;
   bool background;
 
   int samples;

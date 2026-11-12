@@ -211,6 +211,33 @@ class RenderJob:
     def failed(self) -> bool:
         return self.state == "failed"
 
+    def request_cancel(self) -> None:
+        """Request cancellation immediately; keep polling until terminal before editing."""
+        if self._result is None:
+            self._session._ctx.render_request_cancel(self.id)
+
+    def preview_update(self, revision=0):
+        """Return (revision, frame) when the running job has newer native pixels."""
+        self.poll()  # Validate that this job still owns the session.
+        raw = self._session._ctx.preview(int(revision))
+        if raw is None:
+            return None
+        from types import SimpleNamespace
+        revision, rgba, depth = raw
+        return revision, SimpleNamespace(beauty=np.flipud(rgba), depth=np.flipud(depth),
+            depth_valid=np.flipud(np.isfinite(depth) & (depth < 1e9)))
+
+    def preview(self):
+        """Read only combined and depth from a completed job, without collecting AOVs."""
+        snapshot = self.poll()
+        if snapshot.state != "done":
+            raise PhotaraRenderError("Preview is only available for a completed render")
+        self._finish()
+        from types import SimpleNamespace
+        beauty = self._session.beauty()
+        depth = self._session.depth()
+        return SimpleNamespace(beauty=beauty, depth=depth, depth_valid=np.isfinite(depth) & (depth < 1e9))
+
     def cancel(self) -> None:
         """Cancel the render and wait for the renderer to stop."""
         if self._result is not None:
@@ -300,6 +327,7 @@ class Session:
         denoise_prefilter: str = "ACCURATE",
         denoise_quality: str = "HIGH",
         denoise_use_gpu: bool = True,
+        viewport: bool = False,
     ) -> None:
         try:
             denoise_args = (
@@ -348,6 +376,7 @@ class Session:
             self._adaptive_sampling,
             self._device,
             resource_dir(),
+            bool(viewport),
         )
         if self._denoise:
             try:
@@ -920,6 +949,14 @@ class Session:
             ctx.set_seed(seed)
             self._seed = seed
         ctx.render()
+
+    def resize(self, width: int, height: int) -> None:
+        """Resize an idle session while retaining its scene and device."""
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0:
+            raise ValueError("Render resolution must be positive")
+        self._ctx.resize(width, height)
+        self.width_, self.height_ = width, height
 
     def configure_film(self, *, exposure=1.0, transparent=False, transparent_glass=False,
                        roughness_threshold=0.1, filter_type="BLACKMAN_HARRIS", filter_width=1.5):

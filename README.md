@@ -149,7 +149,9 @@ The installer detects Blender's Python version, selects its matching wheel,
 installs the native package, packages and installs the add-on, checks OptiX,
 and saves the enabled add-on in Blender preferences. Close Blender before
 upgrading native binaries, then reopen it and select **Photara** as the render
-engine. No Blender source modifications or rebuild are needed.
+engine. The compatible path needs no Blender rebuild. The local Blender build also
+includes a narrow Cycles display bridge for GPU-resident viewport display;
+see `photara_rs_engine/GPU_DISPLAY.md` to reproduce that accelerated build.
 
 The local Blender **5.3.0 Beta / Python 3.13.13 / RTX 5090 D v2** has been
 verified with final Combined/Depth passes, multilayer EXR output, collection

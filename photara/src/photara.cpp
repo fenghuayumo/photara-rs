@@ -40,6 +40,7 @@
 #include "scene/shader_nodes.h"
 #include "session/buffers.h"
 #include "session/output_driver.h"
+#include "session/display_driver.h"
 #include "session/session.h"
 #include "util/array.h"
 #include "util/colorspace.h"
@@ -462,6 +463,8 @@ bool find_device(const PhotaraDevice requested, DeviceInfo &device, std::string 
 /* Copies the completed full-frame passes out of the renderer. */
 class CaptureDriver : public OutputDriver {
  public:
+  bool gpu_display = false;
+
   struct PassBuffer {
     int channels = 0;
     std::vector<float> pixels;
@@ -475,6 +478,7 @@ class CaptureDriver : public OutputDriver {
     width_ = 0;
     height_ = 0;
     passes_.clear();
+    ++revision_;
   }
 
   bool has_data() const
@@ -513,8 +517,30 @@ class CaptureDriver : public OutputDriver {
     return true;
   }
 
+  bool update_render_tile(const Tile &tile) override
+  {
+    write_render_tile(tile);
+    return has_data();
+  }
+
+  int preview(float *rgba, float *depth, size_t pixels, unsigned long long *revision)
+  {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (revision_ == *revision || width_ <= 0 || pixels != size_t(width_) * height_) {
+      return 1;
+    }
+    const auto color = passes_.find("combined");
+    const auto z = passes_.find("depth");
+    if (color == passes_.end() || z == passes_.end()) { return 1; }
+    std::memcpy(rgba, color->second.pixels.data(), pixels * 4 * sizeof(float));
+    std::memcpy(depth, z->second.pixels.data(), pixels * sizeof(float));
+    *revision = revision_;
+    return 0;
+  }
+
   void write_render_tile(const Tile &tile) override
   {
+    if (gpu_display) { return; }
     if (tile.size.x != tile.full_size.x || tile.size.y != tile.full_size.y) {
       return;
     }
@@ -530,10 +556,12 @@ class CaptureDriver : public OutputDriver {
         passes_.emplace(spec.name, PassBuffer{spec.channels, std::move(pixels)});
       }
     }
+    ++revision_;
   }
 
  private:
   mutable std::mutex mutex_;
+  unsigned long long revision_ = 0;
   int width_ = 0;
   int height_ = 0;
   std::vector<PassSpec> pass_specs_;
@@ -577,6 +605,7 @@ struct PhotaraContext {
     unsigned long long id = 0;
     int state = PHOTARA_RENDER_DONE;
     bool active = false;
+    bool cancel_requested = false;
     std::string status;
     std::string substatus;
   };
@@ -587,6 +616,7 @@ struct PhotaraContext {
   int width = 0;
   int height = 0;
   bool rendered = false;
+  bool gpu_display = false;
 
   unique_ptr<Session> session;
   Scene *scene = nullptr;
@@ -1005,7 +1035,7 @@ void write_mesh_uvs(Mesh *mesh, const float *uvs)
 
 extern "C" {
 
-PhotaraContext *photara_create(const PhotaraOptions *options)
+static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool viewport)
 {
   if (options == nullptr) {
     set_create_error("NULL options passed to photara_create");
@@ -1059,7 +1089,8 @@ PhotaraContext *photara_create(const PhotaraOptions *options)
     SessionParams &params = ctx->session_params;
     params.device = device;
     params.denoise_device = device;
-    params.headless = true;
+    params.headless = !viewport;
+    params.preview_update_interval = viewport ? 0.05 : 0.0;
     params.background = true;
     params.samples = std::max(options->samples > 0 ? options->samples : 64, 1);
     params.use_auto_tile = false;
@@ -1159,7 +1190,7 @@ PhotaraContext *photara_create(const PhotaraOptions *options)
       cam->set_matrix(basis_transform(right, up, forward, float3_from_ptr(camera.position)));
       cam->need_flags_update = true;
       cam->compute_auto_viewplane();
-      cam->update(scene);
+      /* Leave camera dirty until Scene::update uploads it to the device. */
     }
 
     /* Neutral default world, so an empty scene is not pitch black. */
@@ -1199,6 +1230,15 @@ PhotaraContext *photara_create(const PhotaraOptions *options)
     set_create_error("Unknown error while creating the Photara context");
     return nullptr;
   }
+}
+
+PhotaraContext *photara_create(const PhotaraOptions *options)
+{
+  return photara_create_impl(options, false);
+}
+PhotaraContext *photara_create_viewport(const PhotaraOptions *options)
+{
+  return photara_create_impl(options, true);
 }
 
 void photara_destroy(PhotaraContext *ctx)
@@ -1622,7 +1662,7 @@ int photara_set_camera(PhotaraContext *ctx, const PhotaraCameraDesc *desc)
     camera->set_matrix(basis_transform(right, up, forward, float3_from_ptr(desc->position)));
     camera->need_flags_update = true;
     camera->compute_auto_viewplane();
-    camera->update(ctx->scene);
+    /* Camera::device_update computes matrices and clears the dirty flag. */
   });
 }
 
@@ -1653,7 +1693,7 @@ int photara_set_camera_matrix(PhotaraContext *ctx,
     camera->set_matrix(transform_from_matrix(matrix));
     camera->need_flags_update = true;
     camera->compute_auto_viewplane();
-    camera->update(ctx->scene);
+    /* Camera::device_update computes matrices and clears the dirty flag. */
   });
 }
 
@@ -2062,6 +2102,10 @@ int photara_render_poll(PhotaraContext *ctx,
     Progress &progress = ctx->session->progress;
 
     if (record.state == PHOTARA_RENDER_RUNNING) {
+      // Preserve the upload safety rule without waiting on the UI thread.
+      if (record.cancel_requested && progress.get_current_sample() > 0) {
+        progress.set_cancel("Superseded by a viewport update");
+      }
       if (!ctx->session->is_rendering()) {
         ctx->session->wait();
 
@@ -2086,7 +2130,7 @@ int photara_render_poll(PhotaraContext *ctx,
           record.substatus.clear();
           ctx->rendered = false;
         }
-        else if (ctx->capture != nullptr && ctx->capture->has_data()) {
+        else if ((ctx->gpu_display || (ctx->capture != nullptr && ctx->capture->has_data()))) {
           record.state = PHOTARA_RENDER_DONE;
           record.status = "Finished";
           record.substatus.clear();
@@ -2123,6 +2167,16 @@ int photara_render_poll(PhotaraContext *ctx,
     set_error(ctx, "Unknown error");
     return -1;
   }
+}
+
+int photara_render_request_cancel(PhotaraContext *ctx, const unsigned long long job)
+{
+  return guarded_read(ctx, [&]() {
+    if (!ctx->render_job.active || ctx->render_job.id != job) {
+      throw std::runtime_error("Render job is invalid or was superseded");
+    }
+    ctx->render_job.cancel_requested = true;
+  });
 }
 
 int photara_render_cancel(PhotaraContext *ctx, const unsigned long long job)
@@ -2165,7 +2219,7 @@ int photara_render_cancel(PhotaraContext *ctx, const unsigned long long job)
         set_error(ctx, record.status);
         ctx->rendered = false;
       }
-      else if (ctx->capture != nullptr && ctx->capture->has_data()) {
+      else if ((ctx->gpu_display || (ctx->capture != nullptr && ctx->capture->has_data()))) {
         record.state = PHOTARA_RENDER_DONE;
         record.status = "Finished";
         ctx->rendered = true;
@@ -2297,6 +2351,58 @@ int photara_pass_channels(const PhotaraContext *ctx, const char *name)
     }
   }
   return -1;
+}
+
+int photara_attach_display(PhotaraContext *ctx, void *pointer)
+{
+  // Ownership is transferred even when validation fails.
+  unique_ptr<DisplayDriver> driver(static_cast<DisplayDriver *>(pointer));
+  return guarded(ctx, [&]() {
+    if (!driver) { throw std::runtime_error("Missing display driver"); }
+    ctx->session->set_display_driver(std::move(driver));
+    ctx->gpu_display = true;
+    ctx->capture->gpu_display = true;
+    ctx->capture->clear();
+  });
+}
+
+int photara_draw_display(PhotaraContext *ctx)
+{
+  // Drawing may overlap render work. DisplayDriver handles graphics locks.
+  if (!ctx || !ctx->gpu_display) { return -1; }
+  ctx->session->draw();
+  return 0;
+}
+
+int photara_copy_preview(PhotaraContext *ctx, float *rgba, float *depth,
+                          size_t pixels, unsigned long long *revision)
+{
+  int result = 1;
+  int error = guarded_read(ctx, [&]() {
+    if (!rgba || !depth || !revision) { throw std::runtime_error("NULL preview buffer"); }
+    if (ctx->capture) { result = ctx->capture->preview(rgba, depth, pixels, revision); }
+  });
+  return error ? -1 : result;
+}
+
+int photara_resize(PhotaraContext *ctx, int width, int height)
+{
+  return guarded(ctx, [&]() {
+    if (width <= 0 || height <= 0) {
+      throw std::runtime_error("Render resolution must be positive");
+    }
+    ctx->width = ctx->buffer_params.width = ctx->buffer_params.full_width = width;
+    ctx->height = ctx->buffer_params.height = ctx->buffer_params.full_height = height;
+    ctx->rendered = false;
+    if (ctx->capture) {
+      ctx->capture->clear();
+    }
+    Camera *camera = ctx->scene->camera;
+    camera->set_full_width(width);
+    camera->set_full_height(height);
+    camera->compute_auto_viewplane();
+    /* Camera::device_update computes matrices and clears the dirty flag. */
+  });
 }
 
 int photara_configure_film(PhotaraContext *ctx, float exposure, int transparent,

@@ -1224,6 +1224,7 @@ class Scene:
         denoise_prefilter: str = "ACCURATE",
         denoise_quality: str = "HIGH",
         denoise_use_gpu: bool = True,
+        viewport: bool = False,
     ) -> None:
         self._session = Session(
             width=width,
@@ -1237,6 +1238,7 @@ class Scene:
             denoiser=denoiser, denoise_passes=denoise_passes,
             denoise_prefilter=denoise_prefilter, denoise_quality=denoise_quality,
             denoise_use_gpu=denoise_use_gpu,
+            viewport=viewport,
         )
         self._closed = False
         self._samples = int(samples)
@@ -1335,6 +1337,11 @@ class Scene:
             self._seed = seed
         self._session.render(seed=seed)
         return RenderResult(self._session, seed=self._seed)
+
+    def resize(self, width: int, height: int) -> None:
+        """Resize an idle scene's render buffers without rebuilding its data."""
+        self._ensure_open()
+        self._session.resize(width, height)
 
     def configure_film(self, **settings):
         """Configure film exposure, transparency and pixel filtering."""

@@ -109,6 +109,23 @@ class SceneApiTests(unittest.TestCase):
         if getattr(self, "scene", None) is not None:
             self.scene.close()
 
+    def test_camera_only_update_reaches_gpu(self):
+        with pr.Scene(64, 48, samples=2, denoise=False, adaptive_sampling=False) as scene:
+            mesh = scene.meshes.new('triangle', [(-1, -1, 0), (1, -1, 0), (0, 1, 0)], [(0, 1, 2)])
+            scene.objects.new('triangle', mesh, object_id=7)
+            scene.camera.location = (0, 0, -4)
+            scene.camera.target = (0, 0, 0)
+            first = scene.render().object_id
+            # Keep seed, samples, geometry, lights and shaders unchanged. Only
+            # move the camera, so no unrelated dirty flag can hide the bug.
+            matrix = scene.camera.matrix_world
+            matrix[0, 3] += 1
+            scene.camera.matrix_world = matrix
+            moved = scene.render().object_id
+            first_x = np.where(first == 7)[1].mean()
+            moved_x = np.where(moved == 7)[1].mean()
+            self.assertGreater(abs(first_x - moved_x), 5)
+
     def test_passes_and_npz(self) -> None:
         result = self.scene.render(seed=1)
         self.assertEqual(result.beauty.shape, (48, 64, 4))

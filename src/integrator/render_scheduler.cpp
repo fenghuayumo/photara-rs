@@ -20,6 +20,7 @@ CCL_NAMESPACE_BEGIN
 
 RenderScheduler::RenderScheduler(TileManager &tile_manager, const SessionParams &params)
     : headless_(params.headless),
+      preview_update_interval_(params.preview_update_interval),
       background_(params.background),
       pixel_size_(params.pixel_size),
       tile_manager_(tile_manager),
@@ -770,6 +771,9 @@ double RenderScheduler::guess_display_update_interval_in_seconds() const
 double RenderScheduler::guess_display_update_interval_in_seconds_for_num_samples(
     int num_rendered_samples) const
 {
+  if (preview_update_interval_ > 0.0) {
+    return preview_update_interval_;
+  }
   double update_interval = guess_display_update_interval_in_seconds_for_num_samples_no_limit(
       num_rendered_samples);
 

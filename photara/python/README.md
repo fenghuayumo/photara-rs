@@ -70,9 +70,9 @@ frame.save_png("frame_0000.png")   # requires Pillow
 - Lights support transform properties, `.color`, `.strength`, `.size` (area),
   `.radius` (point/spot), `.spot_angle` and `.smooth` (spot), `.angle` (sun),
   `.target` (area), `.direction` (sun/spot), and `.visible`.
-- `scene.samples` and `scene.seed` can change between renders. Resolution,
-  maximum bounces, denoising and adaptive sampling are fixed for the lifetime
-  of the scene.
+- `scene.samples` and `scene.seed` can change between renders. `scene.resize(width,
+  height)` changes an idle scene's resolution without recreating its data/device.
+  Maximum bounces, denoising and adaptive sampling are fixed for the scene lifetime.
 - Removing a scene, mesh, object or light and then using it raises
   `PhotaraRemovedError`; using a closed scene raises `PhotaraClosedError`.
 
@@ -239,3 +239,14 @@ pip install "photara-rs[png]"
 Prefilter, quality and GPU preference apply to OIDN. Settings are fixed for the
 session lifetime. Use a rebuilt native wheel with this API; the local cp313
 wheel includes it. The render device remains OptiX even when denoising on CPU.
+
+`job.request_cancel()` requests cancellation without waiting for GPU work. Keep
+polling until the job is terminal before editing the scene or starting a new job.
+`job.cancel()` remains the blocking cancellation API. `job.preview()` reads only
+combined and depth from a completed render; `job.wait()` still collects all AOVs.
+
+For native progressive output, create `Scene(..., viewport=True)` and start one
+`render_async()` job with the desired total sample count. Poll
+`job.preview_update(last_revision)` to obtain `(new_revision, frame)` when the
+native renderer publishes new combined/depth pixels; it returns `None` otherwise.
+The job keeps accumulating samples and is not restarted for each preview update.

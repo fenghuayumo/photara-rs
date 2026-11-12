@@ -471,6 +471,7 @@ class RenderScheduler {
 
   /* Headless rendering without interface. */
   bool headless_;
+  double preview_update_interval_;
 
   /* Background (offline) rendering. */
   bool background_;

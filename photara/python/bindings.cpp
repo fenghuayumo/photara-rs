@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "photara/photara.h"
+#include "session/display_driver.h"
 
 namespace py = pybind11;
 
@@ -70,7 +71,8 @@ class Context {
           const bool use_denoise,
           const bool use_adaptive_sampling,
           const std::string &device,
-          const std::string &resource_dir)
+          const std::string &resource_dir,
+          bool viewport)
   {
     PhotaraOptions options = {};
     options.width = width;
@@ -83,7 +85,7 @@ class Context {
     options.device = parse_device(device);
     options.resource_dir = resource_dir.c_str();
 
-    context_ = photara_create(&options);
+    context_ = viewport ? photara_create_viewport(&options) : photara_create(&options);
     if (context_ == nullptr) {
       throw std::runtime_error(photara_last_error(nullptr));
     }
@@ -663,6 +665,13 @@ class Context {
     return result;
   }
 
+  void render_request_cancel(const unsigned long long job)
+  {
+    if (photara_render_request_cancel(context_, job) != 0) {
+      throw_last_error();
+    }
+  }
+
   void render_cancel(const unsigned long long job)
   {
     if (photara_render_cancel(context_, job) != 0) {
@@ -680,6 +689,41 @@ class Context {
   void render()
   {
     if (photara_render(context_) != 0) {
+      throw_last_error();
+    }
+  }
+
+  void attach_display(py::capsule capsule)
+  {
+    const char *abi = "photara.DisplayDriver.v1.4d9862575ebf7cca";
+    if (!PyCapsule_IsValid(capsule.ptr(), abi)) {
+      throw std::runtime_error("Blender/Photara display driver ABI mismatch");
+    }
+    void *pointer = PyCapsule_GetPointer(capsule.ptr(), abi);
+    PyCapsule_SetName(capsule.ptr(), "photara.DisplayDriver.consumed");
+    if (photara_attach_display(context_, pointer) != 0) { throw_last_error(); }
+  }
+
+  void draw_display()
+  {
+    if (photara_draw_display(context_) != 0) { throw_last_error(); }
+  }
+
+  py::object preview(unsigned long long revision)
+  {
+    int w = width(), h = height();
+    py::array_t<float> rgba(std::vector<py::ssize_t>{h, w, 4});
+    py::array_t<float> depth(std::vector<py::ssize_t>{h, w});
+    int result = photara_copy_preview(context_, rgba.mutable_data(), depth.mutable_data(),
+                                      size_t(w) * h, &revision);
+    if (result < 0) { throw_last_error(); }
+    if (result == 1) { return py::none(); }
+    return py::make_tuple(revision, rgba, depth);
+  }
+
+  void resize(int width, int height)
+  {
+    if (photara_resize(context_, width, height) != 0) {
       throw_last_error();
     }
   }
@@ -875,8 +919,19 @@ class Context {
 
 } /* namespace */
 
+static void fill_display_device(void *pointer, int type, const uint8_t *uuid, size_t size)
+{
+  auto *device = static_cast<ccl::GraphicsInteropDevice *>(pointer);
+  device->type = static_cast<ccl::GraphicsInteropDevice::Type>(type);
+  device->uuid.assign(uuid, uuid + size);
+}
+
 PYBIND11_MODULE(_photara, module)
 {
+  module.def("display_device_allocator", []() {
+    return py::capsule(reinterpret_cast<void *>(&fill_display_device),
+                       "photara.DisplayDeviceAllocator.v1");
+  });
   module.doc() = "Photara renderer native bindings";
 
   py::class_<Context>(module, "Context")
@@ -888,7 +943,7 @@ PYBIND11_MODULE(_photara, module)
                     bool,
                     bool,
                     const std::string &,
-                    const std::string &>(),
+                    const std::string &, bool>(),
            py::arg("width"),
            py::arg("height"),
            py::arg("samples"),
@@ -897,7 +952,7 @@ PYBIND11_MODULE(_photara, module)
            py::arg("use_denoise"),
            py::arg("use_adaptive_sampling"),
            py::arg("device"),
-           py::arg("resource_dir"))
+           py::arg("resource_dir"), py::arg("viewport") = false)
       .def("add_material",
            &Context::add_material,
            py::arg("base_color"),
@@ -1079,12 +1134,17 @@ PYBIND11_MODULE(_photara, module)
       .def("set_samples", &Context::set_samples, py::arg("samples"))
       .def("render_begin", &Context::render_begin)
       .def("render_poll", &Context::render_poll, py::arg("job"))
+      .def("render_request_cancel", &Context::render_request_cancel)
       .def("render_cancel",
            &Context::render_cancel,
            py::arg("job"),
            py::call_guard<py::gil_scoped_release>())
       .def("render_finish", &Context::render_finish, py::arg("job"))
       .def("render", &Context::render, py::call_guard<py::gil_scoped_release>())
+      .def("attach_display", &Context::attach_display)
+      .def("draw_display", &Context::draw_display)
+      .def("preview", &Context::preview)
+      .def("resize", &Context::resize)
       .def("configure_film", &Context::configure_film)
       .def("configure_denoiser", &Context::configure_denoiser)
       .def("get_pass", &Context::get_pass, py::arg("name"))

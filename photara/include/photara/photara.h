@@ -180,6 +180,12 @@ typedef struct PhotaraSpotLightDesc {
 
 /* Lifecycle. Returns NULL on failure; see photara_last_error(NULL). */
 PHOTARA_API PhotaraContext *photara_create(const PhotaraOptions *options);
+PHOTARA_API PhotaraContext *photara_create_viewport(const PhotaraOptions *options);
+/* Returns 0 for a new frame, 1 if unchanged/unavailable, -1 on error. */
+PHOTARA_API int photara_attach_display(PhotaraContext *ctx, void *driver);
+PHOTARA_API int photara_draw_display(PhotaraContext *ctx);
+PHOTARA_API int photara_copy_preview(PhotaraContext *ctx, float *rgba, float *depth,
+                                    size_t pixels, unsigned long long *revision);
 PHOTARA_API void photara_destroy(PhotaraContext *ctx);
 
 typedef enum PhotaraTextureInterpolation {
@@ -342,6 +348,10 @@ PHOTARA_API int photara_render_poll(PhotaraContext *ctx,
                                     unsigned long long job,
                                     PhotaraRenderProgress *progress);
 /* Cancel a running job and wait for the renderer to stop. */
+/* Request cancellation without waiting. Poll until the job reaches a terminal state
+ * before modifying the scene or starting another job. */
+PHOTARA_API int photara_render_request_cancel(PhotaraContext *ctx, unsigned long long job);
+
 PHOTARA_API int photara_render_cancel(PhotaraContext *ctx, unsigned long long job);
 /* Finish a job. Returns 0 only for a successful completed render, -1 while
  * running, cancelled, failed, or for an invalid job. */
@@ -363,6 +373,9 @@ PHOTARA_API int photara_pass_channels(const PhotaraContext *ctx, const char *nam
  * Passes: 0 color, 1 color+albedo, 5 color+albedo+normal.
  * Prefilter: 1 none, 2 fast, 3 accurate. Quality: 1 high, 2 balanced, 3 fast. */
 /* Film exposure is a linear multiplier. Filter: 0 box, 1 Gaussian, 2 Blackman-Harris. */
+/* Resize an idle session without rebuilding geometry, materials or device. */
+PHOTARA_API int photara_resize(PhotaraContext *ctx, int width, int height);
+
 PHOTARA_API int photara_configure_film(PhotaraContext *ctx, float exposure, int transparent,
                                      int transparent_glass, float roughness_threshold,
                                      int filter_type, float filter_width);

@@ -343,6 +343,10 @@ def sync_world(state, blender_world):
     elif blender_world is not None and not blender_world.use_nodes:
         color = tuple(float(c) for c in blender_world.color)
 
+    values = (color, strength, env_path)
+    if state._world_values == values:
+        return
+    state._world_values = values
     world.color = color
     world.strength = strength
     if env_path and str(env_path).lower().endswith((".hdr", ".exr", ".pic", ".tga")):
@@ -417,6 +421,12 @@ class SceneSyncState:
         self.materials = {}    # blender material pointer -> photara Material
         self.object_matrices = {}  # blender object pointer -> flattened matrix
         self._full_sync_done = False
+        self._pending_geometry = set()
+        self._pending_objects = set()
+        self._pending_lights = set()
+        self._pending_materials = set()
+        self._pending_world = False
+        self._world_values = None
 
     def close(self):
         try:
@@ -489,6 +499,7 @@ class SceneSyncState:
         dirty_geometry = set()
         dirty_objects = set()
         dirty_lights = set()
+        dirty_materials = set()
         world_dirty = False
 
         for update in depsgraph.updates:
@@ -500,8 +511,7 @@ class SceneSyncState:
             elif isinstance(updated_id, bpy.types.Light):
                 dirty_lights.add(key)
             elif isinstance(updated_id, bpy.types.Material):
-                if key in self.materials:
-                    sync_material(self, updated_id)
+                dirty_materials.add(key)
             elif isinstance(updated_id, bpy.types.Object):
                 # Modifier-stack changes surface as object updates carrying
                 # the geometry flag; the mesh datablock itself is unchanged.
@@ -511,18 +521,30 @@ class SceneSyncState:
             elif isinstance(updated_id, (bpy.types.Scene, bpy.types.World)):
                 world_dirty = True
 
-        return dirty_geometry, dirty_objects, dirty_lights, world_dirty
+        return dirty_geometry, dirty_objects, dirty_lights, world_dirty, dirty_materials
 
-    def sync(self, depsgraph):
-        (
-            dirty_geometry,
-            dirty_objects,
-            dirty_lights,
-            world_dirty,
-        ) = self._collect_updates(depsgraph)
+    def queue_updates(self, depsgraph):
+        # Snapshot dirty IDs only: do not mutate a running native scene. Keep
+        # the union because depsgraph.updates can be replaced before we render.
+        geometry, objects, lights, world, materials = self._collect_updates(depsgraph)
+        self._pending_geometry.update(geometry)
+        self._pending_objects.update(objects)
+        self._pending_lights.update(lights)
+        self._pending_materials.update(materials)
+        self._pending_world |= world
 
+    def sync(self, depsgraph, sync_background=True):
+        self.queue_updates(depsgraph)
+        dirty_geometry, self._pending_geometry = self._pending_geometry, set()
+        dirty_objects, self._pending_objects = self._pending_objects, set()
+        dirty_lights, self._pending_lights = self._pending_lights, set()
+        dirty_materials, self._pending_materials = self._pending_materials, set()
+        world_dirty, self._pending_world = self._pending_world, False
+        for material in bpy.data.materials:
+            if material.as_pointer() in dirty_materials and material.as_pointer() in self.materials:
+                sync_material(self, material)
         first_sync = not self._full_sync_done
-        if first_sync or world_dirty:
+        if sync_background and (first_sync or world_dirty):
             sync_world(self, depsgraph.scene_eval.world)
 
         seen_objects = set()
@@ -588,8 +610,11 @@ class SceneSyncState:
                     if int(original.pass_index) != photara_object.object_id:
                         photara_object.object_id = int(original.pass_index)
                     blender_material = self._first_material(blender_object, blender_object.data)
-                    material = (sync_material(self, blender_material)
-                                if blender_material is not None else None)
+                    material = None
+                    if blender_material is not None:
+                        material = self.materials.get(blender_material.original.as_pointer())
+                        if material is None:
+                            material = sync_material(self, blender_material)
                     if photara_object.material is not material:
                         photara_object.material = material
 

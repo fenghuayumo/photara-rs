@@ -84,9 +84,21 @@ python scripts\package_blender_addon.py
 1. `Render Properties` 中把渲染引擎切换为 **Photara**。
 2. F12 最终渲染：输出 `Combined`（RGBA，线性）与 `Depth`（勾选
    `Z` pass 时）。
-3. 视口切换到 `Rendered` 着色模式：插件先显示低采样画面，再用更高
-   采样数刷新；相机或场景变化会自动重新渲染。当前通过多次独立渲染
-   实现渐进预览，每次需要重新采样，因此性能和 Cycles 的原生累积不同。
+3. 视口切换到 `Rendered`：一个原生渲染任务持续累积采样，通过核心
+   `OutputDriver.update_render_tile` 输出中间结果；约 50 ms 的调度间隔为
+   目标值，实际刷新速度取决于单次 GPU 工作耗时。达到采样上限后停止。
+   视角/场景变化时异步取消旧任务并重置采样，保留同一原生 Session、几何
+   和设备；只有改变会话级设置才重建会话。所有帧保持完整视口分辨率。
+   不再用多次独立短渲染模拟累积，也不再主动清空旧画面制造闪烁。
+   颜色和深度一起绘制，由 Blender 使用深度处理覆盖层遮挡。
+
+性能检查可通过 Blender `--python scripts/benchmark_blender_viewport.py`
+运行。`scripts/test_blender_alignment.py` 检查多个视角的渲染投影对齐。
+本地自定义 Blender 已启用原生 DisplayDriver 桥接，直接复用 Cycles 的
+Vulkan/CUDA 图形互操作路径，显示像素不经过 CPU。未打桥接补丁的 Blender
+仍使用兼容的 CPU 传输路径。构建、ABI 和所有权说明见 [GPU_DISPLAY.md](GPU_DISPLAY.md)。
+专项验证记录在 `test_outputs/gpu_display_verification.json`，包括 GPU 更新、
+CPU 映射和三个视角的像素对齐检查。
 4. Render Properties 按 Cycles 布局组织：顶部 `Device: GPU Compute`；
    `Sampling > Viewport / Render` 分别设置采样数、自适应采样和降噪；
    `Sampling > Advanced` 设置种子；`Light Paths > Max Bounces` 设置总反弹次数。
@@ -127,8 +139,8 @@ Exposure、Gamma 等控制最终渲染的显示和输出。视口目前只有曝
 
 - 正交视口暂不支持；最终渲染遇到正交或 panorama 相机会明确报错。
 - 多材质网格使用第一个材质槽（photara 材质按网格整体指定）。
-- 视口颜色管理是近似（线性纹理 + 曝光，由 Blender 视口进行显示转换）；最终渲染由 Blender 的视图变换
-  正确处理。
+- 原生 GPU 路径直接使用本地 Cycles 的显示驱动、着色器和同步机制；兼容
+  CPU 路径的视口颜色管理仍是近似。最终渲染由 Blender 处理颜色管理。
 - 预览 HDRI 的旋转和背景模糊尚未同步。
 - 渲染边框（Border render）、panorama 相机、体积、毛发等
   暂未同步。

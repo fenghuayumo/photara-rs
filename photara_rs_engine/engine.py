@@ -15,6 +15,12 @@ import numpy as np
 
 import bpy
 
+try:
+    import _cycles
+    _NATIVE_DISPLAY = hasattr(_cycles, 'photara_display_create')
+except ImportError:
+    _NATIVE_DISPLAY = False
+
 photara_rs = None
 
 from . import sync
@@ -59,6 +65,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     # EEVEE renders the Material Preview mode; "Rendered" uses view_draw below.
     bl_use_eevee_viewport = True
     bl_use_preview = False
+    bl_write_viewport_depth = not _NATIVE_DISPLAY
     bl_use_postprocess = True
     bl_use_shading_properties_custom = False
     bl_use_eevee_freestyle = False
@@ -194,9 +201,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             viewport = self._ensure_viewport(context)
             if viewport is None:
                 return
-            viewport.sync(depsgraph)
-            viewport.update_camera(context)
-            viewport.restart_render()
+            viewport.invalidate(depsgraph)
         except Exception as exc:
             self._viewport_failed = True
             self._report_viewport_failure(exc)
@@ -210,13 +215,9 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             viewport = self._ensure_viewport(context)
             if viewport is None:
                 return
-            if not viewport.sync_state._full_sync_done:
-                viewport.sync(depsgraph)
-
-            if viewport.camera_changed(context):
-                viewport._cancel_job()
-                viewport.update_camera(context)
-                viewport.restart_render()
+            if not viewport.sync_state._full_sync_done or viewport.camera_changed(context):
+                viewport.invalidate()
+            viewport.apply_updates(context, depsgraph)
             viewport.draw(context)
             viewport.ensure_timer()
         except Exception as exc:
@@ -239,20 +240,27 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             return None
 
         if self._viewport is None:
-            self._viewport = ViewportState(self, region.width, region.height)
-        elif (self._viewport.size_changed(context)
-              or self._viewport.settings_version != _settings_version()):
+            self._viewport = ViewportState(self, region.width, region.height, context)
+        elif self._viewport.settings_version != _settings_version():
+            if self._viewport.job is not None:
+                self._viewport.invalidate()
+                return self._viewport
             self._viewport.close()
-            self._viewport = ViewportState(self, region.width, region.height)
+            self._viewport = ViewportState(self, region.width, region.height, context)
+        if self._viewport.size_changed(context):
+            self._viewport.width = max(1, int(region.width))
+            self._viewport.height = max(1, int(region.height))
+            self._viewport.invalidate()
         return self._viewport
 
 
 class ViewportState:
     """Owns the viewport photara scene, render job and display texture."""
 
-    POLL_INTERVAL = 0.05
+    POLL_INTERVAL = 0.016
+    MIN_RESTART_INTERVAL = 1.0 / 30.0
 
-    def __init__(self, engine, width, height):
+    def __init__(self, engine, width, height, context):
         import photara_rs
 
         self.engine = weakref.ref(engine)
@@ -262,7 +270,17 @@ class ViewportState:
         self.camera_matrix = None
         self.job = None
         self.texture = None
+        self.depth_texture = None
+        self.display_shader = None
+        self.display_batch = None
+        self.pending_frame = None
         self.timer_running = False
+        self.needs_update = True
+        self.sync_dirty = True
+        self._cancel_requested = False
+        self._last_start = 0.0
+        self._world_settings = None
+        self._film_settings = None
 
         blender_scene = bpy.context.scene
         settings = blender_scene.photara
@@ -279,10 +297,22 @@ class ViewportState:
             denoise=bool(settings.viewport_denoise),
             adaptive_sampling=bool(settings.viewport_adaptive_sampling),
             device=settings.device,
+            viewport=True,
             **_denoiser_options(settings, viewport=True),
         )
         self.scene.configure_film(**_film_options(blender_scene))
+        self._film_settings = tuple(_film_options(blender_scene).values())
         self.sync_state = sync.SceneSyncState(self.scene)
+        self.gpu_display = False
+        self._display_capsule = None
+        import _cycles
+        if hasattr(_cycles, 'photara_display_create'):
+            capsule = _cycles.photara_display_create(
+                engine.as_pointer(), context.scene.as_pointer(), context.region_data.as_pointer(),
+                photara_rs._backend._core.display_device_allocator())
+            self.scene._session._ctx.attach_display(capsule)
+            self._display_capsule = capsule
+            self.gpu_display = True
 
     def close(self):
         self._cancel_job()
@@ -290,9 +320,13 @@ class ViewportState:
             bpy.app.timers.unregister(self._poll_timer)
         self.timer_running = False
         self.texture = None
+        self.depth_texture = None
+        self.display_batch = None
+        self.display_shader = None
         if getattr(self, "scene", None) is not None:
             self.scene.close()
             self.scene = None
+        self._display_capsule = None
         self.sync_state = None
 
     def _cancel_job(self):
@@ -307,14 +341,40 @@ class ViewportState:
 
     # -- sync / camera -----------------------------------------------------
 
-    def sync(self, depsgraph):
-        self._cancel_job()
-        self.sync_state.sync(depsgraph)
+    def invalidate(self, depsgraph=None):
+        """Coalesce updates without waiting for GPU work on Blender's UI thread."""
+        self.needs_update = True
+        self.pending_frame = None
+        if depsgraph is not None:
+            self.sync_state.queue_updates(depsgraph)
+            self.sync_dirty = True
+        if self.job is not None and not self._cancel_requested:
+            self.job.request_cancel()
+            self._cancel_requested = True
+        self.ensure_timer()
 
-    def update_camera(self, context):
-        self._cancel_job()
-        self.scene.configure_film(**_film_options(context.scene))
-        self._sync_viewport_world(context)
+    def apply_updates(self, context, depsgraph):
+        if not self.needs_update or self.job is not None:
+            return
+        if time.monotonic() - self._last_start < self.MIN_RESTART_INTERVAL:
+            return
+        width, height = self.width, self.height
+        if (self.scene.width, self.scene.height) != (width, height):
+            self.scene.resize(width, height)
+        world_dirty = self.sync_dirty
+        if self.sync_dirty or not self.sync_state._full_sync_done:
+            self.sync_state.sync(depsgraph, sync_background=False)
+            self.sync_dirty = False
+        self.update_camera(context, world_dirty=world_dirty)
+        self.needs_update = False
+        self.restart_render()
+
+    def update_camera(self, context, world_dirty=False):
+        film_settings = tuple(_film_options(context.scene).values())
+        if self._film_settings != film_settings:
+            self.scene.configure_film(**_film_options(context.scene))
+            self._film_settings = film_settings
+        self._sync_viewport_world(context, world_dirty=world_dirty)
         region_data = context.region_data
         perspective = getattr(region_data, "is_perspective", None)
         if perspective is None:
@@ -349,6 +409,8 @@ class ViewportState:
             tuple(value for row in region_data.window_matrix for value in row),
             ViewportState._world_signature(context),
             tuple(_film_options(context.scene).values()),
+            context.scene.photara.viewport_samples,
+            context.scene.photara.seed,
         )
 
     @staticmethod
@@ -359,15 +421,20 @@ class ViewportState:
                 shading.studiolight_background_alpha,
                 context.scene.render.film_transparent)
 
-    def _sync_viewport_world(self, context):
+    def _sync_viewport_world(self, context, world_dirty=False):
         # Match BlenderViewportParameters in Cycles' blender/viewport.cpp.
         shading = context.space_data.shading
         self.background_mix = 1.0
         self.background_color = tuple(context.scene.world.color) if context.scene.world else (0, 0, 0)
         self.transparent_background = context.scene.render.film_transparent
+        settings = self._world_signature(context)
+        changed = settings != self._world_settings
         if shading.use_scene_world_render:
-            sync.sync_world(self.sync_state, context.scene.world)
-        else:
+            if changed:
+                self.sync_state._world_values = None
+            if changed or world_dirty:
+                sync.sync_world(self.sync_state, context.scene.world)
+        elif changed:
             studio = shading.selected_studio_light
             self.scene.world.environment_texture = None
             self.scene.world.color = (1.0, 1.0, 1.0)
@@ -375,8 +442,12 @@ class ViewportState:
             if studio and studio.path:
                 self.scene.world.environment_texture = {"path": studio.path}
             self.background_mix = shading.studiolight_background_alpha
+        if not shading.use_scene_world_render:
+            self.background_mix = shading.studiolight_background_alpha
+        self._world_settings = settings
         for light in self.scene.lights:
-            light.visible = shading.use_scene_lights_render
+            if light.visible != shading.use_scene_lights_render:
+                light.visible = shading.use_scene_lights_render
 
     def camera_changed(self, context):
         return self.camera_matrix != self._camera_signature(context)
@@ -395,52 +466,57 @@ class ViewportState:
             return
         blender_scene = bpy.context.scene
         settings = blender_scene.photara
-        if _settings_version() != self.settings_version:
-            self.samples = max(1, int(settings.viewport_samples))
-            self.seed = int(settings.seed)
-            self.scene.samples = self.samples
-            self.settings_version = _settings_version()
-        self.current_samples = 1
-        self.scene.samples = self.current_samples
+        self.samples = max(1, int(settings.viewport_samples))
+        self.seed = int(settings.seed)
+        self.current_samples = self.samples
+        self._preview_revision = 0
+        self.scene.samples = self.samples
         self.scene.seed = self.seed
         self.job = self.scene.render_async()
+        self._cancel_requested = False
+        self._last_start = time.monotonic()
 
     # -- polling -----------------------------------------------------------
 
     def ensure_timer(self):
-        if self.timer_running or getattr(self, "job", None) is None:
+        if self.timer_running or (self.job is None and not self.needs_update):
             return
         self.timer_running = True
         bpy.app.timers.register(self._poll_timer, first_interval=self.POLL_INTERVAL)
 
     def _poll_timer(self):
         engine = self.engine()
-        if engine is None or getattr(self, "job", None) is None:
+        if engine is None:
             self.timer_running = False
             return None
-
         try:
-            progress = self.job.poll()
-            if progress.state == "running":
-                return self.POLL_INTERVAL
-            if progress.state == "done":
-                self.pending_frame = self.job.wait()
-                self.pending_samples = self.current_samples
-                self.job = None
-                if self.current_samples < self.samples:
-                    self.current_samples = min(self.samples, self.current_samples * 2)
-                    self.scene.samples = self.current_samples
-                    self.job = self.scene.render_async()
-                engine.tag_redraw()
-                if self.job is not None:
+            if self.job is not None:
+                progress = self.job.poll()
+                if progress.state == "running":
+                    if self.gpu_display:
+                        engine.tag_redraw()
+                    elif not self.needs_update and progress.current_sample > 0:
+                        update = self.job.preview_update(self._preview_revision)
+                        if update is not None:
+                            self._preview_revision, self.pending_frame = update
+                            self.pending_samples = progress.current_sample
+                            engine.tag_redraw()
                     return self.POLL_INTERVAL
-            else:
-                engine._report_viewport_failure(RuntimeError(progress.status or progress.state))
+                if progress.state == "failed":
+                    raise RuntimeError(progress.status or "Viewport render failed")
+                if progress.state == "done" and not self.needs_update and not self.gpu_display:
+                    self.pending_frame = self.job.preview()
+                    self.pending_samples = self.current_samples
                 self.job = None
+                self._cancel_requested = False
+                engine.tag_redraw()
+            elif self.needs_update:
+                engine.tag_redraw()
+            if self.job is not None or self.needs_update:
+                return self.POLL_INTERVAL
         except Exception as exc:
             engine._report_viewport_failure(exc)
             self.job = None
-
         self.timer_running = False
         return None
 
@@ -458,7 +534,7 @@ class ViewportState:
         if self.transparent_background:
             # Composite transparent film against a neutral checker, as Blender
             # does for its viewport, using the native premultiplied film alpha.
-            yy, xx = np.indices((self.height, self.width))
+            yy, xx = np.indices(rgba.shape[:2])
             checker = np.where(((xx // 8 + yy // 8) % 2) == 0, 0.18, 0.28)
             alpha = rgba[..., 3:4]
             rgba[..., :3] += checker[..., None] * (1.0 - alpha)
@@ -467,8 +543,48 @@ class ViewportState:
         pixels = np.ascontiguousarray(rgba, dtype=np.float32).ravel()
         buffer = gpu.types.Buffer('FLOAT', pixels.size, pixels)
         self.texture = gpu.types.GPUTexture(
-            size=(self.width, self.height), format='RGBA16F', data=buffer
+            size=(rgba.shape[1], rgba.shape[0]), format='RGBA16F', data=buffer
         )
+
+        depth = np.ascontiguousarray(np.flipud(frame.depth), dtype=np.float32)
+        self.depth_texture = gpu.types.GPUTexture(
+            size=(depth.shape[1], depth.shape[0]), format='R32F',
+            data=gpu.types.Buffer('FLOAT', depth.size, depth.ravel()))
+
+    def _draw_render_texture(self, context):
+        import gpu
+        from gpu_extras.batch import batch_for_shader
+        if self.display_shader is None:
+            interface = gpu.types.GPUStageInterfaceInfo('photara_display_interface')
+            interface.smooth('VEC2', 'uv')
+            info = gpu.types.GPUShaderCreateInfo()
+            info.vertex_in(0, 'VEC2', 'pos')
+            info.vertex_out(interface)
+            info.fragment_out(0, 'VEC4', 'color')
+            info.sampler(0, 'FLOAT_2D', 'image')
+            info.sampler(1, 'FLOAT_2D', 'distance_image')
+            info.push_constant('VEC4', 'projection')
+            info.depth_write('ANY')
+            info.vertex_source('void main(){uv=pos;gl_Position=vec4(pos*2.0-1.0,0.0,1.0);}')
+            info.fragment_source('''
+void main(){
+ color=texture(image,uv);
+ float d=texture(distance_image,uv).r;
+ vec2 ray=(uv*2.0-1.0)/projection.xy;
+ float z=d/sqrt(1.0+dot(ray,ray));
+ gl_FragDepth=d>=1e9 ? 1.0 : clamp(0.5*(-projection.z+projection.w/max(z,1e-8))+0.5,0.0,1.0);
+}
+''')
+            self.display_shader = gpu.shader.create_from_info(info)
+            self.display_batch = batch_for_shader(self.display_shader, 'TRIS',
+                {'pos': ((0,0),(1,0),(1,1),(0,1))}, indices=((0,1,2),(0,2,3)))
+        p = context.region_data.window_matrix
+        shader = self.display_shader
+        shader.bind()
+        shader.uniform_sampler('image', self.texture)
+        shader.uniform_sampler('distance_image', self.depth_texture)
+        shader.uniform_float('projection', (p[0][0],p[1][1],p[2][2],p[2][3]))
+        self.display_batch.draw(shader)
 
     # -- drawing -----------------------------------------------------------
 
@@ -476,6 +592,10 @@ class ViewportState:
         import gpu
         from gpu_extras.presets import draw_texture_2d
         from mathutils import Matrix
+
+        if self.gpu_display:
+            self.scene._session._ctx.draw_display()
+            return
 
         # GPU resources must be created in view_draw's graphics context,
         # never from the application timer callback.
@@ -494,16 +614,20 @@ class ViewportState:
         )))
         blend = gpu.state.blend_get()
         depth_test = gpu.state.depth_test_get()
+        depth_mask = gpu.state.depth_mask_get()
         try:
             gpu.state.depth_test_set('NONE')
             gpu.state.blend_set('NONE')
             if self.texture is not None:
-                draw_texture_2d(self.texture, (0.0, 0.0), self.width, self.height)
+                gpu.state.depth_test_set('ALWAYS')
+                gpu.state.depth_mask_set(True)
+                self._draw_render_texture(context)
             else:
                 self._draw_placeholder()
         finally:
             gpu.state.blend_set(blend)
             gpu.state.depth_test_set(depth_test)
+            gpu.state.depth_mask_set(depth_mask)
             gpu.matrix.pop()
 
     def _draw_placeholder(self):
@@ -530,8 +654,6 @@ def _settings_version():
         return None
     settings = scene.photara
     return (
-        settings.viewport_samples,
-        settings.seed,
         settings.max_bounces,
         settings.viewport_denoise,
         settings.viewport_adaptive_sampling,

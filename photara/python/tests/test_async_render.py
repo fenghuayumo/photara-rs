@@ -83,6 +83,56 @@ class AsyncRenderTests(unittest.TestCase):
         finally:
             scene.close()
 
+    def test_requested_cancel_resize_and_preview(self):
+        scene, obj = build_scene(width=128, height=96, samples=4096)
+        try:
+            job = scene.render_async()
+            job.request_cancel()
+            deadline = time.monotonic() + 15
+            while job.poll().state == "running":
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.001)
+            self.assertIn(job.state, ("cancelled", "done"))
+            scene.samples = 2
+            for width, height in ((64, 48), (128, 96)):
+                scene.resize(width, height)
+                job = scene.render_async()
+                result = job.wait()
+                preview = job.preview()
+                self.assertEqual(preview.beauty.shape, (height, width, 4))
+                np.testing.assert_array_equal(preview.beauty, result.beauty)
+                np.testing.assert_array_equal(preview.depth_valid, result.depth_valid)
+                self.assertIn(2, result.object_id)
+            with self.assertRaises(ValueError):
+                scene.resize(0, 48)
+        finally:
+            scene.close()
+
+    def test_native_progressive_updates_share_one_job(self):
+        with pr.Scene(640, 480, samples=2048, denoise=False,
+                      adaptive_sampling=False, viewport=True) as scene:
+            job = scene.render_async()
+            revision = 0
+            running_updates = []
+            deadline = time.monotonic() + 15
+            while True:
+                progress = job.poll()
+                update = job.preview_update(revision)
+                if update is not None:
+                    new_revision, frame = update
+                    self.assertGreater(new_revision, revision)
+                    revision = new_revision
+                    self.assertEqual(frame.beauty.shape, (480, 640, 4))
+                    if progress.state == 'running':
+                        running_updates.append(progress.current_sample)
+                if progress.state != 'running':
+                    self.assertEqual(progress.state, 'done')
+                    break
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.005)
+            self.assertGreaterEqual(len(set(running_updates)), 2)
+            self.assertEqual(job.id, 1)
+
     def test_close_while_running(self) -> None:
         try:
             scene, _ = build_scene(width=512, height=384, samples=4096)
