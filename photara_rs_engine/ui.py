@@ -19,7 +19,7 @@ def draw_device(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        layout.prop(context.scene.photara, 'device')
+        layout.prop(context.scene.photara_rs, 'device')
         layout.label(text='NVIDIA OptiX')
 
 
@@ -60,7 +60,7 @@ class RENDER_PT_photara_viewport(PhotaraButtonsPanel, bpy.types.Panel):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        settings = context.scene.photara
+        settings = context.scene.photara_rs
         draw_sampling(layout, settings, viewport=True)
 
 
@@ -72,7 +72,7 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        settings = context.scene.photara
+        settings = context.scene.photara_rs
         draw_sampling(layout, settings)
 
 
@@ -82,7 +82,7 @@ class PhotaraDenoisePanel:
     setting = 'denoise'
 
     def draw_header(self, context):
-        self.layout.prop(context.scene.photara, self.setting, text='')
+        self.layout.prop(context.scene.photara_rs, self.setting, text='')
 
     def draw(self, context):
         # Match Cycles sampling_viewport_denoise / sampling_render_denoise:
@@ -90,7 +90,7 @@ class PhotaraDenoisePanel:
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        settings = context.scene.photara
+        settings = context.scene.photara_rs
         viewport = self.setting == 'viewport_denoise'
         prefix = 'viewport_' if viewport else ''
         col = layout.column()
@@ -151,7 +151,7 @@ class RENDER_PT_photara_sampling_advanced(PhotaraButtonsPanel, bpy.types.Panel):
     def draw(self, context):
         self.layout.use_property_split = True
         self.layout.use_property_decorate = False
-        self.layout.prop(context.scene.photara, 'seed')
+        self.layout.prop(context.scene.photara_rs, 'seed')
 
 
 class RENDER_PT_photara_light_paths(PhotaraButtonsPanel, bpy.types.Panel):
@@ -170,7 +170,7 @@ class RENDER_PT_photara_max_bounces(PhotaraButtonsPanel, bpy.types.Panel):
     def draw(self, context):
         self.layout.use_property_split = True
         self.layout.use_property_decorate = False
-        self.layout.prop(context.scene.photara, 'max_bounces', text='Total')
+        self.layout.prop(context.scene.photara_rs, 'max_bounces', text='Total')
 
 
 class RENDER_PT_photara_film(PhotaraButtonsPanel, bpy.types.Panel):
@@ -179,7 +179,7 @@ class RENDER_PT_photara_film(PhotaraButtonsPanel, bpy.types.Panel):
 
     def draw(self, context):
         self.layout.use_property_split = True
-        self.layout.prop(context.scene.photara, 'film_exposure')
+        self.layout.prop(context.scene.photara_rs, 'film_exposure')
 
 
 class RENDER_PT_photara_film_transparency(PhotaraButtonsPanel, bpy.types.Panel):
@@ -192,7 +192,7 @@ class RENDER_PT_photara_film_transparency(PhotaraButtonsPanel, bpy.types.Panel):
     def draw(self, context):
         self.layout.use_property_split = True
         self.layout.active = context.scene.render.film_transparent
-        settings = context.scene.photara
+        settings = context.scene.photara_rs
         self.layout.prop(settings, 'film_transparent_glass')
         sub = self.layout.column()
         sub.active = settings.film_transparent_glass
@@ -205,7 +205,7 @@ class RENDER_PT_photara_film_filter(PhotaraButtonsPanel, bpy.types.Panel):
 
     def draw(self, context):
         self.layout.use_property_split = True
-        settings = context.scene.photara
+        settings = context.scene.photara_rs
         self.layout.prop(settings, 'pixel_filter_type')
         if settings.pixel_filter_type != 'BOX':
             self.layout.prop(settings, 'filter_width')

@@ -7,6 +7,12 @@ dependency-graph updates. See [native build and validation](../docs/BLENDER_NATI
 The earlier standalone-wheel display bridge below remains the fallback for
 Blender builds without this module and has more limited material conversion.
 
+Renderer settings use `scene.photara_rs` (for example,
+`scene.photara_rs.samples = 32`). Saved settings from the earlier
+`scene.photara` namespace are copied automatically when enabling the add-on
+or opening a blend file. The `photara_render` dataset export add-on retains
+its own `scene.photara` settings; both add-ons can be enabled together.
+
 # Photara Blender 插件
 
 在 Blender 中直接使用 Photara（OptiX 路径追踪）渲染。插件通过

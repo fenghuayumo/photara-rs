@@ -14,12 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
 from test_blender import prepare_scene
 from photara_rs_engine import engine
 scene,cube,material=prepare_scene()
-scene.photara.viewport_samples=64
-scene.photara.viewport_denoise=True
+scene.photara_rs.viewport_samples=64
+scene.photara_rs.viewport_denoise=True
 if os.environ.get('PHOTARA_BENCH_DENOISER'):
- scene.photara.viewport_denoise = os.environ['PHOTARA_BENCH_DENOISER'] != 'NONE'
- if scene.photara.viewport_denoise:
-  scene.photara.viewport_denoiser = os.environ['PHOTARA_BENCH_DENOISER']
+ scene.photara_rs.viewport_denoise = os.environ['PHOTARA_BENCH_DENOISER'] != 'NONE'
+ if scene.photara_rs.viewport_denoise:
+  scene.photara_rs.viewport_denoiser = os.environ['PHOTARA_BENCH_DENOISER']
 area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
 area.spaces.active.region_3d.view_perspective='PERSP'
 area.spaces.active.shading.use_scene_world_render=False
@@ -101,7 +101,7 @@ def tick():
   v=sorted(stats[name]);result['callback_ms'][name]={'max':max(v,default=0),'p95':v[int((len(v)-1)*.95)] if v else 0,'count':len(v)}
  result['timer_gap_max_ms']=max(gaps)
  result['frames_by_phase']=frame_counts
- result['denoiser']=scene.photara.viewport_denoiser if scene.photara.viewport_denoise else 'NONE'
+ result['denoiser']=scene.photara_rs.viewport_denoiser if scene.photara_rs.viewport_denoise else 'NONE'
  for label,values in [('invalidate_to_restart_ms',latencies),('restart_to_first_frame_ms',first_frames)]:
   values=sorted(values)
   result[label]={'count':len(values),'median':values[len(values)//2] if values else 0,'p95':values[int((len(values)-1)*.95)] if values else 0}

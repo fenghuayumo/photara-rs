@@ -5,10 +5,10 @@ from photara_rs_engine import engine
 root=Path(__file__).resolve().parent.parent
 scene=bpy.context.scene
 scene.render.engine='PHOTARA_RS'
-scene.photara.viewport_samples=4
-scene.photara.viewport_denoise=True
-scene.photara.viewport_denoiser='DLSS'
-scene.photara.viewport_denoise_upscale_quality='NONE'
+scene.photara_rs.viewport_samples=4
+scene.photara_rs.viewport_denoise=True
+scene.photara_rs.viewport_denoiser='DLSS'
+scene.photara_rs.viewport_denoise_upscale_quality='NONE'
 bpy.context.preferences.view.show_splash=False
 area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
 errors=[];checked=False

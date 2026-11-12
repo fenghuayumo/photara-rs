@@ -36,7 +36,7 @@ with pr.Scene(32,32,samples=1,denoise=False) as native:
  state.sync(bpy.context.evaluated_depsgraph_get())
 bpy.ops.object.camera_add(location=(0,0,-3))
 camera=bpy.context.object;camera.rotation_euler=(cloud.location-camera.location).to_track_quat('-Z','Y').to_euler();scene.camera=camera
-scene.render.engine='PHOTARA_RS';scene.photara.samples=8;scene.photara.denoise=False;scene.photara.adaptive_sampling=False
+scene.render.engine='PHOTARA_RS';scene.photara_rs.samples=8;scene.photara_rs.denoise=False;scene.photara_rs.adaptive_sampling=False
 scene.render.resolution_x=128;scene.render.resolution_y=96;scene.render.resolution_percentage=100
 scene.world.color=(0,0,0);scene.world.use_nodes=False
 frames=[];old=engine.PhotaraRenderEngine._fill_render_result
@@ -52,7 +52,7 @@ assert ((rgb[...,2]>.1)&(rgb[...,0]<.05)).sum()>20
 print('BLENDER_GSPLAT_FINAL_PASS',flush=True)
 if '--viewport' in sys.argv:
  import gpu
- scene.photara.viewport_samples=16;scene.photara.viewport_denoiser='DLSS'
+ scene.photara_rs.viewport_samples=16;scene.photara_rs.viewport_denoiser='DLSS'
  area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
  area.spaces.active.region_3d.view_perspective='CAMERA'
  area.spaces.active.shading.use_scene_world_render=True

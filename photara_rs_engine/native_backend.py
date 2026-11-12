@@ -68,7 +68,7 @@ def _configure(scene):
     original = getattr(scene, 'original', None)
     scene = original if original is not None else scene
     native = scene.photara_native
-    settings = scene.photara
+    settings = scene.photara_rs
     if not native.get('_photara_initialized', False):
         # Preserve the complete scene-level schema, including controls not yet
         # exposed in Photara's compact panels. Material/object/world properties

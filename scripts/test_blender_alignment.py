@@ -27,7 +27,7 @@ else:
     old=engine.ViewportState._upload_result
     def upload(self,frame):
      old(self,frame)
-     if self.pending_samples != scene.photara.viewport_samples:return
+     if self.pending_samples != scene.photara_rs.viewport_samples:return
      ctx=bpy.context;rd=ctx.region_data;region=ctx.region
      xy=[location_3d_to_region_2d(region,rd,cube.matrix_world@Vector(c)) for c in cube.bound_box]
      expected=[min(p.x for p in xy),min(p.y for p in xy),max(p.x for p in xy),max(p.y for p in xy)]

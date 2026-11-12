@@ -1,6 +1,34 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import bpy
+from bpy.app.handlers import persistent
+
+
+@persistent
+def migrate_legacy_settings(_unused=None):
+    """Copy saved renderer settings without claiming another add-on's property."""
+    names = PhotaraSceneSettings.__annotations__
+    temporary_pointer = not hasattr(bpy.types.Scene, 'photara')
+    if temporary_pointer:
+        # Blender 5.x stores RNA properties separately from custom ID properties.
+        # Reattach the old name briefly to read saved RNA data, only if unclaimed.
+        bpy.types.Scene.photara = bpy.props.PointerProperty(type=PhotaraSceneSettings)
+    try:
+        for scene in bpy.data.scenes:
+            settings = scene.photara_rs
+            if settings.keys():
+                continue
+            legacy = scene.photara
+            values = {name: value for name, value in legacy.items() if name in names}
+            # Also accept custom ID-property storage used by older Blender builds.
+            raw = scene.get('photara')
+            if raw is not None and hasattr(raw, 'items'):
+                values = {**{k: v for k, v in raw.items() if k in names}, **values}
+            for name, value in values.items():
+                settings[name] = value
+    finally:
+        if temporary_pointer:
+            del bpy.types.Scene.photara
 
 
 DENOISERS = [('AUTO', 'Automatic', 'Prefer GPU OpenImageDenoise, then OptiX, matching Cycles'), ('DLSS', 'DLSS', 'NVIDIA DLSS denoising and optional upscaling'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]

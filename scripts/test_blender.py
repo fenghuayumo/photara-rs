@@ -31,10 +31,10 @@ def prepare_scene():
     scene.render.resolution_x = 192
     scene.render.resolution_y = 144
     scene.render.resolution_percentage = 100
-    scene.photara.samples = 8
-    scene.photara.viewport_samples = 4
-    scene.photara.denoise = False
-    scene.photara.adaptive_sampling = False
+    scene.photara_rs.samples = 8
+    scene.photara_rs.viewport_samples = 4
+    scene.photara_rs.denoise = False
+    scene.photara_rs.adaptive_sampling = False
     bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.object
     cube.pass_index = 7
@@ -212,8 +212,8 @@ def run_viewport(scene, cube, material):
                 material.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.02, 0.8, 0.03, 1)
                 cube.data.vertices[0].co.x += 0.15
                 cube.data.update()
-                scene.photara.max_bounces = 3
-                scene.photara.viewport_samples = 6
+                scene.photara_rs.max_bounces = 3
+                scene.photara_rs.viewport_samples = 6
                 area.spaces.active.region_3d.view_distance *= 1.1
                 bpy.context.view_layer.update()
                 area.tag_redraw()

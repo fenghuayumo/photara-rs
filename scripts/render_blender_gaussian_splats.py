@@ -19,8 +19,8 @@ bpy.ops.object.camera_add();camera=bpy.context.object
 camera.matrix_world=Matrix(settings['matrix']);camera.data.lens=settings['lens']
 for name in ('sensor_width','sensor_height','sensor_fit','clip_start','clip_end'):setattr(camera.data,name,settings[name])
 scene=bpy.context.scene;scene.camera=camera
-scene.render.engine='PHOTARA_RS';scene.photara.samples=args.samples
-scene.photara.adaptive_sampling=False;scene.photara.denoise=False
+scene.render.engine='PHOTARA_RS';scene.photara_rs.samples=args.samples
+scene.photara_rs.adaptive_sampling=False;scene.photara_rs.denoise=False
 scene.render.resolution_x,scene.render.resolution_y=config['resolution'];scene.render.resolution_percentage=100
 scene.world.use_nodes=False;scene.world.color=(0,0,0)
 scene.view_settings.view_transform='Standard';scene.view_settings.look='None'

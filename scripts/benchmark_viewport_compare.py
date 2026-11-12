@@ -88,17 +88,17 @@ if args.denoiser != 'NONE':
 scene.cycles.preview_denoising_start_sample = 1
 scene.cycles.preview_denoising_input_passes = 'RGB_ALBEDO_NORMAL'
 scene.cycles.preview_denoising_prefilter = 'FAST'
-scene.photara.viewport_samples = 4096
-scene.photara.viewport_adaptive_sampling = False
-scene.photara.max_bounces = 8
-scene.photara.viewport_denoise = args.denoiser != 'NONE'
-scene.photara.viewport_denoise_start_sample = 1
-scene.photara.viewport_denoise_prefilter = 'FAST'
-scene.photara.viewport_denoise_quality = 'HIGH'
-scene.photara.viewport_denoise_passes = 'RGB_ALBEDO_NORMAL'
+scene.photara_rs.viewport_samples = 4096
+scene.photara_rs.viewport_adaptive_sampling = False
+scene.photara_rs.max_bounces = 8
+scene.photara_rs.viewport_denoise = args.denoiser != 'NONE'
+scene.photara_rs.viewport_denoise_start_sample = 1
+scene.photara_rs.viewport_denoise_prefilter = 'FAST'
+scene.photara_rs.viewport_denoise_quality = 'HIGH'
+scene.photara_rs.viewport_denoise_passes = 'RGB_ALBEDO_NORMAL'
 if args.denoiser != 'NONE':
-    scene.photara.viewport_denoiser = args.denoiser
-scene.photara.viewport_denoise_upscale_quality = args.upscale
+    scene.photara_rs.viewport_denoiser = args.denoiser
+scene.photara_rs.viewport_denoise_upscale_quality = args.upscale
 scene.render.film_transparent = False
 scene.view_settings.view_transform = 'Standard'
 scene.view_settings.look = 'None'

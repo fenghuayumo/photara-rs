@@ -64,7 +64,7 @@ def _sampling_options(settings, viewport=False):
 
 
 def _film_options(scene):
-    settings = scene.photara
+    settings = scene.photara_rs
     return dict(exposure=settings.film_exposure,
                 transparent=scene.render.film_transparent,
                 transparent_glass=settings.film_transparent_glass,
@@ -143,7 +143,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             native_engine.render(self, depsgraph)
             return
         blender_scene = depsgraph.scene_eval
-        settings = blender_scene.photara
+        settings = blender_scene.photara_rs
         render = blender_scene.render
         scale = render.resolution_percentage / 100.0
         width = max(1, int(render.resolution_x * scale))
@@ -338,7 +338,7 @@ class ViewportState:
         self._sampling_settings = None
 
         blender_scene = bpy.context.scene
-        settings = blender_scene.photara
+        settings = blender_scene.photara_rs
         self.samples = max(1, int(settings.viewport_samples))
         self.current_samples = 1
         self.seed = int(settings.seed)
@@ -499,9 +499,9 @@ class ViewportState:
             tuple(value for row in region_data.window_matrix for value in row),
             ViewportState._world_signature(context),
             tuple(_film_options(context.scene).values()),
-            context.scene.photara.viewport_samples,
-            tuple(_sampling_options(context.scene.photara, viewport=True).values()),
-            context.scene.photara.seed,
+            context.scene.photara_rs.viewport_samples,
+            tuple(_sampling_options(context.scene.photara_rs, viewport=True).values()),
+            context.scene.photara_rs.seed,
         )
 
     @staticmethod
@@ -557,7 +557,7 @@ class ViewportState:
         if getattr(self, "scene", None) is None or self.scene.closed:
             return
         blender_scene = bpy.context.scene
-        settings = blender_scene.photara
+        settings = blender_scene.photara_rs
         self.samples = max(1, int(settings.viewport_samples))
         self.seed = int(settings.seed)
         self.current_samples = self.samples
@@ -753,7 +753,7 @@ def _settings_version():
     scene = bpy.context.scene
     if scene is None:
         return None
-    settings = scene.photara
+    settings = scene.photara_rs
     return (
         settings.max_bounces,
         settings.viewport_denoise,

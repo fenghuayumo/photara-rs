@@ -97,9 +97,12 @@ def register():
     native_backend.register()
     for cls in _classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.photara = bpy.props.PointerProperty(
+    bpy.types.Scene.photara_rs = bpy.props.PointerProperty(
         type=properties.PhotaraSceneSettings
     )
+    # Blender restricts bpy.data during add-on registration.
+    bpy.app.timers.register(properties.migrate_legacy_settings, first_interval=0.0)
+    bpy.app.handlers.load_post.append(properties.migrate_legacy_settings)
     bpy.types.RENDER_PT_context.append(ui.draw_device)
     ui.register_color_management()
     bpy.types.TOPBAR_MT_file_import.append(gsplat_import.menu_import)
@@ -111,8 +114,12 @@ def unregister():
     bpy.types.RENDER_PT_context.remove(ui.draw_device)
     # Blender 5.x may already have released owner-tagged properties at
     # shutdown; guard so disabling/unloading never raises.
-    if hasattr(bpy.types.Scene, "photara"):
-        del bpy.types.Scene.photara
+    if properties.migrate_legacy_settings in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(properties.migrate_legacy_settings)
+    if bpy.app.timers.is_registered(properties.migrate_legacy_settings):
+        bpy.app.timers.unregister(properties.migrate_legacy_settings)
+    if hasattr(bpy.types.Scene, "photara_rs"):
+        del bpy.types.Scene.photara_rs
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)
     native_backend.unregister()

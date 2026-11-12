@@ -9,7 +9,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'scripts'), str(ROOT / 'photara/python')]
 from test_blender import prepare_scene
 from photara_rs_engine import engine
 scene, cube, material = prepare_scene()
-settings = scene.photara
+settings = scene.photara_rs
 settings.denoiser = 'DLSS'
 settings.denoise = True
 settings.samples = 4
