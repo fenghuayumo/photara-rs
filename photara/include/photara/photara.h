@@ -46,6 +46,13 @@ typedef enum PhotaraDevice {
   PHOTARA_DEVICE_OPTIX = 1,
 } PhotaraDevice;
 
+/* REALTIME is currently a frame-scheduled OptiX baseline. ReSTIR/cache
+ * acceleration is not enabled by this mode yet. */
+typedef enum PhotaraRenderMode {
+  PHOTARA_RENDER_REFERENCE = 0,
+  PHOTARA_RENDER_REALTIME = 1,
+} PhotaraRenderMode;
+
 typedef struct PhotaraOptions {
   int width;
   int height;
@@ -322,6 +329,13 @@ PHOTARA_API int photara_clear_scene(PhotaraContext *ctx);
 /* Per-frame render controls. */
 PHOTARA_API int photara_set_seed(PhotaraContext *ctx, int seed);
 PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
+/* Configure an idle context. Reference sample settings are retained.
+ * RealTime uses fresh films and consecutive sample subsets per render job.
+ * Reconfiguration resets the subset sequence; denoiser choice is unchanged. */
+PHOTARA_API int photara_set_render_mode(PhotaraContext *ctx,
+                                       PhotaraRenderMode mode,
+                                       int samples_per_frame);
+
 
 /* Asynchronous render jobs. Job ids are non-zero and monotonically increasing;
  * one job may be active per context. Scene mutation is rejected while a job is

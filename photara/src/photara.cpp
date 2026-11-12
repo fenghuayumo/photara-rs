@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "photara/photara.h"
+#include "realtime/frame_scheduler.h"
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -619,6 +620,11 @@ struct PhotaraContext {
   int height = 0;
   bool rendered = false;
   bool gpu_display = false;
+  PhotaraRenderMode render_mode = PHOTARA_RENDER_REFERENCE;
+  photara::realtime::FrameScheduler realtime;
+  int job_samples = 0;
+  SessionParams active_frame_params;
+  PhotaraRenderMode last_frame_mode = PHOTARA_RENDER_REFERENCE;
 
   unique_ptr<Session> session;
   Scene *scene = nullptr;
@@ -1801,7 +1807,7 @@ int photara_queue_camera_matrix(PhotaraContext *ctx,
           camera->need_flags_update = true;
           camera->compute_auto_viewplane();
         },
-        ctx->session_params,
+        ctx->active_frame_params,
         ctx->buffer_params);
     record.state = PHOTARA_RENDER_RUNNING;
     record.status = "Rendering";
@@ -2143,6 +2149,19 @@ int photara_set_samples(PhotaraContext *ctx, const int samples)
   });
 }
 
+int photara_set_render_mode(PhotaraContext *ctx,
+                            const PhotaraRenderMode mode,
+                            const int samples_per_frame)
+{
+  return guarded(ctx, [&]() {
+    if (mode != PHOTARA_RENDER_REFERENCE && mode != PHOTARA_RENDER_REALTIME) {
+      throw std::runtime_error("Unknown render mode");
+    }
+    ctx->realtime.configure(samples_per_frame);
+    ctx->render_mode = mode;
+  });
+}
+
 int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
 {
   if (ctx == nullptr) {
@@ -2169,8 +2188,30 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
     /* A previous cancelled job leaves Progress::cancel set; clear it before
      * starting the next render. No render is running at this point. */
     ctx->session->progress.reset();
-    ctx->session->reset(ctx->session_params, ctx->buffer_params);
+    SessionParams frame_params = ctx->session_params;
+    ctx->job_samples = frame_params.samples;
+    if (ctx->render_mode == PHOTARA_RENDER_REALTIME) {
+      // Keep the sequence length stable across frames. Only the subset moves.
+      frame_params.samples = photara::realtime::FrameScheduler::sample_period;
+      frame_params.use_sample_subset = true;
+      frame_params.sample_subset_offset = ctx->realtime.offset();
+      frame_params.sample_subset_length = ctx->realtime.samples();
+      frame_params.time_limit = 0.0;
+      ctx->job_samples = ctx->realtime.samples();
+    }
+    // Session::update_scene only increases AA samples unless reset_samples is
+    // set. Explicitly restore the sequence length when leaving RealTime.
+    if (ctx->render_mode == PHOTARA_RENDER_REALTIME ||
+        ctx->last_frame_mode == PHOTARA_RENDER_REALTIME) {
+      ctx->scene->integrator->set_aa_samples(frame_params.samples);
+    }
+    ctx->active_frame_params = frame_params;
+    ctx->session->reset(frame_params, ctx->buffer_params);
     ctx->session->start();
+    ctx->last_frame_mode = ctx->render_mode;
+    if (ctx->render_mode == PHOTARA_RENDER_REALTIME) {
+      ctx->realtime.advance();
+    }
 
     const unsigned long long id = ctx->next_job_id++;
     ctx->render_job = PhotaraContext::RenderJobRecord{};
@@ -2272,7 +2313,8 @@ int photara_render_poll(PhotaraContext *ctx,
       progress_out->progress = 0.0f;
       progress_out->current_sample = 0;
     }
-    progress_out->num_samples = ctx->session_params.samples;
+    progress_out->num_samples = ctx->job_samples > 0 ? ctx->job_samples :
+                                                        ctx->session_params.samples;
     progress_out->status = record.status.c_str();
     progress_out->substatus = record.substatus.c_str();
     return 0;

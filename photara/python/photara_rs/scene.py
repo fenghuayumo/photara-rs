@@ -1226,6 +1226,8 @@ class Scene:
         denoise_use_gpu: bool = True,
         denoise_upscale_quality: str = "NONE",
         viewport: bool = False,
+        render_mode: str = "REFERENCE",
+        samples_per_frame: int = 1,
     ) -> None:
         self._session = Session(
             width=width,
@@ -1239,7 +1241,8 @@ class Scene:
             denoiser=denoiser, denoise_passes=denoise_passes,
             denoise_prefilter=denoise_prefilter, denoise_quality=denoise_quality,
             denoise_use_gpu=denoise_use_gpu, denoise_upscale_quality=denoise_upscale_quality,
-            viewport=viewport,
+            viewport=viewport, render_mode=render_mode,
+            samples_per_frame=samples_per_frame,
         )
         self._closed = False
         self._samples = int(samples)
@@ -1327,6 +1330,11 @@ class Scene:
     @property
     def adaptive_sampling(self) -> bool:
         return self._session.adaptive_sampling
+
+    def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
+        """Select Reference or the experimental frame-scheduled RealTime baseline."""
+        self._ensure_open()
+        self._session.configure_render_mode(mode, samples_per_frame=samples_per_frame)
 
     def render(self, seed: Optional[int] = None) -> RenderResult:
         """Render synchronously and capture all passes."""

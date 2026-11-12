@@ -329,6 +329,8 @@ class Session:
         denoise_use_gpu: bool = True,
         denoise_upscale_quality: str = "NONE",
         viewport: bool = False,
+        render_mode: str = "REFERENCE",
+        samples_per_frame: int = 1,
     ) -> None:
         try:
             factor = {"NONE": 1.0, "QUALITY": 1.5, "BALANCED": 1.0 / 0.58, "PERFORMANCE": 2.0, "ULTRA_PERFORMANCE": 3.0}[denoise_upscale_quality]
@@ -380,6 +382,11 @@ class Session:
             resource_dir(),
             bool(viewport),
         )
+        try:
+            self.configure_render_mode(render_mode, samples_per_frame=samples_per_frame)
+        except Exception:
+            self.close()
+            raise
         if self._denoise:
             try:
                 self._context.configure_denoiser(*denoise_args)
@@ -925,6 +932,21 @@ class Session:
             # The job was superseded by a synchronous render or another job.
             self._active_job = None
             return False
+
+    def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
+        """Select an experimental per-frame baseline; does not enable ReSTIR/GI cache.
+
+        Existing samples, materials and denoiser settings are retained. Calling
+        this method restarts the RealTime sample sequence.
+        """
+        modes = {"REFERENCE": 0, "REALTIME": 1}
+        if mode not in modes:
+            raise ValueError("render mode must be REFERENCE or REALTIME")
+        if not isinstance(samples_per_frame, int) or isinstance(samples_per_frame, bool):
+            raise ValueError("samples_per_frame must be an integer in [1, 64]")
+        if not 1 <= samples_per_frame <= 64:
+            raise ValueError("samples_per_frame must be in [1, 64]")
+        self._ctx.set_render_mode(modes[mode], samples_per_frame)
 
     def render_async(self, seed: Optional[int] = None) -> RenderJob:
         """Start a render without blocking and return a :class:`RenderJob`."""

@@ -654,6 +654,14 @@ class Context {
     }
   }
 
+  void set_render_mode(const int mode, const int samples_per_frame)
+  {
+    if (photara_set_render_mode(context_, static_cast<PhotaraRenderMode>(mode),
+                               samples_per_frame) != 0) {
+      throw_last_error();
+    }
+  }
+
   unsigned long long render_begin()
   {
     unsigned long long job = 0;
@@ -1182,6 +1190,8 @@ PYBIND11_MODULE(_photara, module)
       .def("clear_background_texture", &Context::clear_background_texture)
       .def("set_seed", &Context::set_seed, py::arg("seed"))
       .def("set_samples", &Context::set_samples, py::arg("samples"))
+      .def("set_render_mode", &Context::set_render_mode,
+           py::arg("mode"), py::arg("samples_per_frame"))
       .def("render_begin", &Context::render_begin)
       .def("render_poll", &Context::render_poll, py::arg("job"))
       .def("render_request_cancel", &Context::render_request_cancel)
