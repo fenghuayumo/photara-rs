@@ -1,0 +1,568 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Windows viewer example: OptiX frame lifetime + Vulkan presentation. */
+#define NOMINMAX
+// clang-format off
+#include <windows.h>
+#include <windowsx.h>
+#include <mmsystem.h>
+// clang-format on
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <stdexcept>
+#include <vector>
+
+#include "app/photara_xml.h"
+#include "app/viewer_presenter.h"
+#include "device/device.h"
+#include "realtime/frame_scheduler.h"
+#include "scene/camera.h"
+#include "scene/integrator.h"
+#include "scene/pass.h"
+#include "scene/scene.h"
+#include "session/display_driver.h"
+#include "session/session.h"
+#include "util/log.h"
+#include "util/path.h"
+#include "util/transform.h"
+
+using namespace ccl;
+
+namespace {
+struct TimerResolution {
+  bool active = timeBeginPeriod(1) == TIMERR_NOERROR;
+  ~TimerResolution()
+  {
+    if (active) {
+      timeEndPeriod(1);
+    }
+  }
+};
+
+class ViewerDisplay final : public DisplayDriver {
+  ViewerPresenter &presenter_;
+  int size_;
+
+ public:
+  int updates = 0;
+  bool fallback_requested = false;
+  std::chrono::steady_clock::time_point ready;
+  explicit ViewerDisplay(ViewerPresenter &presenter, int size) : presenter_(presenter), size_(size)
+  {
+    graphics_interop_buffer_.assign(GraphicsInteropDevice::VULKAN,
+                                    reinterpret_cast<int64_t>(presenter_.export_handle()),
+                                    presenter_.buffer_bytes());
+  }
+  GraphicsInteropDevice graphics_interop_get_device() override
+  {
+    GraphicsInteropDevice device;
+    device.type = GraphicsInteropDevice::VULKAN;
+    const auto &uuid = presenter_.device_uuid();
+    device.uuid.assign(uuid.begin(), uuid.end());
+    return device;
+  }
+  bool update_begin(const Params &, int width, int height) override
+  {
+    if (width != size_ || height != size_) {
+      return false;
+    }
+    presenter_.interop_mutex.lock();
+    try {
+      presenter_.wait_for_reader();
+    }
+    catch (...) {
+      presenter_.interop_mutex.unlock();
+      throw;
+    }
+    return true;
+  }
+  void update_end() override
+  {
+    ready = std::chrono::steady_clock::now();
+    ++updates;
+    presenter_.interop_mutex.unlock();
+  }
+  half4 *map_texture_buffer() override
+  {
+    // Fail visibly rather than silently enable a CPU pixel-copy fallback.
+    fallback_requested = true;
+    return nullptr;
+  }
+  void unmap_texture_buffer() override {}
+  void next_tile_begin() override {}
+  void zero() override
+  {
+    graphics_interop_buffer_.zero();
+  }
+  void draw(const Params &) override {}
+};
+
+struct Viewer {
+  unique_ptr<Session> session;
+  ViewerDisplay *display = nullptr;
+  SessionParams params;
+  BufferParams buffers;
+  photara::realtime::FrameScheduler frames;
+  Transform original_camera;
+  float3 camera_offset = make_float3(0, 0, 0);
+  std::vector<unsigned char> bgra;
+  bool have_image = false;
+  ViewerPresenter presenter;
+  bool present_pending = false;
+  bool realtime = true, paused = false, dirty = true, running = false;
+  bool closing = false, dragging = false;
+  bool smoke_cycle = false;
+  int mouse_x = 0, mouse_y = 0;
+  int size = 512, spp = 1, reference_samples = 256;
+  int completed = 0, smoke_frames = 0;
+  double last_ms = 0;
+  std::ofstream metrics;
+  string metrics_path;
+  string scene_path = "examples/scene_cornell_box.xml";
+  string screenshot = "viewer_capture.bmp";
+  std::chrono::steady_clock::time_point started;
+  HWND window = nullptr;
+
+  ~Viewer()
+  {
+    session.reset();
+  }
+
+  void initialize()
+  {
+    const auto devices = Device::available_devices(DEVICE_MASK(DEVICE_OPTIX));
+    for (const auto &device : devices) {
+      if (device.meets_driver_requirement) {
+        params.device = device;
+        break;
+      }
+    }
+    if (params.device.type == DEVICE_NONE) {
+      throw std::runtime_error("No supported OptiX device found");
+    }
+    params.headless = false;
+    params.denoise_device = params.device;
+    params.background = false;
+    params.stop_when_done = true;
+    params.tile_size = 0;
+    params.use_auto_tile = false;
+    params.use_resolution_divider = false;
+    params.samples = reference_samples;
+    session = make_unique<Session>(params, SceneParams());
+    if (!path_exists(scene_path)) {
+      scene_path = path_get(scene_path);
+    }
+    if (!path_exists(scene_path)) {
+      throw std::runtime_error("Scene not found: " + scene_path);
+    }
+    xml_read_file(session->scene.get(), scene_path.c_str());
+    auto *scene = session->scene.get();
+    scene->camera->set_full_width(size);
+    scene->camera->set_full_height(size);
+    scene->camera->compute_auto_viewplane();
+    original_camera = scene->camera->get_matrix();
+    scene->integrator->set_use_adaptive_sampling(false);
+    scene->integrator->set_use_denoise(false);
+    auto *pass = scene->create_node<Pass>();
+    pass->set_name(ustring("combined"));
+    pass->set_type(PASS_COMBINED);
+    buffers.width = buffers.full_width = size;
+    buffers.height = buffers.full_height = size;
+    frames.configure(spp);
+    if (!metrics_path.empty()) {
+      metrics.open(metrics_path);
+      if (!metrics) {
+        throw std::runtime_error("Cannot open metrics output");
+      }
+      metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes\n";
+    }
+  }
+
+  void restart()
+  {
+    dirty = true;
+    frames.configure(spp);
+    if (running) {
+      session->request_cancel();
+    }
+  }
+
+  void title()
+  {
+    char text[512];
+    std::snprintf(text,
+                  sizeof(text),
+                  "Photara Viewer | %s | %d spp | %.1f ms worker+GPU display | %s | "
+                  "1 RT / 2 Ref | +/- spp | Space pause | WASD/QE move | R reset | F12 BMP",
+                  realtime ? "RealTime baseline" : "Reference",
+                  realtime ? spp : reference_samples,
+                  last_ms,
+                  paused ? "Paused" : (!running && !dirty && !realtime ? "Complete" : "Running"));
+    SetWindowTextA(window, text);
+  }
+
+  void save()
+  {
+    if (!have_image) {
+      return;
+    }
+    bgra = presenter.capture();
+    BITMAPFILEHEADER file = {};
+    file.bfType = 0x4d42;
+    file.bfOffBits = sizeof(file) + sizeof(BITMAPINFOHEADER);
+    file.bfSize = DWORD(file.bfOffBits + bgra.size());
+    BITMAPINFOHEADER info = {};
+    info.biSize = sizeof(info);
+    info.biWidth = size;
+    info.biHeight = -size;
+    info.biPlanes = 1;
+    info.biBitCount = 32;
+    info.biCompression = BI_RGB;
+    std::ofstream stream(screenshot, std::ios::binary);
+    stream.write(reinterpret_cast<const char *>(&file), sizeof(file));
+    stream.write(reinterpret_cast<const char *>(&info), sizeof(info));
+    stream.write(reinterpret_cast<const char *>(bgra.data()), bgra.size());
+    if (!stream) {
+      throw std::runtime_error("Failed to save screenshot: " + screenshot);
+    }
+  }
+
+  void tick()
+  {
+    if (present_pending && !IsIconic(window)) {
+      present_pending = !presenter.present(window);
+    }
+    if (running) {
+      if (session->is_rendering()) {
+        return;
+      }
+      session->wait();
+      running = false;
+      if (display->fallback_requested) {
+        throw std::runtime_error(
+            "CUDA/Vulkan interop failed; viewer cannot use a CPU display fallback");
+      }
+      if (session->progress.get_error() || session->device->have_error()) {
+        throw std::runtime_error(session->progress.get_error() ?
+                                     session->progress.get_error_message() :
+                                     session->device->error_message());
+      }
+      if (!dirty && !closing && !session->progress.get_cancel()) {
+        if (!display->updates) {
+          throw std::runtime_error("Render finished without a GPU display update");
+        }
+        have_image = true;
+        last_ms = std::chrono::duration<double, std::milli>(display->ready - started).count();
+        const double observed_ms = std::chrono::duration<double, std::milli>(
+                                       std::chrono::steady_clock::now() - started)
+                                       .count();
+        if (metrics) {
+          metrics << completed << ',' << (realtime ? "REALTIME" : "REFERENCE") << ','
+                  << (realtime ? spp : reference_samples) << ',' << observed_ms << ',' << last_ms
+                  << ",0\n";
+          metrics.flush();
+        }
+        present_pending = !presenter.present(window);
+        ++completed;
+        // Optional deterministic stress sequence for mode/resize/ownership tests.
+        if (smoke_cycle) {
+          if (completed == 8 || completed == 24) {
+            realtime = false;
+            restart();
+          }
+          if (completed == 9 || completed == 25) {
+            realtime = true;
+            restart();
+          }
+          if (completed == 16) {
+            camera_offset.x = .1f;
+            restart();
+            SetWindowPos(
+                window, nullptr, 0, 0, 640, 480, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+          }
+        }
+        InvalidateRect(window, nullptr, FALSE);
+        title();
+        if (smoke_frames && completed >= smoke_frames) {
+          save();
+          PostMessage(window, WM_CLOSE, 0, 0);
+          return;
+        }
+      }
+    }
+    if (closing) {
+      DestroyWindow(window);
+      return;
+    }
+    if (paused || IsIconic(window) || (!realtime && !dirty)) {
+      return;
+    }
+    auto *scene = session->scene.get();
+    if (dirty) {
+      scene->camera->set_matrix(transform_translate(camera_offset) * original_camera);
+      scene->camera->need_flags_update = true;
+    }
+    SessionParams frame = params;
+    frame.samples = realtime ? frames.sample_period : reference_samples;
+    frame.use_sample_subset = realtime;
+    frame.sample_subset_offset = realtime ? frames.offset() : 0;
+    frame.sample_subset_length = realtime ? spp : reference_samples;
+    scene->integrator->set_aa_samples(frame.samples);
+    display->updates = 0;
+    session->progress.reset();
+    started = std::chrono::steady_clock::now();
+    session->reset(frame, buffers);
+    session->start();
+    if (realtime) {
+      frames.advance();
+    }
+    running = true;
+    dirty = false;
+  }
+};
+
+Viewer *viewer = nullptr;
+
+LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
+{
+  auto &v = *viewer;
+  try {
+    switch (message) {
+      case WM_TIMER:
+        v.tick();
+        return 0;
+      case WM_CLOSE:
+        v.closing = true;
+        if (v.running) {
+          v.session->request_cancel();
+        }
+        else {
+          DestroyWindow(hwnd);
+        }
+        return 0;
+      case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+      case WM_KEYDOWN:
+        switch (key) {
+          case VK_ESCAPE:
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+          case '1':
+            v.realtime = true;
+            break;
+          case '2':
+            v.realtime = false;
+            break;
+          case VK_SPACE:
+            v.paused = !v.paused;
+            v.title();
+            return 0;
+          case VK_OEM_PLUS:
+          case VK_ADD:
+            v.spp = std::min(64, v.spp * 2);
+            break;
+          case VK_OEM_MINUS:
+          case VK_SUBTRACT:
+            v.spp = std::max(1, v.spp / 2);
+            break;
+          case 'A':
+            v.camera_offset.x -= .1f;
+            break;
+          case 'D':
+            v.camera_offset.x += .1f;
+            break;
+          case 'W':
+            v.camera_offset.z += .1f;
+            break;
+          case 'S':
+            v.camera_offset.z -= .1f;
+            break;
+          case 'Q':
+            v.camera_offset.y -= .1f;
+            break;
+          case 'E':
+            v.camera_offset.y += .1f;
+            break;
+          case 'R':
+            v.camera_offset = make_float3(0, 0, 0);
+            break;
+          case VK_F12:
+            v.save();
+            return 0;
+          default:
+            return 0;
+        }
+        v.restart();
+        v.title();
+        return 0;
+      case WM_LBUTTONDOWN:
+        v.dragging = true;
+        v.mouse_x = GET_X_LPARAM(data);
+        v.mouse_y = GET_Y_LPARAM(data);
+        SetCapture(hwnd);
+        return 0;
+      case WM_LBUTTONUP:
+        v.dragging = false;
+        ReleaseCapture();
+        return 0;
+      case WM_CAPTURECHANGED:
+        v.dragging = false;
+        return 0;
+      case WM_MOUSEMOVE:
+        if (v.dragging) {
+          const int x = GET_X_LPARAM(data), y = GET_Y_LPARAM(data);
+          v.camera_offset.x -= float(x - v.mouse_x) * .005f;
+          v.camera_offset.y += float(y - v.mouse_y) * .005f;
+          v.mouse_x = x;
+          v.mouse_y = y;
+          v.restart();
+        }
+        return 0;
+      case WM_ERASEBKGND:
+        return 1;
+      case WM_PAINT: {
+        PAINTSTRUCT paint;
+        BeginPaint(hwnd, &paint);
+        EndPaint(hwnd, &paint);
+        if (v.have_image) {
+          v.present_pending = true;
+        }
+        return 0;
+      }
+    }
+  }
+  catch (const std::exception &error) {
+    KillTimer(hwnd, 1);
+    MessageBoxA(hwnd, error.what(), "Photara Viewer error", MB_ICONERROR);
+    DestroyWindow(hwnd);
+    PostQuitMessage(1);
+    return 0;
+  }
+  return DefWindowProc(hwnd, message, key, data);
+}
+}  // namespace
+
+int main(int argc, char **argv)
+{
+  log_init(nullptr);
+  path_init();
+  TimerResolution timer_resolution;
+  Viewer app;
+  viewer = &app;
+  try {
+    for (int i = 1; i < argc; ++i) {
+      const string arg = argv[i];
+      auto value = [&]() -> string {
+        if (++i == argc) {
+          throw std::runtime_error("Missing value for " + arg);
+        }
+        return argv[i];
+      };
+      if (arg == "--size") {
+        app.size = std::stoi(value());
+      }
+      else if (arg == "--spp") {
+        app.spp = std::stoi(value());
+      }
+      else if (arg == "--reference-samples") {
+        app.reference_samples = std::stoi(value());
+      }
+      else if (arg == "--smoke-cycle") {
+        app.smoke_cycle = true;
+      }
+      else if (arg == "--smoke-frames") {
+        app.smoke_frames = std::stoi(value());
+      }
+      else if (arg == "--metrics") {
+        app.metrics_path = value();
+      }
+      else if (arg == "--screenshot") {
+        app.screenshot = value();
+      }
+      else if (arg == "--mode") {
+        const string mode = value();
+        if (mode != "REALTIME" && mode != "REFERENCE") {
+          throw std::runtime_error("Invalid mode");
+        }
+        app.realtime = mode == "REALTIME";
+      }
+      else if (!arg.empty() && arg[0] != '-') {
+        app.scene_path = arg;
+      }
+      else {
+        throw std::runtime_error("Unknown option: " + arg);
+      }
+    }
+    if (app.size < 16 || app.size > 4096 || app.spp < 1 || app.spp > 64 ||
+        app.reference_samples < 1 || app.smoke_frames < 0 ||
+        (!app.realtime && app.smoke_frames > 1) ||
+        (app.smoke_cycle && (!app.realtime || app.smoke_frames < 26)))
+    {
+      throw std::runtime_error("Invalid size, sample budget or smoke frame count");
+    }
+    app.initialize();
+    WNDCLASSA wc = {};
+    wc.lpfnWndProc = window_proc;
+    wc.hInstance = GetModuleHandle(nullptr);
+    wc.lpszClassName = "PhotaraViewer";
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    RegisterClassA(&wc);
+    app.window = CreateWindowA(wc.lpszClassName,
+                               "Photara Viewer",
+                               WS_OVERLAPPEDWINDOW,
+                               CW_USEDEFAULT,
+                               CW_USEDEFAULT,
+                               app.size + 40,
+                               app.size + 80,
+                               nullptr,
+                               nullptr,
+                               wc.hInstance,
+                               nullptr);
+    if (!app.window) {
+      throw std::runtime_error("Cannot create viewer window");
+    }
+    app.presenter.initialize(app.window, app.size);
+    auto driver = make_unique<ViewerDisplay>(app.presenter, app.size);
+    if (!app.session->device->should_use_graphics_interop(driver->graphics_interop_get_device(),
+                                                          true))
+    {
+      throw std::runtime_error("OptiX and Vulkan must use the same GPU");
+    }
+    app.display = driver.get();
+    app.session->set_display_driver(std::move(driver));
+    ShowWindow(app.window, SW_SHOW);
+    app.title();
+    // WM_TIMER has a platform minimum interval and made a 5 ms render appear
+    // as a 15 ms frame. Wake for input immediately, and poll finite jobs at 2 ms.
+    MSG message = {};
+    bool quit = false;
+    while (!quit) {
+      const DWORD timeout = app.running || (!app.paused && app.realtime) ? 2 : 50;
+      MsgWaitForMultipleObjectsEx(0, nullptr, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      while (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) {
+          quit = true;
+          break;
+        }
+        TranslateMessage(&message);
+        DispatchMessage(&message);
+      }
+      if (!quit) {
+        app.tick();
+      }
+    }
+    if (app.running) {
+      app.session->cancel(true);
+      app.session->wait();
+    }
+    return int(message.wParam);
+  }
+  catch (const std::exception &error) {
+    MessageBoxA(nullptr, error.what(), "Photara Viewer error", MB_ICONERROR);
+    return 1;
+  }
+}

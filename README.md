@@ -76,6 +76,16 @@ install\photara_rs.exe --background --device OPTIX --samples 64 ^
 `--help` lists all command-line options. Render passes and scene format details
 are documented in `PHOTARA.md`.
 
+## Viewer example (Windows)
+
+Build `photara_viewer` with `scripts\build_viewer_windows.bat`, then run
+`install\photara_viewer.exe --size 512 examples\scene_cornell_box.xml`.
+The example uses Vulkan swapchain presentation and CUDA/Vulkan shared GPU memory,
+with Reference/RealTime switching and no CPU pixel transfer during normal frames.
+See [viewer controls and measurements](examples/VIEWER.md) for build requirements,
+screenshots and smoke tests. The RealTime mode is currently a frame-scheduled
+OptiX baseline; NEE-AT, ReSTIR and GI caches are not enabled yet.
+
 ## Python package
 
 The package is built from the same core:

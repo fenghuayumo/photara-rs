@@ -8,6 +8,7 @@
 
 set(INC
   ..
+  "${CMAKE_SOURCE_DIR}/photara/src"
 )
 set(INC_SYS
 )
@@ -92,6 +93,30 @@ if(WITH_CYCLES_STANDALONE)
   unset(SRC)
 
   target_link_libraries(photara_rs PRIVATE ${LIB})
+
+  # Minimal Windows app example, independent of the optional SDL/OpenGL viewer.
+  option(PHOTARA_BUILD_VIEWER "Build the Vulkan viewer example (requires glslc)" ON)
+  if(WIN32 AND PHOTARA_BUILD_VIEWER)
+    add_executable(photara_viewer WIN32 photara_viewer.cpp photara_xml.cpp)
+    target_include_directories(photara_viewer SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/lib/windows_x64/vulkan/include")
+    target_link_libraries(photara_viewer PRIVATE ${LIB} user32 winmm
+      "${CMAKE_SOURCE_DIR}/lib/windows_x64/vulkan/lib/vulkan-1.lib")
+    find_program(PHOTARA_GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
+    foreach(stage vert frag)
+      set(shader "${CMAKE_CURRENT_BINARY_DIR}/shaders/viewer.${stage}.spv")
+      add_custom_command(OUTPUT "${shader}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        COMMAND "${PHOTARA_GLSLC}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/viewer.${stage}" -o "${shader}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/viewer.${stage}")
+      target_sources(photara_viewer PRIVATE "${shader}")
+      install(FILES "${shader}" DESTINATION "${app_install_dir}/shaders")
+    endforeach()
+    target_link_options(photara_viewer PRIVATE /ENTRY:mainCRTStartup)
+    install(TARGETS photara_viewer DESTINATION ${app_install_dir})
+    install(FILES "${CMAKE_SOURCE_DIR}/examples/scene_cornell_box.xml"
+            DESTINATION "${app_install_dir}/examples")
+  endif()
+
 
   if(APPLE)
     if(WITH_CYCLES_STANDALONE_GUI)

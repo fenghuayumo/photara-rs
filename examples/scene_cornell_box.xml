@@ -1,0 +1,116 @@
+<cycles>
+  <integrator max_bounce="8" use_adaptive_sampling="false" />
+  <transform translate="0 1 -3.2">
+    <camera width="512" height="512" type="perspective" fov="0.6806784082777885" />
+  </transform>
+  <background>
+    <background name="bg" color="0 0 0" strength="0" />
+    <connect from="bg background" to="output surface" />
+  </background>
+  <shader name="white">
+    <principled_bsdf name="bsdf" base_color="0.73 0.73 0.73" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="red">
+    <principled_bsdf name="bsdf" base_color="0.65 0.05 0.05" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="green">
+    <principled_bsdf name="bsdf" base_color="0.12 0.45 0.15" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="light">
+    <emission name="bsdf" color="1 1 1" strength="15" />
+    <connect from="bsdf emission" to="output surface" />
+  </shader>
+  <object name="floor">
+    <state shader="white">
+      <mesh P="-1 0 0 -1 0 2 1 0 2 1 0 0" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="ceiling">
+    <state shader="white">
+      <mesh P="-1 2 0 1 2 0 1 2 2 -1 2 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="back">
+    <state shader="white">
+      <mesh P="-1 0 2 -1 2 2 1 2 2 1 0 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="left">
+    <state shader="red">
+      <mesh P="-1 0 0 -1 2 0 -1 2 2 -1 0 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="right">
+    <state shader="green">
+      <mesh P="1 0 0 1 0 2 1 2 2 1 2 0" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="emitter">
+    <state shader="light">
+      <mesh P="-0.3 1.99 0.7 0.3 1.99 0.7 0.3 1.99 1.3 -0.3 1.99 1.3" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_0">
+    <state shader="white">
+      <mesh P="-0.5797710661376577 0.6 0.2971794170123717 -0.047179417012371716 0.6 0.4702289338623423 -0.047179417012371716 0.0 0.4702289338623423 -0.5797710661376577 0.0 0.2971794170123717" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_1">
+    <state shader="white">
+      <mesh P="-0.047179417012371716 0.6 0.4702289338623423 -0.2202289338623423 0.6 1.0028205829876282 -0.2202289338623423 0.0 1.0028205829876282 -0.047179417012371716 0.0 0.4702289338623423" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_2">
+    <state shader="white">
+      <mesh P="-0.2202289338623423 0.6 1.0028205829876282 -0.7528205829876283 0.6 0.8297710661376577 -0.7528205829876283 0.0 0.8297710661376577 -0.2202289338623423 0.0 1.0028205829876282" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_3">
+    <state shader="white">
+      <mesh P="-0.7528205829876283 0.6 0.8297710661376577 -0.5797710661376577 0.6 0.2971794170123717 -0.5797710661376577 0.0 0.2971794170123717 -0.7528205829876283 0.0 0.8297710661376577" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_4">
+    <state shader="white">
+      <mesh P="-0.7528205829876283 0.6 0.8297710661376577 -0.2202289338623423 0.6 1.0028205829876282 -0.047179417012371716 0.6 0.4702289338623423 -0.5797710661376577 0.6 0.2971794170123717" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_5">
+    <state shader="white">
+      <mesh P="-0.5797710661376577 0.0 0.2971794170123717 -0.047179417012371716 0.0 0.4702289338623423 -0.2202289338623423 0.0 1.0028205829876282 -0.7528205829876283 0.0 0.8297710661376577" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_0">
+    <state shader="white">
+      <mesh P="0.0503705910079838 1.2 1.1640987456527165 0.5859012543472837 1.2 1.0003705910079839 0.5859012543472837 0.0 1.0003705910079839 0.0503705910079838 0.0 1.1640987456527165" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_1">
+    <state shader="white">
+      <mesh P="0.5859012543472837 1.2 1.0003705910079839 0.7496294089920162 1.2 1.5359012543472836 0.7496294089920162 0.0 1.5359012543472836 0.5859012543472837 0.0 1.0003705910079839" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_2">
+    <state shader="white">
+      <mesh P="0.7496294089920162 1.2 1.5359012543472836 0.2140987456527164 1.2 1.6996294089920163 0.2140987456527164 0.0 1.6996294089920163 0.7496294089920162 0.0 1.5359012543472836" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_3">
+    <state shader="white">
+      <mesh P="0.2140987456527164 1.2 1.6996294089920163 0.0503705910079838 1.2 1.1640987456527165 0.0503705910079838 0.0 1.1640987456527165 0.2140987456527164 0.0 1.6996294089920163" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_4">
+    <state shader="white">
+      <mesh P="0.2140987456527164 1.2 1.6996294089920163 0.7496294089920162 1.2 1.5359012543472836 0.5859012543472837 1.2 1.0003705910079839 0.0503705910079838 1.2 1.1640987456527165" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_5">
+    <state shader="white">
+      <mesh P="0.0503705910079838 0.0 1.1640987456527165 0.5859012543472837 0.0 1.0003705910079839 0.7496294089920162 0.0 1.5359012543472836 0.2140987456527164 0.0 1.6996294089920163" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+</cycles>

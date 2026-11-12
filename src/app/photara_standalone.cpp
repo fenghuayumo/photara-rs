@@ -30,6 +30,7 @@
 #endif
 
 #include "app/photara_xml.h"
+#include "realtime/frame_scheduler.h"
 #include "app/oiio_output_driver.h"
 
 #ifdef WITH_CYCLES_STANDALONE_GUI
@@ -44,6 +45,9 @@ struct Options {
   Scene *scene;
   string filepath;
   int width, height;
+  bool realtime = false;
+  int samples_per_frame = 1;
+  int frame_index = 0;
   SceneParams scene_params;
   SessionParams session_params;
   bool quiet;
@@ -112,6 +116,10 @@ static void scene_init()
 #endif
   {
     xml_read_file(options.scene, options.filepath.c_str());
+  }
+
+  if (options.realtime) {
+    options.scene->integrator->set_use_adaptive_sampling(false);
   }
 
   /* Camera width/height override? */
@@ -409,6 +417,7 @@ static void options_parse(const int argc, const char **argv)
   bool profile = false;
   bool version = false;
   string log_level;
+  string render_mode = "REFERENCE";
 
   ap.usage("photara_rs [options] file.xml");
   ap.arg("filename").hidden().action([&](auto argv) { options.filepath = argv[0]; });
@@ -426,6 +435,12 @@ static void options_parse(const int argc, const char **argv)
   ap.arg("--samples %d:SAMPLES").help("Number of samples to render").action([&](auto argv) {
     parse_int(argv, &options.session_params.samples);
   });
+  ap.arg("--render-mode %s:MODE").help("REFERENCE or experimental REALTIME baseline")
+      .action([&](auto argv) { parse_string(argv, &render_mode); });
+  ap.arg("--samples-per-frame %d:SPP").help("RealTime frame budget (1-64)")
+      .action([&](auto argv) { parse_int(argv, &options.samples_per_frame); });
+  ap.arg("--frame-index %d:FRAME").help("RealTime sample sequence frame (non-negative)")
+      .action([&](auto argv) { parse_int(argv, &options.frame_index); });
   ap.arg("--output %s:OUTPUT").help("File path to write output image").action([&](auto argv) {
     parse_string(argv, &options.output_filepath);
   });
@@ -480,6 +495,26 @@ static void options_parse(const int argc, const char **argv)
   else if (help || options.filepath.empty()) {
     ap.print_help();
     exit(EXIT_SUCCESS);
+  }
+
+  if (render_mode != "REFERENCE" && render_mode != "REALTIME") {
+    fprintf(stderr, "Render mode must be REFERENCE or REALTIME\n");
+    exit(EXIT_FAILURE);
+  }
+  options.realtime = render_mode == "REALTIME";
+  if (options.realtime) {
+    if (options.samples_per_frame < 1 || options.samples_per_frame > 64 ||
+        options.frame_index < 0) {
+      fprintf(stderr, "Invalid RealTime sample budget or frame index\n");
+      exit(EXIT_FAILURE);
+    }
+    photara::realtime::FrameScheduler frames;
+    frames.configure(options.samples_per_frame);
+    frames.seek(options.frame_index);
+    options.session_params.samples = frames.sample_period;
+    options.session_params.use_sample_subset = true;
+    options.session_params.sample_subset_offset = frames.offset();
+    options.session_params.sample_subset_length = frames.samples();
   }
 
   options.session_params.use_profiling = profile;

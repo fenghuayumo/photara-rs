@@ -22,6 +22,10 @@ class FrameScheduler {
   }
 
   void reset() { offset_ = 0; }
+  void seek(const unsigned long long frame)
+  {
+    offset_ = int(frame % (sample_period / samples_)) * samples_;
+  }
   int samples() const { return samples_; }
   int offset() const { return offset_; }
   void advance()
