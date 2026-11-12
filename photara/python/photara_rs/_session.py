@@ -523,6 +523,12 @@ class Session:
         if bound is not None:
             bound._set_texture_config(config)
 
+    def set_material_alpha_clip(self, material_index, cutoff):
+        self._ctx.set_material_alpha_clip(int(material_index), float(cutoff))
+
+    def omm_stats(self):
+        return self._ctx.omm_stats()
+
     def clear_material_base_color_texture(self, material_index: int) -> None:
         index = int(material_index)
         if index < 0 or index >= len(self._material_values):

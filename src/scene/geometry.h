@@ -134,6 +134,7 @@ class Geometry : public Node {
 
   /* Update Flags */
   bool need_update_rebuild;
+  bool opacity_micromap_baked = false;
   bool need_update_bvh_for_offset;
 
   /* Index into scene->geometry (only valid during update) */

@@ -305,7 +305,9 @@ void Shader::set_graph(unique_ptr<ShaderGraph> &&graph_)
   }
 
   /* assign graph */
+  opacity_micromap_dirty |= opacity_micromap.image != nullptr;
   graph = std::move(graph_);
+  opacity_micromap = opacity_micromap_mask(graph.get());
 
   /* Store info here before graph optimization to make sure that
    * nodes that get optimized away still count. */
@@ -329,6 +331,22 @@ bool Shader::has_surface_shadow_transparency() const
 
 void Shader::tag_update(Scene *scene)
 {
+  const bool had_omm = opacity_micromap_dirty || opacity_micromap.image != nullptr;
+  opacity_micromap_dirty = false;
+  /* A finalized graph may have been edited in place; discard its certificate.
+   * Replaced/unoptimized graphs can be certified again. */
+  opacity_micromap = opacity_micromap_mask(graph.get());
+  if (had_omm || opacity_micromap.image) {
+    for (Geometry *geom : scene->geometry) {
+      for (Node *node : geom->get_used_shaders()) {
+        if (node == this) {
+          geom->tag_modified();
+          geom->tag_update(scene, true);
+          break;
+        }
+      }
+    }
+  }
   /* update tag */
   tag_modified();
 
@@ -707,6 +725,7 @@ void ShaderManager::device_update_common(Device * /*device*/,
 
     /* regular shader */
     kshader->flags = flag;
+    kshader->alpha_clip = shader->opacity_micromap.image != nullptr;
     kshader->pass_id = shader->get_pass_id();
     kshader->constant_emission[0] = shader->emission_estimate.x;
     kshader->constant_emission[1] = shader->emission_estimate.y;

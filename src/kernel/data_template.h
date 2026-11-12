@@ -213,6 +213,7 @@ KERNEL_STRUCT_MEMBER(integrator, float, ao_additive_factor)
 /* Transparency. */
 KERNEL_STRUCT_MEMBER(integrator, int, transparent_min_bounce)
 KERNEL_STRUCT_MEMBER(integrator, int, transparent_max_bounce)
+KERNEL_STRUCT_MEMBER(integrator, int, alpha_clip_max_hits)
 KERNEL_STRUCT_MEMBER(integrator, int, transparent_shadows)
 /* Caustics. */
 KERNEL_STRUCT_MEMBER(integrator, int, caustics_reflective)

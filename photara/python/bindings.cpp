@@ -163,6 +163,23 @@ class Context {
     }
   }
 
+  void set_material_alpha_clip(const int material, const float cutoff)
+  {
+    if (photara_set_material_alpha_clip(context_, material, cutoff) != 0) throw_last_error();
+  }
+
+  py::dict omm_stats()
+  {
+    int supported, enabled, meshes;
+    unsigned long long transparent;
+    if (photara_get_omm_stats(context_, &supported, &enabled, &meshes, &transparent) != 0)
+      throw_last_error();
+    py::dict result;
+    result["supported"] = bool(supported); result["enabled"] = bool(enabled);
+    result["meshes"] = meshes; result["transparent_states"] = transparent;
+    return result;
+  }
+
   void clear_material_base_color_texture(const int material_index)
   {
     if (photara_clear_material_base_color_texture(context_, material_index) != 0) {
@@ -1229,6 +1246,8 @@ PYBIND11_MODULE(_photara, module)
       .def("set_samples", &Context::set_samples, py::arg("samples"))
       .def("configure_texture_lod", &Context::configure_texture_lod, py::arg("method"))
       .def("texture_lod", &Context::texture_lod)
+      .def("set_material_alpha_clip", &Context::set_material_alpha_clip)
+      .def("omm_stats", &Context::omm_stats)
       .def("neeat_stats", &Context::neeat_stats)
       .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
       .def("set_render_mode", &Context::set_render_mode,

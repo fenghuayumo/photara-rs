@@ -14,6 +14,7 @@
 #endif
 
 #include "kernel/types.h"
+#include "scene/opacity_micromap.h"
 #include "scene/attribute.h"
 
 #include "graph/node.h"
@@ -75,6 +76,8 @@ class Shader : public Node {
   /* shader graph */
   unique_ptr<ShaderGraph> graph;
   bool is_default_gsplat = false;
+  OpacityMicromapMask opacity_micromap;
+  bool opacity_micromap_dirty = false;
 
   NODE_SOCKET_API(int, pass_id)
 

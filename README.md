@@ -88,6 +88,9 @@ OptiX baseline with an experimental global and screen-tile NEE-AT analytic-light
 See [NEE-AT scope and tests](photara/src/realtime/NEE_AT.md); ReSTIR and GI caches
 are not enabled yet.
 
+Reference and RealTime also support [Ray Cone texture LOD](docs/RAY_CONES.md) and
+[hardware opacity micromaps for eligible alpha-tested meshes](docs/OMM.md).
+
 ## Python package
 
 The package is built from the same core:

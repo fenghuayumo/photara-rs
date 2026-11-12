@@ -38,6 +38,10 @@
 #include "scene/object.h"
 #include "scene/pass.h"
 #include "scene/scene.h"
+#ifdef WITH_OPTIX
+#  include "device/optix/device_impl.h"
+#  include "bvh/optix.h"
+#endif
 #include "scene/shader.h"
 #include "scene/shader_graph.h"
 #include "scene/shader_nodes.h"
@@ -328,7 +332,8 @@ unique_ptr<ShaderGraph> make_principled_graph(const PhotaraMaterialDesc &desc,
                                               const PhotaraTextureDesc *texture,
                                               PrincipledBsdfNode **bsdf_out,
                                               MixColorNode **mix_out,
-                                              ImageTextureNode **texture_out)
+                                              ImageTextureNode **texture_out,
+                                              const float alpha_cutoff = -1.0f)
 {
   unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
   PrincipledBsdfNode *bsdf = graph->create_node<PrincipledBsdfNode>();
@@ -346,6 +351,20 @@ unique_ptr<ShaderGraph> make_principled_graph(const PhotaraMaterialDesc &desc,
     texture_node = graph->create_node<ImageTextureNode>();
     configure_image_texture(texture_node, *texture);
     graph->connect(texture_node->output("Color"), mix->input("B"));
+    if (alpha_cutoff >= 0) {
+      auto *test = graph->create_node<MathNode>();
+      test->set_math_type(NODE_MATH_GREATER_THAN);
+      test->set_value2(alpha_cutoff);
+      auto *hole = graph->create_node<TransparentBsdfNode>();
+      hole->set_color(one_float3());
+      auto *mask = graph->create_node<MixClosureNode>();
+      graph->disconnect(graph->output()->input("Surface"));
+      graph->connect(texture_node->output("Alpha"), test->input("Value1"));
+      graph->connect(test->output("Value"), mask->input("Fac"));
+      graph->connect(hole->output("BSDF"), mask->input("Closure1"));
+      graph->connect(bsdf->output("BSDF"), mask->input("Closure2"));
+      graph->connect(mask->output("Closure"), graph->output()->input("Surface"));
+    }
   }
 
   if (bsdf_out != nullptr) {
@@ -580,6 +599,7 @@ struct PhotaraContext {
     MixColorNode *mix = nullptr;
     ImageTextureNode *texture = nullptr;
     PhotaraMaterialDesc material_desc = {};
+    float alpha_cutoff = -1.0f;
   };
 
   enum LightType {
@@ -1293,6 +1313,16 @@ int photara_update_material(PhotaraContext *ctx,
     }
     apply_material_desc(record.bsdf, record.mix, *desc);
     record.material_desc = *desc;
+    if (record.alpha_cutoff >= 0 && record.texture) {
+      const string filename = record.texture->get_filename().string();
+      const string colorspace = record.texture->get_colorspace().string();
+      PhotaraTextureDesc texture = {filename.c_str(), colorspace.c_str(),
+                                   int(record.texture->get_interpolation()),
+                                   int(record.texture->get_extension())};
+      auto graph = make_principled_graph(*desc, &texture, &record.bsdf, &record.mix,
+                                        &record.texture, record.alpha_cutoff);
+      record.shader->set_graph(std::move(graph));
+    }
     record.shader->tag_update(ctx->scene);
   });
 }
@@ -1316,7 +1346,7 @@ int photara_set_material_base_color_texture(PhotaraContext *ctx,
     MixColorNode *mix = nullptr;
     ImageTextureNode *texture = nullptr;
     unique_ptr<ShaderGraph> graph = make_principled_graph(
-        record.material_desc, desc, &bsdf, &mix, &texture);
+        record.material_desc, desc, &bsdf, &mix, &texture, record.alpha_cutoff);
     record.shader->set_graph(std::move(graph));
     record.bsdf = bsdf;
     record.mix = mix;
@@ -1324,6 +1354,50 @@ int photara_set_material_base_color_texture(PhotaraContext *ctx,
 
     record.shader->tag_update(ctx->scene);
     ctx->scene->image_manager->tag_update();
+  });
+}
+
+int photara_set_material_alpha_clip(PhotaraContext *ctx, const int material, const float cutoff)
+{
+  return guarded(ctx, [&]() {
+    if (!std::isfinite(cutoff) || cutoff > 1) throw std::runtime_error("Invalid alpha cutoff");
+    auto &record = require_material(ctx, material);
+    if (!record.texture && cutoff >= 0) throw std::runtime_error("Alpha clipping requires a base-color texture");
+    if (!record.texture) { record.alpha_cutoff = -1; return; }
+    const string filename = record.texture->get_filename().string();
+    const string colorspace = record.texture->get_colorspace().string();
+    PhotaraTextureDesc texture = {filename.c_str(), colorspace.c_str(),
+                                 int(record.texture->get_interpolation()),
+                                 int(record.texture->get_extension())};
+    auto graph = make_principled_graph(record.material_desc, &texture,
+                                      &record.bsdf, &record.mix, &record.texture, cutoff);
+    record.shader->set_graph(std::move(graph));
+    record.alpha_cutoff = cutoff;
+    record.shader->tag_update(ctx->scene);
+    ctx->scene->image_manager->tag_update();
+  });
+}
+
+int photara_get_omm_stats(PhotaraContext *ctx, int *supported, int *enabled,
+                         int *meshes, unsigned long long *transparent_states)
+{
+  return guarded(ctx, [&]() {
+    if (!supported || !enabled || !meshes || !transparent_states)
+      throw std::runtime_error("NULL OMM diagnostics output");
+    *supported = *enabled = *meshes = 0; *transparent_states = 0;
+#ifdef WITH_OPTIX
+    auto *device = ctx->scene->device;
+    if (device->info.type == DEVICE_OPTIX) {
+      auto *optix = static_cast<OptiXDevice *>(device);
+      *supported = optix->omm_supported; *enabled = optix->omm_enabled;
+      for (Geometry *geom : ctx->scene->geometry) {
+        if (geom->bvh && geom->bvh->params.bvh_layout == BVH_LAYOUT_OPTIX) {
+          auto *bvh = static_cast<BVHOptiX *>(geom->bvh.get());
+          if (bvh->omm_array_data) { ++*meshes; *transparent_states += bvh->omm_transparent; }
+        }
+      }
+    }
+#endif
   });
 }
 
@@ -1347,6 +1421,7 @@ int photara_clear_material_base_color_texture(PhotaraContext *ctx,
     record.bsdf = bsdf;
     record.mix = mix;
     record.texture = nullptr;
+    record.alpha_cutoff = -1;
 
     record.shader->tag_update(ctx->scene);
     ctx->scene->image_manager->tag_update();

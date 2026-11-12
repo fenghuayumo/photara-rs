@@ -63,6 +63,8 @@ class ImageLoader {
 
   /* Name for logs and stats. */
   virtual string name() const = 0;
+  /* Exact file selected by metadata resolution, for conservative OMM baking. */
+  virtual string resolved_filepath() const { return string(); }
 
   /* Optional for tiled textures loaded externally. */
   virtual int get_tile_number() const;

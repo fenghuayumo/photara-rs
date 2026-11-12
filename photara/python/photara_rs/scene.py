@@ -1331,6 +1331,11 @@ class Scene:
     def adaptive_sampling(self) -> bool:
         return self._session.adaptive_sampling
 
+    def omm_stats(self):
+        """Idle-context hardware capability and attached opacity micromaps."""
+        self._ensure_open()
+        return self._session.omm_stats()
+
     def neeat_stats(self):
         """Return idle-context light count, global PDF and screen-tile diagnostics."""
         return self._session.neeat_stats()

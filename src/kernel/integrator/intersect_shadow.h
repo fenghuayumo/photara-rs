@@ -59,7 +59,8 @@ ccl_device_forceinline int integrate_shadow_max_transparent_hits(KernelGlobals k
   const int transparent_max_bounce = kernel_data.integrator.transparent_max_bounce;
   const int transparent_bounce = INTEGRATOR_STATE(state, shadow_path, transparent_bounce);
 
-  return max(transparent_max_bounce - transparent_bounce, 0);
+  return max(transparent_max_bounce - transparent_bounce, 0) +
+         kernel_data.integrator.alpha_clip_max_hits;
 }
 
 #ifdef __TRANSPARENT_SHADOWS__
@@ -139,7 +140,8 @@ ccl_device bool integrate_intersect_shadow_transparent(KernelGlobals kg,
       sort_shadow_intersections(state, num_recorded_hits);
     }
 
-    INTEGRATOR_STATE_WRITE(state, shadow_path, packed_num_hits) = num_hits;
+    INTEGRATOR_STATE_WRITE(state, shadow_path, packed_num_hits) =
+        min(num_hits, uint(INTEGRATOR_SHADOW_ISECT_SIZE + 1));
   }
   else {
     INTEGRATOR_STATE_WRITE(state, shadow_path, packed_num_hits) = 0;

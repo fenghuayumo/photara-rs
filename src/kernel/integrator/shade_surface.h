@@ -631,7 +631,9 @@ ccl_device_forceinline int integrate_surface_bsdf_bssrdf_bounce(
 #endif
   }
 
-  path_state_next(kg, state, label, sd->runtime_flag);
+  const bool alpha_hole = (label & LABEL_TRANSPARENT) &&
+      kernel_data_fetch(shaders, sd->shader & SHADER_MASK).alpha_clip;
+  if (!alpha_hole) path_state_next(kg, state, label, sd->runtime_flag);
 
   guiding_record_surface_bounce(kg,
                                 state,

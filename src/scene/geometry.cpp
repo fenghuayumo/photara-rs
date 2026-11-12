@@ -204,6 +204,19 @@ bool Geometry::has_motion_blur() const
 
 void Geometry::tag_update(Scene *scene, bool rebuild)
 {
+  if (opacity_micromap_baked) {
+    rebuild = true;
+    tag_modified();
+  }
+  if (is_mesh()) {
+    for (Node *node : used_shaders) {
+      if (static_cast<Shader *>(node)->opacity_micromap.image) {
+        rebuild = true;
+        tag_modified();
+        break;
+      }
+    }
+  }
   if (rebuild) {
     need_update_rebuild = true;
     scene->light_manager->tag_update(scene, LightManager::MESH_NEED_REBUILD);

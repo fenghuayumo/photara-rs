@@ -10,6 +10,7 @@
 #include "scene/film.h"
 #include "scene/integrator.h"
 #include "scene/light.h"
+#include "scene/mesh.h"
 #include "scene/object.h"
 #include "scene/scene.h"
 #include "scene/shader.h"
@@ -228,6 +229,21 @@ void Integrator::set_realtime_sample_subset(const bool use, const int offset, co
 
 void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene)
 {
+  // Binary cutout holes are geometry rejection, not transparency bounces.
+  // Reserve enough intersection capacity for each possible triangle crossing
+  // on a straight shadow segment, including instances (before shader evaluation).
+  int64_t alpha_hits = 0;
+  for (Object *object : scene->objects) {
+    Geometry *geom = object->get_geometry();
+    if (!geom || !geom->is_mesh()) continue;
+    bool clipped = false;
+    for (Node *node : geom->get_used_shaders())
+      clipped |= static_cast<Shader *>(node)->opacity_micromap.image != nullptr;
+    if (clipped) alpha_hits += static_cast<Mesh *>(geom)->num_triangles();
+  }
+  const int alpha_clip_max_hits = int(std::min<int64_t>(alpha_hits, 1000000));
+  if (dscene->data.integrator.alpha_clip_max_hits != alpha_clip_max_hits) tag_modified();
+  dscene->data.integrator.alpha_clip_max_hits = alpha_clip_max_hits;
   if (!is_modified()) {
     return;
   }

@@ -37,6 +37,7 @@ class OIIOImageLoader : public ImageLoader {
                         uint8_t *pixels) override;
 
   string name() const override;
+  string resolved_filepath() const override { return get_filepath(); }
 
   bool equals(const ImageLoader &other) const override;
 

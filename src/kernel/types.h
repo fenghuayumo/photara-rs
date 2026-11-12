@@ -1746,7 +1746,7 @@ struct KernelShader {
   float cryptomatte_id;
   int flags;
   int pass_id;
-  int pad2, pad3;
+  int alpha_clip, pad3;
 };
 static_assert_align(KernelShader, 16);
 

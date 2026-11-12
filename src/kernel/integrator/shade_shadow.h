@@ -144,8 +144,16 @@ ccl_device_inline TransparentShadowEvalResult integrate_transparent_surface_shad
   }
 
   INTEGRATOR_STATE_WRITE(state, shadow_path, throughput) = throughput;
-  INTEGRATOR_STATE_WRITE(state, shadow_path, transparent_bounce) += 1;
-  INTEGRATOR_STATE_WRITE(state, shadow_path, rng_offset) += PRNG_BOUNCE_NUM;
+  if (!kernel_data_fetch(shaders, shadow_sd->shader & SHADER_MASK).alpha_clip) {
+    INTEGRATOR_STATE_WRITE(state, shadow_path, transparent_bounce) += 1;
+    INTEGRATOR_STATE_WRITE(state, shadow_path, rng_offset) += PRNG_BOUNCE_NUM;
+    if (kernel_data.integrator.alpha_clip_max_hits &&
+        INTEGRATOR_STATE(state, shadow_path, transparent_bounce) >=
+            kernel_data.integrator.transparent_max_bounce)
+    {
+      return TRANSPARENT_SHADOW_EVAL_OPAQUE;
+    }
+  }
 
   return TRANSPARENT_SHADOW_EVAL_CONTINUE;
 }

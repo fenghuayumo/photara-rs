@@ -228,9 +228,42 @@ include_directories(
 ###########################################################################
 # Sources.
 
+option(PHOTARA_WITH_OMM "Enable optional NVIDIA OMM CPU baker integration" ON)
+set(PHOTARA_OMM_ROOT "" CACHE PATH "OMM SDK source/install root")
+set(PHOTARA_OMM_RUNTIME "" CACHE FILEPATH "OMM shared library runtime, if used")
+if(PHOTARA_WITH_OMM AND WITH_CYCLES_DEVICE_OPTIX)
+  find_path(PHOTARA_OMM_INCLUDE_DIR omm.h
+    HINTS "${PHOTARA_OMM_ROOT}/include" "${PHOTARA_OMM_ROOT}/libraries/omm-lib/include")
+  find_library(PHOTARA_OMM_LIBRARY NAMES omm-lib omm-sdk
+    HINTS "${PHOTARA_OMM_ROOT}/lib" "${PHOTARA_OMM_ROOT}/lib/Release")
+  if(PHOTARA_OMM_INCLUDE_DIR AND PHOTARA_OMM_LIBRARY)
+    add_library(photara_omm_sdk INTERFACE)
+    target_include_directories(photara_omm_sdk INTERFACE "${PHOTARA_OMM_INCLUDE_DIR}")
+    target_link_libraries(photara_omm_sdk INTERFACE "${PHOTARA_OMM_LIBRARY}")
+    target_compile_definitions(photara_omm_sdk INTERFACE WITH_OPTIX_OMM)
+    message(STATUS "Photara OMM CPU baker enabled")
+  else()
+    message(STATUS "OMM SDK not configured; alpha testing retains its original path")
+  endif()
+endif()
+
 add_subdirectory(src)
 add_subdirectory(third_party)
 
 if(PHOTARA_BUILD_C_API OR PHOTARA_BUILD_PYTHON)
   add_subdirectory(photara)
+endif()
+
+# Stage the optional SDK runtime for development builds and installation.
+if(TARGET photara_omm_sdk AND PHOTARA_OMM_RUNTIME)
+  add_custom_target(photara_omm_runtime
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/install"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PHOTARA_OMM_RUNTIME}"
+            "${CMAKE_SOURCE_DIR}/install")
+  foreach(_omm_target photara_python photara_viewer photara_rs)
+    if(TARGET ${_omm_target})
+      add_dependencies(${_omm_target} photara_omm_runtime)
+    endif()
+  endforeach()
+  install(FILES "${PHOTARA_OMM_RUNTIME}" DESTINATION .)
 endif()

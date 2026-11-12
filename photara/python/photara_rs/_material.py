@@ -229,6 +229,16 @@ class Material:
         self._session.set_material_base_color_texture(self._index, value)
         self._texture = config
 
+    def configure_alpha_clip(self, cutoff=0.5):
+        """Clip base-color image alpha; None disables. OMM is automatic when supported."""
+        if cutoff is None:
+            cutoff = -1.0
+        else:
+            cutoff = _validate_scalar(cutoff, "alpha cutoff", 0.0, 1.0)
+        if not self.bound:
+            raise PhotaraError("Attach material to a scene before configuring alpha clipping")
+        self._session.set_material_alpha_clip(self._index, cutoff)
+
     @property
     def emission_strength(self) -> float:
         return self._values["emission_strength"]

@@ -65,6 +65,7 @@ set(SRC_OPTIX
   optix/device.h
   optix/device_impl.cpp
   optix/device_impl.h
+  optix/opacity_micromap.cpp
   optix/queue.cpp
   optix/queue.h
   optix/util.h
@@ -117,3 +118,7 @@ source_group("cuda" FILES ${SRC_CUDA})
 source_group("dummy" FILES ${SRC_DUMMY})
 source_group("optix" FILES ${SRC_OPTIX})
 source_group("common" FILES ${SRC_BASE} ${SRC_HEADERS})
+
+if(TARGET photara_omm_sdk)
+  target_link_libraries(cycles_device PRIVATE photara_omm_sdk)
+endif()

@@ -98,6 +98,13 @@ OptiXDevice::OptiXDevice(const DeviceInfo &info, Stats &stats, Profiler &profile
   optix_assert(optixDeviceContextGetProperty(
       context, OPTIX_DEVICE_PROPERTY_RTCORE_VERSION, &rtcore_version, sizeof(rtcore_version)));
   this->info.use_hardware_raytracing = rtcore_version > 0;
+  // Ada (RT core 3.0) and later RTX cores accelerate opacity micromaps.
+  omm_supported = rtcore_version >= 30;
+#  ifdef WITH_OPTIX_OMM
+  const char *disable_omm = getenv("PHOTARA_DISABLE_OMM");
+  omm_enabled = omm_supported && !(disable_omm && string(disable_omm) == "1");
+#  endif
+  LOG_INFO << "OptiX OMM hardware=" << omm_supported << " enabled=" << omm_enabled;
 
   /* Fix weird compiler bug that assigns wrong size. */
   launch_params.data_elements = sizeof(KernelParamsOptiX);
@@ -412,6 +419,7 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
   pipeline_options.usesMotionBlur = false;
   pipeline_options.traversableGraphFlags =
       OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+  pipeline_options.allowOpacityMicromaps = omm_supported;
   pipeline_options.numPayloadValues = 8;
   pipeline_options.numAttributeValues = 2; /* u, v */
   pipeline_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
@@ -1717,6 +1725,29 @@ void OptiXDevice::build_bvh(BVH *bvh, Progress &progress, bool refit)
       build_input.triangleArray.numSbtRecords = 1;
       build_input.triangleArray.primitiveIndexOffset = mesh->prim_offset;
 
+      if (operation == OPTIX_BUILD_OPERATION_BUILD) {
+        geom->opacity_micromap_baked = false;
+        bvh_optix->omm_array_data.reset();
+        bvh_optix->omm_index_data.reset();
+        bvh_optix->omm_usage.clear();
+        bvh_optix->omm_transparent = bvh_optix->omm_unknown = 0;
+        if (omm_enabled && geom->is_mesh()) {
+          geom->opacity_micromap_baked = build_opacity_micromap(bvh_optix, *mesh, progress);
+        }
+      }
+      vector<OptixOpacityMicromapUsageCount> omm_usage;
+      if (bvh_optix->omm_array_data) {
+        for (const auto &h : bvh_optix->omm_usage) {
+          omm_usage.push_back({h.count, h.level, OptixOpacityMicromapFormat(h.format)});
+        }
+        auto &omm = build_input.triangleArray.opacityMicromap;
+        omm.indexingMode = OPTIX_OPACITY_MICROMAP_ARRAY_INDEXING_MODE_INDEXED;
+        omm.opacityMicromapArray = bvh_optix->omm_array_data->device_pointer;
+        omm.indexBuffer = bvh_optix->omm_index_data->device_pointer;
+        omm.indexSizeInBytes = sizeof(int32_t);
+        omm.numMicromapUsageCounts = omm_usage.size();
+        omm.micromapUsageCounts = omm_usage.data();
+      }
       if (!build_optix_bvh(bvh_optix, operation, build_input, num_motion_steps)) {
         progress.set_error("Failed to build OptiX acceleration structure");
       }
@@ -2019,6 +2050,12 @@ void OptiXDevice::release_bvh(BVH *bvh)
 
   delayed_free_bvh_memory.emplace_back(std::move(bvh_optix->as_data));
   delayed_free_bvh_memory.emplace_back(std::move(bvh_optix->motion_transform_data));
+  if (bvh_optix->omm_array_data) {
+    delayed_free_bvh_memory.emplace_back(std::move(bvh_optix->omm_array_data));
+  }
+  if (bvh_optix->omm_index_data) {
+    delayed_free_bvh_memory.emplace_back(std::move(bvh_optix->omm_index_data));
+  }
   bvh_optix->traversable_handle = 0;
 }
 

@@ -42,6 +42,7 @@ set(SRC
   procedural.cpp
   pointcloud.cpp
   object.cpp
+  opacity_micromap.cpp
   osl.cpp
   particles.cpp
   pass.cpp
@@ -82,6 +83,7 @@ set(SRC_HEADERS
   light_tree_debug.h
   mesh.h
   object.h
+  opacity_micromap.h
   osl.h
   particles.h
   pass.h
@@ -126,3 +128,13 @@ include_directories(${INC})
 include_directories(SYSTEM ${INC_SYS})
 
 cycles_add_library(cycles_scene "${LIB}" ${SRC} ${SRC_HEADERS})
+
+if(TARGET photara_omm_sdk)
+  target_link_libraries(cycles_scene PRIVATE photara_omm_sdk)
+endif()
+
+if(MSVC)
+  set_source_files_properties(opacity_micromap.cpp PROPERTIES COMPILE_OPTIONS "/fp:precise")
+else()
+  set_source_files_properties(opacity_micromap.cpp PROPERTIES COMPILE_OPTIONS "-fno-fast-math")
+endif()

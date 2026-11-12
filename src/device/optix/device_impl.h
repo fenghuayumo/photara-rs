@@ -16,6 +16,7 @@
 CCL_NAMESPACE_BEGIN
 
 class BVHOptiX;
+class Mesh;
 struct KernelParamsOptiX;
 
 /* List of OptiX program groups. */
@@ -96,6 +97,8 @@ struct SbtRecord {
 class OptiXDevice : public CUDADevice {
  public:
   OptixDeviceContext context = nullptr;
+  bool omm_supported = false;
+  bool omm_enabled = false;
 
   OptixModule optix_module = nullptr;
   OptixModule mnee_module = nullptr;
@@ -147,6 +150,7 @@ class OptiXDevice : public CUDADevice {
                        const OptixBuildInput &build_input,
                        uint16_t num_motion_steps);
 
+  bool build_opacity_micromap(BVHOptiX *bvh, const Mesh &mesh, Progress &progress);
   void build_bvh(BVH *bvh, Progress &progress, bool refit) override;
 
   void release_bvh(BVH *bvh) override;

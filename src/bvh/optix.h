@@ -9,6 +9,7 @@
 
 #  include "bvh/bvh.h"
 #  include "bvh/params.h"
+#  include "scene/opacity_micromap.h"
 
 #  include "device/memory.h"
 
@@ -22,6 +23,11 @@ class BVHOptiX : public BVH {
   uint64_t traversable_handle;
   unique_ptr<device_only_memory<char>> as_data;
   unique_ptr<device_only_memory<char>> motion_transform_data;
+  unique_ptr<device_only_memory<char>> omm_array_data;
+  unique_ptr<device_only_memory<char>> omm_index_data;
+  vector<OpacityMicromapCount> omm_usage;
+  uint64_t omm_transparent = 0;
+  uint64_t omm_unknown = 0;
 
   BVHOptiX(const BVHParams &params,
            const vector<Geometry *> &geometry,

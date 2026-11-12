@@ -220,6 +220,12 @@ typedef struct PhotaraTextureDesc {
   int extension;
 } PhotaraTextureDesc;
 
+/* Binary alpha clipping from the base-color image alpha. Negative cutoff disables.
+ * Independent from hardware acceleration; OMM activates automatically if eligible. */
+PHOTARA_API int photara_set_material_alpha_clip(PhotaraContext *ctx, int material, float cutoff);
+PHOTARA_API int photara_get_omm_stats(PhotaraContext *ctx, int *supported, int *enabled,
+                                     int *meshes, unsigned long long *transparent_states);
+
 /* Materials. Return a non-negative material index, or -1 on error. */
 PHOTARA_API int photara_add_material(PhotaraContext *ctx, const PhotaraMaterialDesc *desc);
 /* Update a material in place. Meshes referencing it change on the next render. */
