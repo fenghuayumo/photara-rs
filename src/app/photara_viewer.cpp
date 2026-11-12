@@ -436,6 +436,7 @@ struct Viewer {
     }
     SessionParams frame = params;
     frame.samples = realtime ? frames.sample_period : reference_samples;
+    frame.realtime_frame = realtime;
     frame.use_sample_subset = realtime;
     frame.sample_subset_offset = realtime ? frames.offset() : 0;
     frame.sample_subset_length = realtime ? spp : reference_samples;

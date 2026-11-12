@@ -204,6 +204,24 @@ Integrator::Integrator() : Node(get_node_type()) {}
 
 Integrator::~Integrator() = default;
 
+void Integrator::set_realtime_sample_subset(const bool use, const int offset, const int length)
+{
+  /* These three sockets have no KernelIntegrator fields. The scheduler consumes
+   * them on the host, including adaptive threshold scaling. Updating only them
+   * must not free/rebuild sampling tables or force a full device scene update.
+   * Do not clear dirtiness from AA sequence length, jitter, BSDFs, or anything
+   * else that was changed before this scheduling update. */
+  const bool was_modified = is_modified();
+  set_use_sample_subset(use);
+  set_sample_subset_offset(offset);
+  set_sample_subset_length(length);
+  /* Jitter generation advances in device_update even if its sockets did not
+   * change. Keep the existing per-frame update for DLSS/jittered rendering. */
+  if (!was_modified && !get_use_pixel_jitter()) {
+    clear_modified();
+  }
+}
+
 void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene)
 {
   if (!is_modified()) {

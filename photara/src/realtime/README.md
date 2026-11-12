@@ -41,3 +41,11 @@ architectural references. No RTXPT source is copied or linked here. Future work:
 Correctness checks should compare equal-time output against Reference, including
 moving cameras, disocclusion, moving emissives, thin geometry and glossy paths.
 Frame-time measurements must include scene updates, reconstruction and display.
+
+RealTime marks its SessionParams with `realtime_frame`. Updating only the three
+host sample-subset sockets preserves a previously clean Integrator, avoiding a
+redundant device update and sampling-table rebuild. Existing device dirtiness
+(e.g. seed, sequence length, bounce limits or shadow-catcher changes) is retained.
+Pixel-jitter/DLSS frames keep the original update path so jitter still advances.
+Reference keeps its original subset update behavior. Each submitted job still
+resets its film; the viewer still presents each accepted completed frame.

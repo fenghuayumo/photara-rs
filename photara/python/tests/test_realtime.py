@@ -27,6 +27,43 @@ class RealTimeTests(unittest.TestCase):
             self.assertEqual(job.poll().num_samples, 4)
             self.assertEqual(scene.samples, 4)
 
+    def test_host_subset_preserves_dynamic_updates(self):
+        scene, obj = build_scene(samples=8)
+        with scene:
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            original = scene.render().beauty.copy()
+            scene.render()  # Warm the scheduling-only update path.
+            # A genuine integrator change must still upload despite the fast subset path.
+            scene.seed = 41
+            scene.render()
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            first_seed = scene.render().beauty.copy()
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            np.testing.assert_allclose(first_seed, scene.render().beauty, rtol=1e-6, atol=1e-7)
+            self.assertGreater(float(np.max(np.abs(first_seed - original))), 0)
+            scene.seed = 0
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            np.testing.assert_allclose(original, scene.render().beauty, rtol=1e-6, atol=1e-7)
+            material = scene.materials[0]
+            old_color = material.base_color
+            material.base_color = (0.05, 0.8, 0.1)
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            changed = scene.render().beauty.copy()
+            self.assertGreater(float(np.max(np.abs(changed - original))), 0.01)
+            material.base_color = old_color
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            np.testing.assert_allclose(original, scene.render().beauty, rtol=1e-6, atol=1e-7)
+            light = scene.lights[0]
+            light.strength = 0
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            dark = scene.render().beauty.copy()
+            self.assertLess(float(dark[..., :3].mean()), float(original[..., :3].mean()))
+            # A genuine integrator update must survive subset advancement.
+            scene.configure_film(exposure=2.0, filter_type="BOX", filter_width=1.0)
+            scene.configure_render_mode("REALTIME", samples_per_frame=4)
+            np.testing.assert_allclose(scene.render().beauty[..., :3], dark[..., :3] * 2,
+                                       rtol=1e-5, atol=1e-6)
+
     def test_constructor_budget_and_resize(self):
         with pr.Scene(32, 24, samples=9, denoise=False, adaptive_sampling=False,
                       render_mode="REALTIME", samples_per_frame=2) as scene:

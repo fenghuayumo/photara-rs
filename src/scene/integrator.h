@@ -108,6 +108,9 @@ class Integrator : public Node {
   NODE_SOCKET_API(int, sample_subset_offset)
   NODE_SOCKET_API(int, sample_subset_length)
 
+  /* Scheduling-only update. Preserve any pre-existing device dirtiness. */
+  void set_realtime_sample_subset(bool use, int offset, int length);
+
   NODE_SOCKET_API(bool, use_light_tree)
   NODE_SOCKET_API(float, light_sampling_threshold)
 

@@ -49,6 +49,9 @@ class SessionParams {
   /* Embedded interactive clients use finite jobs instead of waiting for a reset
    * after convergence. Scheduling remains interactive, independently of job lifetime. */
   bool stop_when_done = false;
+  /* RealTime advances host-only sample subsets while keeping the device
+   * sampling sequence fixed. Reference keeps the original update policy. */
+  bool realtime_frame = false;
 
   int samples;
   bool use_sample_subset;

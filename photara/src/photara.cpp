@@ -2193,6 +2193,7 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
     if (ctx->render_mode == PHOTARA_RENDER_REALTIME) {
       // Keep the sequence length stable across frames. Only the subset moves.
       frame_params.samples = photara::realtime::FrameScheduler::sample_period;
+      frame_params.realtime_frame = true;
       frame_params.use_sample_subset = true;
       frame_params.sample_subset_offset = ctx->realtime.offset();
       frame_params.sample_subset_length = ctx->realtime.samples();

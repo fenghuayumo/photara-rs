@@ -788,9 +788,15 @@ bool Session::update_scene(const bool reset_samples)
     scene->integrator->set_aa_samples(params.samples);
   }
 
-  scene->integrator->set_use_sample_subset(params.use_sample_subset);
-  scene->integrator->set_sample_subset_offset(params.sample_subset_offset);
-  scene->integrator->set_sample_subset_length(params.sample_subset_length);
+  if (params.realtime_frame) {
+    scene->integrator->set_realtime_sample_subset(
+        params.use_sample_subset, params.sample_subset_offset, params.sample_subset_length);
+  }
+  else {
+    scene->integrator->set_use_sample_subset(params.use_sample_subset);
+    scene->integrator->set_sample_subset_offset(params.sample_subset_offset);
+    scene->integrator->set_sample_subset_length(params.sample_subset_length);
+  }
 
   /* When multiple tiles are used SAMPLE_COUNT pass is used to keep track of possible partial
    * tile results. */

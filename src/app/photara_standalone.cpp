@@ -512,6 +512,7 @@ static void options_parse(const int argc, const char **argv)
     frames.configure(options.samples_per_frame);
     frames.seek(options.frame_index);
     options.session_params.samples = frames.sample_period;
+    options.session_params.realtime_frame = true;
     options.session_params.use_sample_subset = true;
     options.session_params.sample_subset_offset = frames.offset();
     options.session_params.sample_subset_length = frames.samples();
