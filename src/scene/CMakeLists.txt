@@ -23,6 +23,7 @@ set(SRC
   geometry_attributes.cpp
   geometry_bvh.cpp
   geometry_mesh.cpp
+  gsplat.cpp
   hair.cpp
   image.cpp
   image_cache.cpp
@@ -66,6 +67,8 @@ set(SRC_HEADERS
   devicescene.h
   film.h
   geometry.h
+  gsplat.h
+  gsplat_receiver.h
   hair.h
   image.h
   image_cache.h

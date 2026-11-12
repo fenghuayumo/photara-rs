@@ -87,3 +87,5 @@ def auto_denoiser():
     """Return the effective automatic denoiser for the selected OptiX device."""
     from ._backend import _core
     return {4: "OPENIMAGEDENOISE", 2: "OPTIX", 0: "NONE"}[_core.auto_denoiser()]
+
+from .gsplat import GaussianSplats, load_gaussians, save_gaussian_ply

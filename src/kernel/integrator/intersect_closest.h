@@ -7,6 +7,7 @@
 #include "kernel/film/light_passes.h"
 
 #include "kernel/integrator/guiding.h"
+#include "kernel/integrator/gsplat_raster.h"
 #include "kernel/integrator/path_state.h"
 #include "kernel/integrator/shadow_catcher.h"
 
@@ -436,6 +437,22 @@ ccl_device void integrator_intersect_closest(KernelGlobals kg,
                            path_flag) ||
           hit;
   }
+
+  integrator_gsplat_raster(kg, state, ray, hit ? isect.t : ray.tmax, render_buffer);
+
+#if defined(__KERNEL_OPTIX__) && defined(__GSPLATS__)
+  /* Default Gaussian hits terminate in captured emission. Apply the receiver
+   * overlay here, where OptiX traversal is available, for refracted/glossy camera
+   * paths that bypass primary raster composition. Alpha hit selection and the
+   * ordinary mesh BSDF throughput are unchanged. */
+  if (hit && path_visibility != PATH_RAY_VISIBILITY_CAMERA &&
+      INTEGRATOR_STATE(state, path, diffuse_bounce) == 0 &&
+      (isect.type & PRIMITIVE_GSPLAT))
+  {
+    const float3 shadow = integrator_gsplat_secondary_shadow(kg, state, ray, isect);
+    INTEGRATOR_STATE_WRITE(state, path, throughput) *= rgb_to_spectrum(shadow);
+  }
+#endif
 
   /* Write intersection result into global integrator state memory. */
   integrator_state_write_isect(state, &isect);

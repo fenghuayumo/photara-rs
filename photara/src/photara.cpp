@@ -32,6 +32,8 @@
 #include "scene/integrator.h"
 #include "scene/light.h"
 #include "scene/mesh.h"
+#include "scene/pointcloud.h"
+#include "util/math_spherical_harmonics.h"
 #include "scene/object.h"
 #include "scene/pass.h"
 #include "scene/scene.h"
@@ -632,7 +634,7 @@ struct PhotaraContext {
   std::vector<MaterialRecord> materials;
   std::vector<ObjectRecord> objects;
   std::vector<int> free_object_slots;
-  std::map<Mesh *, int> mesh_refs;
+  std::map<Geometry *, int> mesh_refs;
   std::vector<LightRecord> lights;
   std::vector<int> free_light_slots;
 
@@ -818,7 +820,7 @@ int register_light(PhotaraContext *ctx,
 
 void clear_objects_impl(PhotaraContext *ctx)
 {
-  std::vector<Mesh *> meshes;
+  std::vector<Geometry *> meshes;
   meshes.reserve(ctx->mesh_refs.size());
   for (const auto &entry : ctx->mesh_refs) {
     meshes.push_back(entry.first);
@@ -830,7 +832,7 @@ void clear_objects_impl(PhotaraContext *ctx)
       record = PhotaraContext::ObjectRecord{};
     }
   }
-  for (Mesh *mesh : meshes) {
+  for (Geometry *mesh : meshes) {
     ctx->scene->delete_node(mesh);
   }
 
@@ -1341,6 +1343,64 @@ int photara_clear_material_base_color_texture(PhotaraContext *ctx,
   });
 }
 
+int photara_add_gaussian_splats(PhotaraContext *ctx, int count,
+    const float *positions, const float *scales, const float *rotations,
+    const float *colors_opacity, const float *sh_rest, const float *matrix, int object_id)
+{
+  return guarded_index(ctx, [&]() -> int {
+    if (count <= 0 || !positions || !scales || !rotations || !colors_opacity) {
+      throw std::runtime_error("Gaussian arrays must be nonempty");
+    }
+    auto validate = [](const float *data, size_t n) {
+      for (size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(data[i])) { throw std::runtime_error("Nonfinite Gaussian data"); }
+      }
+    };
+    validate(positions, size_t(count)*3); validate(scales, size_t(count)*3);
+    validate(rotations, size_t(count)*4); validate(colors_opacity, size_t(count)*4);
+    if (sh_rest) { validate(sh_rest, size_t(count)*45); }
+    for (int i=0;i<count;++i) {
+      for (int j=0;j<3;++j) if (scales[i*3+j]<0) throw std::runtime_error("Negative Gaussian scale");
+      const float *q=rotations+i*4;
+      if (!(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]>0)) throw std::runtime_error("Zero quaternion");
+      if (colors_opacity[i*4+3]<0 || colors_opacity[i*4+3]>1) throw std::runtime_error("Invalid opacity");
+    }
+    PointCloud *cloud=ctx->scene->create_node<PointCloud>();
+    cloud->resize(count); cloud->set_render_as(PointCloud::RENDER_AS_GSPLATS);
+    cloud->create_missing_gsplat_attributes();
+    auto *p=cloud->get_position_for_write();
+    auto *scale=cloud->attributes.find(ATTR_STD_GSPLAT_SCALE)->data_for_write<packed_float3>();
+    auto *rotation=cloud->attributes.find(ATTR_STD_GSPLAT_ROTATION)->data_for_write<Quaternion>();
+    auto *color=cloud->attributes.find(ATTR_STD_GSPLAT_RADIANCE_BASE)->data_for_write<float4>();
+    for (int i=0;i<count;++i) {
+      p[i]=make_float3(positions[i*3],positions[i*3+1],positions[i*3+2]);
+      scale[i]=make_float3(scales[i*3],scales[i*3+1],scales[i*3+2]);
+      const float *q=rotations+i*4;
+      const float length=std::sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);
+      rotation[i]=make_quaternion(q[0]/length,q[1]/length,q[2]/length,q[3]/length);
+      const float *c=colors_opacity+i*4; color[i]=make_float4((c[0]-.5f)/0.28209479177387814f,(c[1]-.5f)/0.28209479177387814f,(c[2]-.5f)/0.28209479177387814f,c[3]);
+    }
+    if (sh_rest) {
+      auto *sh=cloud->attributes.add(ATTR_STD_GSPLAT_RADIANCE_SPHERICAL_HARMONICS_REST)
+          ->data_for_write<PackedSphericalHarmonicsRest>();
+      for (int i=0;i<count;++i) {
+        spherical_harmonics_rest_fill_zero(sh[i]);
+        for(int k=0;k<15;++k) {
+          const float *c=sh_rest+size_t(i)*45+k*3;
+          spherical_harmonics_rest_set_coefficient(sh[i],k,make_float3(c[0],c[1],c[2]));
+        }
+      }
+    }
+    array<Node *> shaders; shaders.resize(1); shaders[0]=ctx->scene->default_gsplat;
+    cloud->set_used_shaders(shaders); cloud->update_gsplat_radii(); cloud->tag_update(ctx->scene,true);
+    Object *object=ctx->scene->create_node<Object>(); object->set_geometry(cloud);
+    object->set_tfm(matrix ? transform_from_matrix(matrix) : transform_identity());
+    object->set_pass_id(object_id); object->tag_update(ctx->scene);
+    const int handle=register_object(ctx,object,nullptr); ctx->mesh_refs[cloud]=1;
+    return handle;
+  });
+}
+
 int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc)
 {
   return guarded_index(ctx, [&]() -> int {
@@ -1431,14 +1491,16 @@ int photara_add_instance(PhotaraContext *ctx,
   return guarded_index(ctx, [&]() -> int {
     const PhotaraContext::ObjectRecord &source = require_object(ctx, source_object);
 
+    Geometry *geometry = source.object->get_geometry();
+    Mesh *source_mesh = source.mesh;
     Object *object = ctx->scene->create_node<Object>();
-    object->set_geometry(source.mesh);
+    object->set_geometry(geometry);
     object->set_tfm(matrix ? transform_from_matrix(matrix) : transform_identity());
     object->set_pass_id(object_id);
     object->tag_update(ctx->scene);
 
-    const int handle = register_object(ctx, object, source.mesh);
-    ctx->mesh_refs[source.mesh] += 1;
+    const int handle = register_object(ctx, object, source_mesh);
+    ctx->mesh_refs[geometry] += 1;
     return handle;
   });
 }
@@ -1481,6 +1543,7 @@ int photara_set_object_material(PhotaraContext *ctx, const int object, const int
 
     array<Node *> used_shaders;
     used_shaders.push_back_slow(shader);
+    if (!record.mesh) { throw std::runtime_error("Gaussian clouds use captured radiance, not mesh materials"); }
     record.mesh->set_used_shaders(used_shaders);
     record.mesh->tag_shader_modified();
     record.mesh->tag_update(ctx->scene, false);
@@ -1613,7 +1676,7 @@ int photara_remove_object(PhotaraContext *ctx, const int object)
 {
   return guarded(ctx, [&]() {
     PhotaraContext::ObjectRecord &record = require_object(ctx, object);
-    Mesh *mesh = record.mesh;
+    Geometry *mesh = record.object->get_geometry();
 
     ctx->scene->delete_node(record.object);
     record = PhotaraContext::ObjectRecord{};

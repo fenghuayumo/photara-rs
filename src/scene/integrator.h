@@ -79,6 +79,12 @@ class Integrator : public Node {
   NODE_SOCKET_API(bool, caustics_refractive)
   NODE_SOCKET_API(float, filter_glossy)
 
+  NODE_SOCKET_API(bool, use_gsplat_raster);
+  NODE_SOCKET_API(bool, gsplat_receive_shadows);
+  NODE_SOCKET_API(float, gsplat_shadow_strength);
+  NODE_SOCKET_API(float, gsplat_glass_shadow_opacity);
+  NODE_SOCKET_API(float, gsplat_receiver_bias);
+  NODE_SOCKET_API(float, gsplat_contact_distance);
   NODE_SOCKET_API(bool, use_direct_light);
   NODE_SOCKET_API(bool, use_indirect_light);
   NODE_SOCKET_API(bool, use_diffuse);

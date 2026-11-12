@@ -169,6 +169,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_stride = 0;
 
   /* Mark with PASS_UNUSED to avoid mask test in the kernel. */
+  kfilm->pass_gsplat = PASS_UNUSED;
   kfilm->pass_combined = PASS_UNUSED;
   kfilm->pass_depth = PASS_UNUSED;
   kfilm->pass_position = PASS_UNUSED;
@@ -280,6 +281,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
     }
 
     switch (pass->get_type()) {
+      case PASS_GSPLAT:
+        kfilm->pass_gsplat = kfilm->pass_stride;
+        break;
       case PASS_COMBINED:
         kfilm->pass_combined = kfilm->pass_stride;
         break;
@@ -560,6 +564,15 @@ void Film::update_passes(Scene *scene)
    * adaptive sampling is always based on a combined pass. But we should
    * try to lift this limitation in the future for faster rendering of
    * individual passes. */
+  if (scene->integrator->get_use_gsplat_raster() && scene->device->info.type == DEVICE_OPTIX) {
+    for (const Geometry *geometry : scene->geometry) {
+      if (geometry->primitive_type() & PRIMITIVE_GSPLAT) {
+        add_auto_pass(scene, PASS_GSPLAT);
+        break;
+      }
+    }
+  }
+
   if (display_pass != PASS_COMBINED) {
     add_auto_pass(scene, PASS_COMBINED);
   }

@@ -59,6 +59,18 @@ KERNEL_STRUCT_MEMBER(bvh, int, use_bvh_steps)
 KERNEL_STRUCT_MEMBER(bvh, int, curve_subdivisions)
 KERNEL_STRUCT_END(KernelBVH)
 
+/* Projected Gaussian raster layer. */
+KERNEL_STRUCT_BEGIN(KernelGSplatRaster, gsplat_raster)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, enabled)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, tiles_x)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, tiles_y)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, receive_shadows)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, have_shadow_geometry)
+KERNEL_STRUCT_MEMBER(gsplat_raster, float, shadow_strength)
+KERNEL_STRUCT_MEMBER(gsplat_raster, float, contact_distance)
+KERNEL_STRUCT_MEMBER(gsplat_raster, int, receiver_offset)
+KERNEL_STRUCT_END(KernelGSplatRaster)
+
 /* Film. */
 
 KERNEL_STRUCT_BEGIN(KernelFilm, film)
@@ -82,6 +94,10 @@ KERNEL_STRUCT_MEMBER(film, int, denoising_pass_flag)
 KERNEL_STRUCT_MEMBER(film, int, light_pass_flag)
 /* Pass offsets. */
 KERNEL_STRUCT_MEMBER(film, int, pass_stride)
+KERNEL_STRUCT_MEMBER(film, int, pass_gsplat)
+KERNEL_STRUCT_MEMBER(film, int, gsplat_pad1)
+KERNEL_STRUCT_MEMBER(film, int, gsplat_pad2)
+KERNEL_STRUCT_MEMBER(film, int, gsplat_pad3)
 KERNEL_STRUCT_MEMBER(film, int, pass_combined)
 KERNEL_STRUCT_MEMBER(film, int, pass_depth)
 KERNEL_STRUCT_MEMBER(film, int, pass_position)

@@ -228,6 +228,11 @@ PHOTARA_API int photara_clear_material_base_color_texture(PhotaraContext *ctx,
                                                           int material_index);
 
 /* Mesh objects. Return a non-negative object handle, or -1 on error. */
+/* Arrays: N*3 positions/scales, N*4 wxyz rotations and encoded RGB+opacity,
+ * optional N*45 coefficient-major RGB SH rest (degrees 0..3, zero padded). */
+PHOTARA_API int photara_add_gaussian_splats(PhotaraContext *ctx, int count,
+    const float *positions, const float *scales, const float *rotations,
+    const float *colors_opacity, const float *sh_rest, const float *matrix, int object_id);
 PHOTARA_API int photara_add_mesh(PhotaraContext *ctx, const PhotaraMeshDesc *desc);
 /* Add an object sharing the mesh of source_object (instancing). The new object
  * inherits the source material; matrix and object_id follow the mesh desc

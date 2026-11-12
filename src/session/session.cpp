@@ -341,7 +341,14 @@ RenderWork Session::run_update_for_next_iteration()
 
   /* Update denoiser settings. */
   {
-    const DenoiseParams denoise_params = scene->integrator->get_denoise_params();
+    DenoiseParams denoise_params = scene->integrator->get_denoise_params();
+    if (denoise_params.type == DENOISER_DLSS && denoise_params.upscale_factor > 1.0f &&
+        Pass::contains(scene->passes, PASS_GSPLAT))
+    {
+      /* The independent raster layer is composited after denoising and must match its resolution. */
+      denoise_params.upscale_factor = 1.0f;
+      LOG_INFO << "DLSS upscaling uses native resolution for Gaussian raster compositing";
+    }
     path_trace_->set_denoiser_params(denoise_params);
   }
 

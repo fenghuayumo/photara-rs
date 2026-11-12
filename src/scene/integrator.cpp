@@ -118,6 +118,12 @@ NODE_DEFINE(Integrator)
   SOCKET_BOOLEAN(caustics_refractive, "Refractive Caustics", true);
   SOCKET_FLOAT(filter_glossy, "Filter Glossy", 1.0f);
 
+  SOCKET_BOOLEAN(use_gsplat_raster, "Rasterize Gaussian Splats", true);
+  SOCKET_BOOLEAN(gsplat_receive_shadows, "Gaussian Receive Shadows", true);
+  SOCKET_FLOAT(gsplat_shadow_strength, "Gaussian Shadow Strength", 0.5f);
+  SOCKET_FLOAT(gsplat_glass_shadow_opacity, "Gaussian Glass Shadow Opacity", 0.5f);
+  SOCKET_FLOAT(gsplat_receiver_bias, "Gaussian Receiver Offset", 0.0f);
+  SOCKET_FLOAT(gsplat_contact_distance, "Gaussian Contact Distance", 1.0f);
   SOCKET_BOOLEAN(use_direct_light, "Use Direct Light", true);
   SOCKET_BOOLEAN(use_indirect_light, "Use Indirect Light", true);
   SOCKET_BOOLEAN(use_diffuse, "Use Diffuse", true);

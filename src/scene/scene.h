@@ -271,6 +271,7 @@ class Scene : public NodeOwner {
   uint64_t loaded_kernel_features;
 
   void update_kernel_features();
+  void device_update_gsplat_raster();
 
   bool has_shadow_catcher_ = false;
   bool shadow_catcher_modified_ = true;

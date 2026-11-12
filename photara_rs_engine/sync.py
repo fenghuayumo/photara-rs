@@ -307,6 +307,37 @@ def mesh_triangles(mesh):
     return positions, normals, uvs, indices
 
 
+def gaussian_pointcloud_data(cloud):
+    """Blender/Cycles Gaussian point attributes, with wxyz quaternions."""
+    n = len(cloud.points)
+    def read(name, width, default, field='vector'):
+        attr = cloud.attributes.get(name)
+        if attr is None:
+            return np.broadcast_to(default, (n,width)).copy().astype(np.float32)
+        values = np.empty(n*width, np.float32)
+        if n and not hasattr(attr.data[0], field):
+            field = "vector" if hasattr(attr.data[0], "vector") else "value"
+        attr.data.foreach_get(field, values)
+        return values.reshape(n,width)
+    positions = read('position',3,(0,0,0))
+    base = read('radiance:base',4,(0,0,0,.5), 'color')
+    scales = read('scale',3,(.001,.001,.001))
+    rotation = cloud.attributes.get('rotation')
+    field = 'value'
+    if rotation is not None and n:
+        if hasattr(rotation.data[0], 'quaternion'): field = 'quaternion'
+    rotations = read('rotation',4,(1,0,0,0),field)
+    rest=[]
+    for k in range(15):
+        if cloud.attributes.get(f'radiance:sh_{k}') is None: break
+        rest.append(read(f'radiance:sh_{k}',3,(0,0,0)))
+    # Blender stores SH DC; the public API accepts encoded base RGB.
+    sh = np.zeros((n,15,3),np.float32)
+    if rest: sh[:,:len(rest)] = np.stack(rest,axis=1)
+    return dict(positions=positions,scales=scales,rotations=rotations,
+                colors=base[:,:3]*0.28209479177387814+.5,opacities=base[:,3],sh_rest=sh)
+
+
 # ---------------------------------------------------------------------------
 # Lights
 # ---------------------------------------------------------------------------
@@ -527,6 +558,7 @@ class SceneSyncState:
         self.objects = {}      # blender object pointer -> photara Object
         self.object_mesh_keys = {}  # blender object pointer -> blender mesh pointer
         self.lights = {}       # blender light pointer -> photara Light
+        self._gaussian_objects = {}
         self.materials = {}    # blender material pointer -> photara Material
         self.object_matrices = {}  # blender object pointer -> flattened matrix
         self._full_sync_done = False
@@ -615,7 +647,7 @@ class SceneSyncState:
             updated_id = update.id
             original = updated_id.original or updated_id
             key = original.as_pointer()
-            if isinstance(updated_id, bpy.types.Mesh):
+            if isinstance(updated_id, (bpy.types.Mesh, bpy.types.PointCloud)):
                 dirty_geometry.add(key)
             elif isinstance(updated_id, bpy.types.Light):
                 dirty_lights.add(key)
@@ -656,6 +688,7 @@ class SceneSyncState:
         if sync_background and (first_sync or world_dirty):
             sync_world(self, depsgraph.scene_eval.world)
 
+        seen_gaussians = set()
         seen_objects = set()
         seen_lights = set()
 
@@ -676,6 +709,25 @@ class SceneSyncState:
             if not instance.show_self:
                 continue
             matrix_world = instance.matrix_world
+
+            if blender_object.type == 'POINTCLOUD':
+                cloud = blender_object.data
+                if not len(cloud.points): continue
+                # Ordinary point clouds must not silently turn into Gaussians.
+                if cloud.attributes.get('radiance:base') is None: continue
+                seen_gaussians.add(key)
+                existing = self._gaussian_objects.get(key)
+                data_key = cloud.original.as_pointer()
+                dirty = first_sync or object_key in dirty_geometry or data_key in dirty_geometry
+                if existing is None or dirty:
+                    replacement = self.scene.add_gaussian_splats(
+                        **gaussian_pointcloud_data(cloud), transform=np.asarray(matrix_world,dtype=np.float32),
+                        object_id=int(original.pass_index))
+                    if existing is not None: existing.remove()
+                    self._gaussian_objects[key] = replacement
+                else:
+                    existing.set_transform(np.asarray(matrix_world,dtype=np.float32))
+                continue
 
             if blender_object.type == 'MESH':
                 matrix_flat = np.asarray(matrix_world, dtype=np.float32).ravel().tolist()
@@ -784,6 +836,10 @@ class SceneSyncState:
                         matrix_world, dtype=np.float32
                     ).ravel().tolist()
                 seen_lights.add(light_key)
+
+        for key in list(self._gaussian_objects):
+            if key not in seen_gaussians:
+                self._gaussian_objects.pop(key).remove()
 
         self._full_sync_done = True
 

@@ -31,6 +31,8 @@ class PassAccessor {
     int offset = -1;
 
     bool use_sample_count = true;
+    /* Denoise the mesh layer before applying the independent Gaussian layer. */
+    bool use_gsplat_compositing = true;
 
     /* For the shadow catcher matte pass: whether to approximate shadow catcher pass into its
      * matte pass, so that both artificial objects and shadows can be alpha-overed onto a backdrop.

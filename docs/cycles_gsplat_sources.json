@@ -1,0 +1,302 @@
+[
+  {
+    "path": "blender/geometry.cpp",
+    "mode": "copied",
+    "upstream_sha256": "7d649d5972ad93a7cd96746740fb39398a84fe54b46a93de7fab3867cc0011da"
+  },
+  {
+    "path": "blender/pointcloud.cpp",
+    "mode": "copied",
+    "upstream_sha256": "6464e2674200ee85006877e27b2da07c52a555835a50f9a59c98f4fced85fb31"
+  },
+  {
+    "path": "blender/sync.cpp",
+    "mode": "copied",
+    "upstream_sha256": "fb91924cebac6f70db2fe564c54098df7f36bbcf13f29118ec9695ca818d65fa"
+  },
+  {
+    "path": "blender/addon/properties.py",
+    "mode": "copied",
+    "upstream_sha256": "f34fa76c39c75f5d39e8dd5779a3ed20109332c567830185d32fe56c5d2a303e"
+  },
+  {
+    "path": "blender/addon/ui.py",
+    "mode": "copied",
+    "upstream_sha256": "1f4491c3ea5231e223518d66f2a0eaed53d732aab0716ee84a71f43f7b281148"
+  },
+  {
+    "path": "bvh/embree.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "550ea306aad4a7c1912d5a5548b81d8feb733b1bc1b7c0f847c45c0d680a5d1a"
+  },
+  {
+    "path": "bvh/embree.h",
+    "mode": "unchanged",
+    "upstream_sha256": "a12aa3d1bce6109460e4098c077cf7c667c0eb1d9bd1fd37ba9b9d649f35ad7a"
+  },
+  {
+    "path": "device/optix/device_impl.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "cb3165de8e4e9698ff98e970943a01a47907d548192ed0c1663e4a831b2d8225"
+  },
+  {
+    "path": "integrator/denoiser_gpu.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "4f2856a65ac1357b5502f4004a2b0fcc5d106c6734a8c43dd4b821ece7d50ec8"
+  },
+  {
+    "path": "integrator/denoiser_oidn.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "308f9ff779a318a5ef763fc3f81728c32cb9afc95404b725a0cd53e13a26f613"
+  },
+  {
+    "path": "integrator/pass_accessor.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "7be97b46ceee667e2f608fd193f1c481498931e639a7037c217e15d84b6f8538"
+  },
+  {
+    "path": "integrator/pass_accessor.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "9656baeb0e4195ba6688f3cd2f8f06a037a9360684cee24921583ebc66f43009"
+  },
+  {
+    "path": "kernel/CMakeLists.txt",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "fb82d966972bbbe0293147ccead7dec6c2160c4bee9713e7ea24148977fa2392"
+  },
+  {
+    "path": "kernel/data_arrays.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "3eb0ad493074175be6f2288dd7518f5cd06fe3f1a9485db6f49960b62e334fb6"
+  },
+  {
+    "path": "kernel/data_template.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "28384d3264292352385adfe514263faa7764850405d8f7ca7f029887105a7653"
+  },
+  {
+    "path": "kernel/features.h",
+    "mode": "unchanged",
+    "upstream_sha256": "0b5be510004d902340c7970f849ed67ade2af1551698199fe35b3069d280abd0"
+  },
+  {
+    "path": "kernel/types.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "b781cfe125cdd572b6c69b8fb383375fff2427ce0ea290812d16fe887b8ef5ba"
+  },
+  {
+    "path": "kernel/bvh/bvh.h",
+    "mode": "unchanged",
+    "upstream_sha256": "3344799a927fe783b2285a7fb847805854064c76f9ea0096f7d5cc43108cef11"
+  },
+  {
+    "path": "kernel/bvh/shadow_all.h",
+    "mode": "unchanged",
+    "upstream_sha256": "f32997ac1ae97d4e953485f635c4567bb8cfc7a256ec9b9dc1e00d0193869a32"
+  },
+  {
+    "path": "kernel/bvh/traversal.h",
+    "mode": "unchanged",
+    "upstream_sha256": "47e4bcd4586381925383b5b3d5675df036c2fe99689b8c33650ea8fd40b776a5"
+  },
+  {
+    "path": "kernel/device/cpu/bvh.h",
+    "mode": "unchanged",
+    "upstream_sha256": "30522108d02eb584b1c234cd0e67d3f46c386785b354575e68803f49494fd737"
+  },
+  {
+    "path": "kernel/device/hiprt/bvh.h",
+    "mode": "copied",
+    "upstream_sha256": "10d6a9dd57e0a8d3f384df2c65010cb7d8b1b802f93fc67b8a67b7a00a327e7c"
+  },
+  {
+    "path": "kernel/device/oneapi/kernel.cpp",
+    "mode": "copied",
+    "upstream_sha256": "7154a94d754bae95dce750316fac3d9b55bd25e737175c0ac6b78b1d3ef67014"
+  },
+  {
+    "path": "kernel/device/optix/bvh.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "995f0c4abe24e680f4da58e5d4a49112fa1fdbb4b6752deeefc965e14dd2646b"
+  },
+  {
+    "path": "kernel/film/read.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "babb8da204bbd69a179bb056910d1cf22b5c14adc5cf6f4708b01b3849e1e26a"
+  },
+  {
+    "path": "kernel/geom/gsplat.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "4417de76fe49f0ce5f95e1a41faac293ef7ff35c25983a29180e293667089a09"
+  },
+  {
+    "path": "kernel/geom/gsplat_intersect.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "b917adce203ea4624e7dbd825762b4f84228015f4893a182df8cc1dffee07e34"
+  },
+  {
+    "path": "kernel/geom/motion_gsplat.h",
+    "mode": "unchanged",
+    "upstream_sha256": "3ba8dfe616b539aecd5d8b6244f8644b95788f17ea59cf159f0a1aded221efa5"
+  },
+  {
+    "path": "kernel/geom/point_intersect.h",
+    "mode": "unchanged",
+    "upstream_sha256": "b05c7a03c6b34a42c92f23f00010db5dc58c34e5d29a5f7c93e13e83cf1b621e"
+  },
+  {
+    "path": "kernel/integrator/gsplat_raster.h",
+    "mode": "copied",
+    "upstream_sha256": "2e2311a36cb40d1d20f23bda678eadec158732c941a930dba0534870cb13c372"
+  },
+  {
+    "path": "kernel/integrator/intersect_closest.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "9a51e0081483a7c5c853e040bfdb46f200fa9f1a0946ec5b1b3d4fe864229ef7"
+  },
+  {
+    "path": "kernel/osl/services_shared.h",
+    "mode": "unchanged",
+    "upstream_sha256": "4738682dd12b7b1f37185e770b6854461fb4cbc54af7b0aeaf6de3a8b0133dde"
+  },
+  {
+    "path": "kernel/svm/attribute.h",
+    "mode": "unchanged",
+    "upstream_sha256": "d62378d95f373823e3c94a55222ab43aa9db03a3a8c98cc36c7eb38f1b716742"
+  },
+  {
+    "path": "scene/attribute.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "ba7fa4f11a6cb3e6764d5722e459383b6eb0c6ec41f81ecd904d7fc8cdc6f314"
+  },
+  {
+    "path": "scene/CMakeLists.txt",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "043de373ff75a2fe63b23e4087cf2367302951fc61321d2ad589c6f9de4f208a"
+  },
+  {
+    "path": "scene/devicescene.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "478a1a5038d9c3b82b52733d9a7cb5b90263edf67f6416edcf1517891c91bcda"
+  },
+  {
+    "path": "scene/devicescene.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "bfc91edfffe9c65defd810f36f15d63680fe221ff06b4e1cc0dc96ac8a1d6f31"
+  },
+  {
+    "path": "scene/film.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "af872047786223cd30e6d4664e13d0f28ac73c0a288af62b298b575c60313737"
+  },
+  {
+    "path": "scene/geometry.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "0413135444b18460de078aa7d69080bd551383e26491e0048309f85716bf0a0a"
+  },
+  {
+    "path": "scene/geometry_attributes.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "738600ef9b6e1cd30b511e814402288513f7803a99b3392ee13d575701f558d4"
+  },
+  {
+    "path": "scene/gsplat.cpp",
+    "mode": "copied",
+    "upstream_sha256": "5b61f3c87e54fe924346a87bb39e6a995084307e13f9d5b9b81295baadc1eddf"
+  },
+  {
+    "path": "scene/gsplat.h",
+    "mode": "copied",
+    "upstream_sha256": "fda3b64fea4699555dbaac844e075ac52d5174fc769237009c4fc838ccef13ec"
+  },
+  {
+    "path": "scene/gsplat_receiver.h",
+    "mode": "copied",
+    "upstream_sha256": "a79cc8ccd8e5524e4064c5f9dbf9bb0b47102214800dcb55036130cf028b4eea"
+  },
+  {
+    "path": "scene/integrator.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "5261c237eb16b5606f93e3950ae64c16ca46323368de3e6218675f2769a98e43"
+  },
+  {
+    "path": "scene/integrator.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "7fab1189d7d0788d6ed3d06605f1bad4fa79f9e2418252879d44039a42d1848a"
+  },
+  {
+    "path": "scene/object.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "058e800874a1c46c11ebf03766eebdf47b2e6f0f65a714333ac2ce07ec4e17e9"
+  },
+  {
+    "path": "scene/pass.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "d33c55cd68ffc8f133c93c068adc68f983ff2e13fe8df996f48dff53d00ecc1d"
+  },
+  {
+    "path": "scene/pointcloud.cpp",
+    "mode": "unchanged",
+    "upstream_sha256": "5e6fb89e0e00ae412512e57ee38cc6e1ce92a1a1bd49363bdd7cf13ca29a2207"
+  },
+  {
+    "path": "scene/pointcloud.h",
+    "mode": "unchanged",
+    "upstream_sha256": "52220bb776e530a8ade8fef38b57b1da6a9d02e0335b175e1a7a096fd7bdf22a"
+  },
+  {
+    "path": "scene/scene.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "2de911b4ef3f6f33e20f0a83a3469d76c2d5ce26027dc46d04e01d7e3577e927"
+  },
+  {
+    "path": "scene/scene.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "f433827a043b58d577bf50787033aa94e375d163a69a191cf33eaf7bbd668784"
+  },
+  {
+    "path": "scene/shader.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "fcab959f0c2b2b01c7f1506b4f408adca5e9f650f41b36052ea3eb02cf0c6472"
+  },
+  {
+    "path": "scene/shader.h",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "c9d90e1d1f4dc8b7494e47e8c0104204abc80e4ce98a96baeaea059a49ab36ff"
+  },
+  {
+    "path": "session/session.cpp",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "135a70b01b2432f7f395a20528633eadaab02c85542991a79fe968f26c2c87eb"
+  },
+  {
+    "path": "test/CMakeLists.txt",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "41d3b59075427a168ac017c4ab1fef5573dd119a56a88754fc8c3be8fa4e6d45"
+  },
+  {
+    "path": "test/util_math_gsplat_test.cpp",
+    "mode": "copied",
+    "upstream_sha256": "247c2b112395b41ff6adb723e87168d07028c5660fa909019a1aa278cdcc8c95"
+  },
+  {
+    "path": "util/CMakeLists.txt",
+    "mode": "merged-gsplat-changes",
+    "upstream_sha256": "52398e37856a66a58791f8a82ae43888270fb6b299d1f2b19d9b3ef9c49b90ef"
+  },
+  {
+    "path": "util/math_gsplat.h",
+    "mode": "copied",
+    "upstream_sha256": "22ff505c17eec982b235992357f309b764be480d853ae5896ccfa23b7acdc106"
+  },
+  {
+    "path": "doc/gsplat_raster.md",
+    "mode": "copied",
+    "upstream_sha256": "331292434f200e215c507d8c71359b1e5a93e45bef02dfebcb827de8a98aba8a"
+  },
+  {
+    "path": "kernel/device/metal/kernel.metal",
+    "mode": "copied",
+    "upstream_sha256": "dc7406a79e00565a529b8f9d1b93e03b463ea9b44fecf49a10581ffe02f302cf"
+  }
+]

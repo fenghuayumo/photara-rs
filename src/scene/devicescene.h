@@ -38,6 +38,11 @@ class DeviceScene {
   device_vector<float4> points;
   device_vector<uint> points_shader;
 
+  device_vector<KernelGSplat> gsplat_raster_splats;
+  device_vector<uint2> gsplat_raster_tiles;
+  device_vector<uint> gsplat_raster_indices;
+  device_vector<float4> gsplat_shader_shadow_transmission;
+
   /* objects */
   device_vector<KernelObject> objects;
   device_vector<Transform> object_motion_pass;

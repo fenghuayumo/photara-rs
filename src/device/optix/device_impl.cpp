@@ -16,6 +16,8 @@
 #  include "scene/object.h"
 #  include "scene/pointcloud.h"
 #  include "scene/scene.h"
+#  include "scene/gsplat.h"
+#  include "util/math_gsplat.h"
 
 #  include "util/algorithm.h"
 #  include "util/debug.h"
@@ -1864,6 +1866,12 @@ void OptiXDevice::build_bvh(BVH *bvh, Progress &progress, bool refit)
       /* Have to have at least one bit in the mask, or else instance would always be culled. */
       if (0 == instance.visibilityMask) {
         instance.visibilityMask = 0xFF;
+      }
+
+      /* Independent visibility mask for the mesh primary layer. */
+      instance.visibilityMask &= ~GSPLAT_RASTER_MESH_MASK;
+      if (!gsplat_raster_object_supported(ob)) {
+        instance.visibilityMask |= GSPLAT_RASTER_MESH_MASK;
       }
 
       if (ob->get_geometry()->is_hair()) {

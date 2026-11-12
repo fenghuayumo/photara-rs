@@ -38,6 +38,7 @@ set(SRC
   util_colorspace_test.cpp
   util_half_test.cpp
   util_ies_test.cpp
+  util_math_gsplat_test.cpp
   util_math_test.cpp
   util_math_fast_test.cpp
   util_math_float3_test.cpp

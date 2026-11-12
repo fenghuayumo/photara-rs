@@ -284,6 +284,7 @@ class OIDNDenoiseContext {
     pass_access_info.use_approximate_shadow_catcher = false;
     pass_access_info.use_approximate_shadow_catcher_background = false;
     pass_access_info.show_active_pixels = false;
+    pass_access_info.use_gsplat_compositing = false;
 
     /* OIDN will perform an auto-exposure, so it is not required to know exact exposure configured
      * by users. What is important is to use same exposure for read and write access of the pass

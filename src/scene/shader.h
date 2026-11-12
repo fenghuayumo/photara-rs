@@ -74,6 +74,7 @@ class Shader : public Node {
 
   /* shader graph */
   unique_ptr<ShaderGraph> graph;
+  bool is_default_gsplat = false;
 
   NODE_SOCKET_API(int, pass_id)
 

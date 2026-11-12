@@ -45,6 +45,14 @@ KERNEL_DATA_ARRAY(KernelCurveSegment, curve_segments)
 KERNEL_DATA_ARRAY(float4, points)
 KERNEL_DATA_ARRAY(uint, points_shader)
 
+/* Camera-projected Gaussians and sorted tile lists. */
+/* Projected splats, followed by the receiver grid at gsplat_raster.receiver_offset.
+ * Receiver records use center = (inverse depth, raster derivatives x/y, confidence). */
+KERNEL_DATA_ARRAY(KernelGSplat, gsplat_raster_splats)
+KERNEL_DATA_ARRAY(uint2, gsplat_raster_tiles)
+KERNEL_DATA_ARRAY(uint, gsplat_raster_indices)
+KERNEL_DATA_ARRAY(float4, gsplat_shader_shadow_transmission)
+
 /* attributes */
 KERNEL_DATA_ARRAY(AttributeMap, attributes_map)
 KERNEL_DATA_ARRAY(float, attributes_float)

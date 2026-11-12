@@ -77,6 +77,7 @@ set(SRC_HEADERS
   log.h
   map.h
   math.h
+  math_gsplat.h
   math_base.h
   math_cdf.h
   math_fast.h

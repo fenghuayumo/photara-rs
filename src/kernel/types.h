@@ -443,6 +443,8 @@ enum PassType {
    * When reading this pass, it is converted to majorant transmittance */
   PASS_VOLUME_MAJORANT,
   PASS_VOLUME_MAJORANT_SAMPLE_COUNT,
+  /* Internal display-referred, premultiplied raster layer. */
+  PASS_GSPLAT,
   PASS_CATEGORY_DATA_END = 63,
 
   /* Denoising passes */
@@ -1295,6 +1297,13 @@ struct KernelCamera {
 };
 static_assert_align(KernelCamera, 16);
 
+struct KernelGSplat {
+  float4 center; /* raster x/y, camera z, opacity */
+  float4 conic; /* inverse projected covariance; w: local depth gradient in raster x */
+  float4 color; /* display-referred SH radiance; w: local depth gradient in raster y */
+  float4 receiver_plane; /* world normal and scene-wide shadow receiver normal offset */
+};
+
 struct KernelFilmConvert {
   int pass_offset;
   int pass_stride;
@@ -1332,7 +1341,9 @@ struct KernelFilmConvert {
   int is_denoised;
 
   /* Padding. */
-  int pad1;
+  int pass_gsplat;
+  float gsplat_scale;
+  int gsplat_pad1, gsplat_pad2, gsplat_pad3;
 };
 static_assert_align(KernelFilmConvert, 16);
 

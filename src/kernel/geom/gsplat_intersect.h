@@ -10,6 +10,7 @@
 #include "kernel/geom/motion_gsplat.h"
 #include "kernel/geom/object.h"
 #include "kernel/geom/point_intersect.h"
+#include "util/math_gsplat.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -110,68 +111,20 @@ ccl_device_forceinline bool gsplat_intersect_test(KernelGlobals kg,
 
   const float3 mu = make_float3(point);
 
-  /* [3dgrt2024] Eq. (8).
-   * The division by scale could return NaN. Account for this in the distance check. */
-  const float3x3 S_inv = float3x3_scale(1.0f / params.scale);
-  const float3x3 R = quaternion_to_rotation(params.rotation);
-  const float3x3 R_T = transposed(R);
-  const float3x3 S_inv_x_R_T = S_inv * R_T;
-  const float3 o_g = S_inv_x_R_T * (ray_P - mu);
-  const float3 d_g = S_inv_x_R_T * ray_D;
-  const float t = -dot(o_g, d_g) / dot(d_g, d_g); /* tau_max in [3dgrt2024] */
-
-  /* Check the intersection with the Gaussian splat is within the valid ray range.
-   * The previous checks are based on the bounding sphere distance.
-   *
-   * The t might be lower than the ray_tmin when the ray origin is within the bounding sphere but
-   * is "past" the density extrema.
-   *
-   * Gracefully reject NaN distance (which could happen if the scale is 0 along any axis). */
-  if (!(t >= ray_tmin && t <= ray_tmax)) {
+  float t = 0;
+  const float particle_opacity = gsplat_ray_alpha(
+      ray_P, ray_D, mu, params.scale, params.rotation, params.opacity, t);
+  if (!(particle_opacity > 0 && t >= ray_tmin && t <= ray_tmax)) {
     return false;
   }
-
-  /* Calculate intersection point. */
   const float3 x = ray_P + t * ray_D;
-  const float3 x_minus_mu = x - mu;
-
-#    if 0
-  /* Naive implementation calculating covariance matrix. [3dgrt2024] Eq. (2).
-   * Note that for the particle response evaluation we actually need an inverse of the covariance
-   * matrix.
-   *
-   * Start with the original equation  \Sigma = RSS^TR^T
-   * It could be simplified since S^T \equiv S due to the matrix being diagonal scale matrix:
-   * \Sigma = RS^2R^T.
-   *
-   *     \Sigma^{-1} = (RS^2R^T)^{-1} = (R^T)^{-1}(S^2)^{-1}R^{-1} = (R^{-1})^T(S^2)^{-1}R^{-1}
-   *
-   * Since R is an orthonormal rotation matrix: R^{-1} \equiv R^T
-   *
-   * There seems to be precision issues with the naive implementation resulting in the floaters in
-   * bicycle and garden scenes from Inria models set are rendered as large almost opaque spheres
-   * (instead of being almost transparent disks). A possible workaround for it is to clamp the
-   * scale, but it results in other issues (choosing clamping size, difference in the render
-   * results from the ground truth, etc.). */
-  const float3x3 Sigma_inv = R * float3x3_scale(1.0f / (params.scale * params.scale)) * R_T;
-  const float e = dot(x_minus_mu, Sigma_inv * x_minus_mu);
-#    else
-  /* Combination of [3dgrt2024] Eq. (8). and [ptir-gs] Eq. (1), applied to the (x-mu) instead
-   * of the (0 - mu). it might be obvious, but it was [ptir-gs] that inspired to look into this
-   * equation. */
-  const float3 e_o_g = S_inv_x_R_T * x_minus_mu;
-  const float e = dot(e_o_g, e_o_g);
-#    endif
-
-  /* Particle response.
-   * [sun2025] Algorithm 1 (line 12). */
-  const float particle_opacity = params.opacity * fast_expf(-1.0f / 2.0f * e);
-
-  /* Approach similar to [sun2025] who uses stateless trigonometric hash function as a source of
-   * RNG: hash the intersection point to a [0 .. 1] floating point. */
-  /* TODO(sergey): Check on using potentially cheaper PCG hash?
-   * Internally hash_float3_to_float() uses Jenkins Lookup3 hash function. */
-  if (hash_float3_to_float(x) > particle_opacity) {
+  /* Include particle identity so overlapping/coplanar Gaussians do not share
+   * the same transparency decision. Secondary rays still trace the 3D kernel. */
+  const float random = hash_uint4_to_float(__float_as_uint(x.x),
+                                           __float_as_uint(x.y),
+                                           __float_as_uint(x.z),
+                                           hash_uint2(object, prim));
+  if (random >= particle_opacity) {
     return false;
   }
 

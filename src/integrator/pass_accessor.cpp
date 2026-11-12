@@ -247,6 +247,9 @@ void PassAccessor::init_kernel_film_convert(KernelFilmConvert *kfilm_convert,
   kfilm_convert->pass_indirect = buffer_params.get_pass_offset(pass_info.indirect_type);
   kfilm_convert->pass_divide = buffer_params.get_pass_offset(pass_info.divide_type);
 
+  kfilm_convert->pass_gsplat = (type == PASS_COMBINED && !pass_access_info_.is_lightgroup &&
+                                  pass_access_info_.use_gsplat_compositing) ?
+                                  buffer_params.get_pass_offset(PASS_GSPLAT) : PASS_UNUSED;
   kfilm_convert->pass_combined = buffer_params.get_pass_offset(PASS_COMBINED);
   kfilm_convert->pass_sample_count = buffer_params.get_pass_offset(PASS_SAMPLE_COUNT);
   kfilm_convert->pass_adaptive_aux_buffer = buffer_params.get_pass_offset(
@@ -295,6 +298,7 @@ void PassAccessor::init_kernel_film_convert(KernelFilmConvert *kfilm_convert,
                                                            destination.num_components;
 
   kfilm_convert->is_denoised = (mode == PassMode::DENOISED);
+  kfilm_convert->gsplat_scale = num_samples_ > 0 ? 1.0f / num_samples_ : 0.0f;
 }
 
 bool PassAccessor::set_render_tile_pixels(RenderBuffers *render_buffers, const Source &source)

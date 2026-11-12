@@ -10,7 +10,7 @@
 bl_info = {
     "name": "Photara Renderer",
     "author": "Photara contributors",
-    "version": (0, 1, 7),
+    "version": (0, 1, 8),
     "blender": (4, 2, 0),
     "location": "Render Properties > Photara",
     "description": "Render with the Photara OptiX path tracer",
@@ -21,7 +21,7 @@ bl_info = {
 
 import bpy
 
-from . import engine, properties, sync, ui
+from . import engine, properties, sync, ui, gsplat_import
 
 
 def ensure_photara_module():
@@ -86,6 +86,7 @@ class PhotaraAddonPreferences(bpy.types.AddonPreferences):
 
 _classes = (
     properties.PhotaraSceneSettings,
+    gsplat_import.IMPORT_SCENE_OT_photara_gaussians,
     *ui.classes,
     engine.PhotaraRenderEngine,
     PhotaraAddonPreferences,
@@ -100,9 +101,11 @@ def register():
     )
     bpy.types.RENDER_PT_context.append(ui.draw_device)
     ui.register_color_management()
+    bpy.types.TOPBAR_MT_file_import.append(gsplat_import.menu_import)
 
 
 def unregister():
+    bpy.types.TOPBAR_MT_file_import.remove(gsplat_import.menu_import)
     ui.unregister_color_management()
     bpy.types.RENDER_PT_context.remove(ui.draw_device)
     # Blender 5.x may already have released owner-tagged properties at

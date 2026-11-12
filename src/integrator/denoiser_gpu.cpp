@@ -397,6 +397,7 @@ void DenoiserGPU::denoise_color_read(const DenoiseContext &context, const Denois
   pass_access_info.use_approximate_shadow_catcher = false;
   pass_access_info.use_approximate_shadow_catcher_background = false;
   pass_access_info.show_active_pixels = false;
+  pass_access_info.use_gsplat_compositing = false;
 
   /* TODO(sergey): Consider adding support of actual exposure, to avoid clamping in extreme cases.
    */

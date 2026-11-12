@@ -1344,6 +1344,18 @@ class Scene:
         self._ensure_open()
         self._session.resize(width, height)
 
+    def add_gaussian_splats(self, positions, scales, **settings):
+        """Add a Gaussian cloud. Colors are encoded RGB, rotations are wxyz."""
+        from .gsplat import GaussianSplats
+        handle = self._session.add_gaussian_splats(positions, scales, **settings)
+        return GaussianSplats(self, handle)
+
+    def load_gaussian_splats(self, path, **settings):
+        """Load a standard 3DGS PLY or .splat cloud into this scene."""
+        from .gsplat import load_gaussians
+        data = load_gaussians(path)
+        return self.add_gaussian_splats(**data, **settings)
+
     def configure_sampling(self, **settings):
         """Configure sampling thresholds, minimum samples and time limit (seconds)."""
         self._session.configure_sampling(**settings)

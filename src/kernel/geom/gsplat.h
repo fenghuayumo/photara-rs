@@ -48,7 +48,16 @@ ccl_device_inline float3 gsplat_radiance(KernelGlobals kg, const ccl_private Sha
    *
    * Use safe_normalize() to avoid possible NaN values appearing in color channels. */
   float3 direction = -sd.wi;
-  object_inverse_dir_transform(kg, &sd, &direction);
+  if (!(sd.type & PRIMITIVE_MOTION) && sd.ray_length > 0 && sd.ray_length < FLT_MAX) {
+    const int position_offset = kernel_data_fetch(objects, sd.object).position_offset;
+    const float3 center = make_float3(kernel_data_fetch(points, position_offset + sd.prim));
+    float3 origin = sd.P + sd.wi * sd.ray_length;
+    object_inverse_position_transform(kg, &sd, &origin);
+    direction = center - origin;
+  }
+  else {
+    object_inverse_dir_transform(kg, &sd, &direction);
+  }
   direction = safe_normalize(direction);
   kernel_assert((kernel_data_fetch(object_flag, sd.object) & SD_OBJECT_TRANSFORM_APPLIED) == 0);
 

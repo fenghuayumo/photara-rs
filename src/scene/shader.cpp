@@ -854,6 +854,7 @@ void ShaderManager::add_default(Scene *scene)
 
     Shader *shader = scene->create_node<Shader>();
     shader->name = "default_gsplat";
+    shader->is_default_gsplat = true;
     shader->set_graph(std::move(graph));
     shader->reference();
     scene->default_gsplat = shader;

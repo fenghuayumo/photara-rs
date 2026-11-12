@@ -737,6 +737,22 @@ class Context {
     }
   }
 
+  int add_gaussian_splats(const FloatArray &positions, const FloatArray &scales,
+                         const FloatArray &rotations, const FloatArray &colors,
+                         const FloatArray &sh, const FloatArray &matrix, int object_id)
+  {
+    const auto n=positions.ndim()==2 ? positions.shape(0) : 0;
+    if (positions.ndim()!=2 || positions.shape(1)!=3 || scales.ndim()!=2 ||
+        scales.shape(0)!=n || scales.shape(1)!=3 || rotations.ndim()!=2 ||
+        rotations.shape(0)!=n || rotations.shape(1)!=4 || colors.ndim()!=2 ||
+        colors.shape(0)!=n || colors.shape(1)!=4 || sh.ndim()!=2 || sh.shape(0)!=n ||
+        sh.shape(1)!=45 || matrix.size()!=16) throw std::runtime_error("Invalid Gaussian array shapes");
+    const int result=photara_add_gaussian_splats(context_,int(n),positions.data(),scales.data(),
+        rotations.data(),colors.data(),sh.data(),matrix.data(),object_id);
+    if(result<0) throw_last_error();
+    return result;
+  }
+
   void configure_sampling(float threshold, int min_samples, double time_limit, int start_sample)
   {
     if (photara_configure_sampling(context_, threshold, min_samples, time_limit, start_sample) != 0) {
@@ -1159,6 +1175,7 @@ PYBIND11_MODULE(_photara, module)
       .def("preview", &Context::preview)
       .def("resize", &Context::resize)
       .def("configure_film", &Context::configure_film)
+      .def("add_gaussian_splats", &Context::add_gaussian_splats)
       .def("configure_sampling", &Context::configure_sampling)
       .def("configure_dlss", &Context::configure_dlss)
       .def("configure_denoiser", &Context::configure_denoiser)

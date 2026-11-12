@@ -383,6 +383,8 @@ void Scene::device_update(Device *device_, Progress &progress)
     return;
   }
 
+  device_update_gsplat_raster();
+
   /* Update lookup tables a second time for film tables. */
   progress.set_status("Updating Lookup Tables");
   lookup_tables->device_update(device, &dscene, this);
@@ -679,6 +681,7 @@ bool Scene::update_camera_resolution(Progress &progress, int width, int height)
   }
 
   if (update_data) {
+    device_update_gsplat_raster();
     progress.set_status("Updating Device", "Writing constant memory");
     device->const_copy_to("data", &dscene.data, sizeof(dscene.data));
   }

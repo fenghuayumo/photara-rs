@@ -528,6 +528,13 @@ class Session:
     # ------------------------------------------------------------------
     # Meshes and objects.
     # ------------------------------------------------------------------
+    def add_gaussian_splats(self, positions, scales, rotations=None, colors=None,
+                            opacities=None, sh_rest=None, transform=None, object_id=0):
+        from .gsplat import validate_gaussians
+        p, s, q, c, sh = validate_gaussians(positions, scales, rotations, colors, opacities, sh_rest)
+        matrix = np.eye(4, dtype=np.float32) if transform is None else as_matrix4(transform, "transform")
+        return self._ctx.add_gaussian_splats(p, s, q, c, sh, matrix, int(object_id))
+
     def add_mesh(
         self,
         vertices,

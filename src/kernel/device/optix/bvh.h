@@ -16,6 +16,7 @@
 
 #include "kernel/bvh/types.h"
 #include "kernel/bvh/util.h"
+#include "util/math_gsplat.h"
 
 #define OPTIX_DEFINE_ABI_VERSION_ONLY
 #include <optix_function_table.h>
@@ -367,6 +368,9 @@ extern "C" __global__ void __intersection__point()
   }
 #  endif
 
+  if ((optixGetPayload_4() & GSPLAT_RASTER_SHADOW) && (type & PRIMITIVE_GSPLAT)) {
+    return;
+  }
   const float3 ray_P = optixGetObjectRayOrigin();
   const float3 ray_D = optixGetObjectRayDirection();
   const float ray_tmin = optixGetRayTmin();
@@ -408,6 +412,10 @@ ccl_device_intersect bool scene_intersect(KernelGlobals kg,
   uint p7 = pointer_pack_to_uint_1(ray);
 
   uint ray_mask = visibility & 0xFF;
+  if ((kernel_data.gsplat_raster.enabled && visibility == PATH_RAY_VISIBILITY_CAMERA) ||
+      (visibility & GSPLAT_RASTER_SHADOW)) {
+    ray_mask = GSPLAT_RASTER_MESH_MASK;
+  }
   uint ray_flags = OPTIX_RAY_FLAG_ENFORCE_ANYHIT;
   if (0 == ray_mask && (visibility & ~0xFF) != 0) {
     ray_mask = 0xFF;

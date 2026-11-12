@@ -50,6 +50,7 @@ const NodeEnum *Pass::get_type_enum()
 
     /* Light Passes. */
     pass_type_enum.insert("combined", PASS_COMBINED);
+    pass_type_enum.insert("gsplat", PASS_GSPLAT);
     pass_type_enum.insert("emission", PASS_EMISSION);
     pass_type_enum.insert("background", PASS_BACKGROUND);
     pass_type_enum.insert("ao", PASS_AO);
@@ -178,6 +179,9 @@ PassInfo Pass::get_info(const PassType type,
       pass_info.num_components = is_lightgroup ? 3 : 4;
       pass_info.use_exposure = true;
       pass_info.support_denoise = !is_lightgroup;
+      break;
+    case PASS_GSPLAT:
+      pass_info.num_components = 4;
       break;
     case PASS_DEPTH:
       pass_info.num_components = 1;

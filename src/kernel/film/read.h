@@ -399,6 +399,32 @@ ccl_device_inline void film_get_pass_pixel_combined(
   pixel[1] = color.y;
   pixel[2] = color.z;
   pixel[3] = film_transparency_to_alpha(alpha);
+
+  if (kfilm_convert->pass_gsplat != PASS_UNUSED) {
+    const ccl_global float *layer = buffer + kfilm_convert->pass_gsplat;
+    float layer_scale = kfilm_convert->gsplat_scale;
+    if (kfilm_convert->pass_sample_count != PASS_UNUSED) {
+      const uint samples = *((const ccl_global uint *)(buffer + kfilm_convert->pass_sample_count));
+      layer_scale = samples > 0 ? 1.0f / samples : 0.0f;
+    }
+    const float coverage = saturatef(layer[3] * layer_scale);
+    if (coverage > 0.0f) {
+      const float3 foreground = make_float3(layer[0], layer[1], layer[2]) * layer_scale;
+      const float backdrop_alpha = pixel[3];
+      const float result_alpha = coverage + (1.0f - coverage) * backdrop_alpha;
+      const float exposure = kfilm_convert->exposure;
+      const float3 backdrop = backdrop_alpha > 0 && exposure > 0 ?
+                                  color / (backdrop_alpha * exposure) : zero_float3();
+      const float3 display = foreground +
+          (1.0f - coverage) * backdrop_alpha * color_linear_to_srgb_v3(max(backdrop, zero_float3()));
+      const float3 result = result_alpha * exposure *
+          color_srgb_to_linear_v3(display / result_alpha);
+      pixel[0] = result.x;
+      pixel[1] = result.y;
+      pixel[2] = result.z;
+      pixel[3] = result_alpha;
+    }
+  }
 }
 
 /* --------------------------------------------------------------------
