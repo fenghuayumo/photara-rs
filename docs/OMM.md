@@ -100,3 +100,41 @@ All six meshes had attached OMMs (11208 referenced transparent microstates).
 Linear-image RMSE was 8.40e-6; mean RGB was 0.31368873 vs 0.31368876.
 This deliberately alpha-heavy fixture demonstrates a benefit, not a general
 frame-rate guarantee. Results are saved under `test_outputs/omm/metrics.json`.
+
+## Static SDK dependencies
+
+Windows uses `.lib` for both import libraries and static archives. Set
+`PHOTARA_OMM_STATIC=ON` explicitly for a static SDK. Photara then links LZ4 and
+xxHash transitively into all clients and fails configuration if either is missing.
+Use `PHOTARA_OMM_DEPENDENCY_ROOT` for the SDK's dependency install/build tree,
+or set `PHOTARA_OMM_LZ4_LIBRARY` and `PHOTARA_OMM_XXHASH_LIBRARY` to exact libraries.
+Dependencies must match the SDK architecture, configuration and CRT.
+
+```powershell
+cmake -S . -B build -DPHOTARA_OMM_STATIC=ON `
+  -DPHOTARA_OMM_LIBRARY=C:/OMM/build/libraries/omm-lib/omm-lib.lib `
+  -DPHOTARA_OMM_DEPENDENCY_ROOT=C:/OMM/build `
+  -DPHOTARA_OMM_RUNTIME= -DPHOTARA_OMM_STATIC_OPENMP=OFF
+```
+
+Set `PHOTARA_OMM_STATIC_OPENMP=ON` when the SDK archive was built with OpenMP;
+this requires and links `OpenMP::OpenMP_CXX`. Match this option to the SDK build,
+not to whether your scene uses internal baking threads. Vendor-specific extra
+libraries can be supplied as a CMake list in `PHOTARA_OMM_EXTRA_LIBRARIES`.
+Static mode does not stage or install the OMM DLL, even if a previous shared
+configuration left `PHOTARA_OMM_RUNTIME` cached. When returning to a DLL import
+library, set `PHOTARA_OMM_STATIC=OFF`.
+
+Static-link validation (2026-11-12): SDK 1.8.0 built without OpenMP, linked with
+its LZ4 and xxHash static libraries. Python, Viewer and standalone linked
+successfully; PE dependency inspection confirmed none imports `omm-lib.dll`.
+All four OMM GPU regression tests passed with that statically linked extension.
+
+Shared SDK configuration validates the runtime before enabling OMM. If
+`PHOTARA_OMM_RUNTIME` is empty, CMake searches SDK `bin/`, `bin/Release/`, the
+library directory and neighboring `bin/` directories. An explicit invalid path,
+a directory, or an empty/truncated file fails configuration. Windows also
+requires a `.dll` with an MZ header, rejecting accidental `.lib` inputs.
+This file check does not prove binary compatibility or validate all dependent
+DLLs; the SDK header/runtime version check still runs before baking. Static
+mode bypasses runtime validation and staging.

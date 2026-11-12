@@ -237,9 +237,38 @@ if(PHOTARA_WITH_OMM AND WITH_CYCLES_DEVICE_OPTIX)
   find_library(PHOTARA_OMM_LIBRARY NAMES omm-lib omm-sdk
     HINTS "${PHOTARA_OMM_ROOT}/lib" "${PHOTARA_OMM_ROOT}/lib/Release")
   if(PHOTARA_OMM_INCLUDE_DIR AND PHOTARA_OMM_LIBRARY)
+    option(PHOTARA_OMM_STATIC "PHOTARA_OMM_LIBRARY is a static SDK archive" OFF)
+    include("${CMAKE_SOURCE_DIR}/src/cmake/omm_runtime.cmake")
+    photara_validate_omm_runtime()
     add_library(photara_omm_sdk INTERFACE)
     target_include_directories(photara_omm_sdk INTERFACE "${PHOTARA_OMM_INCLUDE_DIR}")
     target_link_libraries(photara_omm_sdk INTERFACE "${PHOTARA_OMM_LIBRARY}")
+    # A raw static archive does not carry CMake's transitive link interface.
+    # On Windows both static archives and DLL import libraries use .lib, so
+    # require an explicit choice rather than guessing from the suffix.
+    option(PHOTARA_OMM_STATIC_OPENMP "Static OMM SDK was built with OpenMP" OFF)
+    set(PHOTARA_OMM_DEPENDENCY_ROOT "" CACHE PATH "OMM dependency install/build root")
+    set(PHOTARA_OMM_EXTRA_LIBRARIES "" CACHE STRING "Additional static OMM link dependencies")
+    if(PHOTARA_OMM_STATIC)
+      find_library(PHOTARA_OMM_LZ4_LIBRARY NAMES lz4 lz4_static liblz4
+        HINTS "${PHOTARA_OMM_ROOT}/lib" "${PHOTARA_OMM_DEPENDENCY_ROOT}/lib"
+              "${PHOTARA_OMM_DEPENDENCY_ROOT}/external/lz4/build/cmake"
+              "${PHOTARA_OMM_DEPENDENCY_ROOT}/external/lz4/build/cmake/Release")
+      find_library(PHOTARA_OMM_XXHASH_LIBRARY NAMES xxhash xxHash libxxhash
+        HINTS "${PHOTARA_OMM_ROOT}/lib" "${PHOTARA_OMM_DEPENDENCY_ROOT}/lib"
+              "${PHOTARA_OMM_DEPENDENCY_ROOT}/external/xxHash/build/cmake"
+              "${PHOTARA_OMM_DEPENDENCY_ROOT}/external/xxHash/build/cmake/Release")
+      if(NOT PHOTARA_OMM_LZ4_LIBRARY OR NOT PHOTARA_OMM_XXHASH_LIBRARY)
+        message(FATAL_ERROR "Static OMM requires LZ4 and xxHash. Set PHOTARA_OMM_DEPENDENCY_ROOT or PHOTARA_OMM_LZ4_LIBRARY and PHOTARA_OMM_XXHASH_LIBRARY.")
+      endif()
+      target_link_libraries(photara_omm_sdk INTERFACE
+        "${PHOTARA_OMM_LZ4_LIBRARY}" "${PHOTARA_OMM_XXHASH_LIBRARY}"
+        ${PHOTARA_OMM_EXTRA_LIBRARIES})
+      if(PHOTARA_OMM_STATIC_OPENMP)
+        find_package(OpenMP REQUIRED COMPONENTS CXX)
+        target_link_libraries(photara_omm_sdk INTERFACE OpenMP::OpenMP_CXX)
+      endif()
+    endif()
     target_compile_definitions(photara_omm_sdk INTERFACE WITH_OPTIX_OMM)
     message(STATUS "Photara OMM CPU baker enabled")
   else()
@@ -255,7 +284,7 @@ if(PHOTARA_BUILD_C_API OR PHOTARA_BUILD_PYTHON)
 endif()
 
 # Stage the optional SDK runtime for development builds and installation.
-if(TARGET photara_omm_sdk AND PHOTARA_OMM_RUNTIME)
+if(TARGET photara_omm_sdk AND PHOTARA_OMM_RUNTIME AND NOT PHOTARA_OMM_STATIC)
   add_custom_target(photara_omm_runtime
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/install"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PHOTARA_OMM_RUNTIME}"
