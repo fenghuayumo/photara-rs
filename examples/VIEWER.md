@@ -42,8 +42,13 @@ ReSTIR, NEE-AT and GI caching are not enabled yet.
 The viewer uses Vulkan 1.1 and requests three swapchain images (subject to
 surface capabilities), preferring MAILBOX presentation (FIFO fallback) and one graphics submission in
 flight. Acquisition is polled without waiting on vblank in the UI thread. Only
-one OptiX job is active. A busy display keeps the latest shared image rather
-than building an unbounded queue. Minimized windows stop submitting new jobs.
+one OptiX job is active. Every accepted completed render frame receives one
+successful Present submission before the next job starts. If acquisition or
+presentation is busy/out of date, the same image is retained and retried;
+it is not overwritten by a newer frame. Resize-only redraws are tracked
+separately from rendered-frame submissions. Minimized windows stop new jobs.
+MAILBOX may still replace already-submitted images before physical scanout;
+submission count is not the number of images scanned out by the monitor.
 
 OptiX's display conversion kernel writes half RGBA directly into exported,
 device-local Vulkan buffer memory imported by CUDA. A fragment shader reads
@@ -64,11 +69,23 @@ buffer into host-visible staging memory and perform CPU display conversion.
 Existing scalar scheduling/status transfers inside the renderer are unchanged.
 A failed interop path is reported; the viewer does not continue with CPU display.
 
+A persistent completion waiter signals a Win32 event when the finite render
+job ends. The UI waits on that event and input rather than polling every 2 ms;
+only pending swapchain acquisition uses a short retry timeout. Paused and idle
+windows do not periodically wake. Titles update at most four times per second
+in continuous rendering, independently of rendering/presentation. Swapchain
+capabilities are queried on resize/out-of-date events rather than every frame.
+
 The title's worker time runs from render submission through the GPU display
 update callback, including scene updates and cold initialization. It is not a
 GPU timestamp. CSV additionally records when the UI observes completion. The
 zero CPU pixel-readback byte field describes normal frames and excludes explicit
-screenshot capture.
+screenshot capture. CSV rows are emitted after each successful rendered-frame
+Present submission, with cumulative submission/attempt/query/title counters.
+`rendered_frames_presented` excludes resize-only redraws; `present_backpressure_ms`
+measures completion observation through successful submission, including any
+acquisition retries and command recording/submission. Metrics are buffered and
+flushed every 64 frames and at exit.
 No displayed-FPS or input-to-photon latency claim is made by these counters.
 
 ```powershell
@@ -77,7 +94,7 @@ install/photara_viewer.exe --mode REFERENCE --reference-samples 64 --smoke-frame
 ```
 
 The smoke option renders the requested number of completed frames, captures the
-last image and exits. Reference smoke tests accept one frame. For steady-state
+last image after its Present submission and exits. Reference smoke tests accept one frame. For steady-state
 comparisons exclude the cold first frame and keep scene, resolution and GPU load
 fixed. Screenshot and CSV paths must have existing parent directories.
 

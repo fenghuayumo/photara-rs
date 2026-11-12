@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "app/photara_xml.h"
@@ -39,6 +41,72 @@ struct TimerResolution {
     if (active) {
       timeEndPeriod(1);
     }
+  }
+};
+
+/* One persistent waiter signals actual Session completion, avoiding both a
+ * per-frame thread allocation and periodic UI polling. Session outlives it. */
+class RenderCompletion {
+  Session &session_;
+  HANDLE event_ = nullptr;
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  uint64_t generation_ = 0;
+  bool stopping_ = false;
+  std::thread thread_;
+
+ public:
+  explicit RenderCompletion(Session &session) : session_(session)
+  {
+    event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event_) {
+      throw std::runtime_error("Cannot create render completion event");
+    }
+    try {
+      thread_ = std::thread([this] {
+        std::unique_lock<std::mutex> lock(mutex_);
+        uint64_t observed = 0;
+        while (true) {
+          changed_.wait(lock, [&] { return stopping_ || observed != generation_; });
+          if (stopping_) {
+            return;
+          }
+          observed = generation_;
+          lock.unlock();
+          session_.wait();
+          SetEvent(event_);
+          lock.lock();
+        }
+      });
+    }
+    catch (...) {
+      CloseHandle(event_);
+      throw;
+    }
+  }
+  ~RenderCompletion()
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stopping_ = true;
+    }
+    changed_.notify_one();
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+    CloseHandle(event_);
+  }
+  HANDLE event() const
+  {
+    return event_;
+  }
+  void submitted()
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++generation_;
+    }
+    changed_.notify_one();
   }
 };
 
@@ -102,6 +170,7 @@ class ViewerDisplay final : public DisplayDriver {
 
 struct Viewer {
   unique_ptr<Session> session;
+  unique_ptr<RenderCompletion> completion;
   ViewerDisplay *display = nullptr;
   SessionParams params;
   BufferParams buffers;
@@ -119,6 +188,15 @@ struct Viewer {
   int size = 512, spp = 1, reference_samples = 256;
   int completed = 0, smoke_frames = 0;
   double last_ms = 0;
+  uint64_t title_updates = 0, rendered_frames_presented = 0;
+  bool completed_frame_pending = false;
+  struct PendingFrame {
+    int index = 0, samples = 0;
+    bool realtime = true;
+    double observed_ms = 0, worker_ms = 0;
+    std::chrono::steady_clock::time_point submitted;
+  } pending_frame;
+  std::chrono::steady_clock::time_point last_title;
   std::ofstream metrics;
   string metrics_path;
   string scene_path = "examples/scene_cornell_box.xml";
@@ -128,6 +206,11 @@ struct Viewer {
 
   ~Viewer()
   {
+    if (session && session->is_rendering()) {
+      session->cancel(true);
+      session->wait();
+    }
+    completion.reset();
     session.reset();
   }
 
@@ -177,7 +260,9 @@ struct Viewer {
       if (!metrics) {
         throw std::runtime_error("Cannot open metrics output");
       }
-      metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes\n";
+      metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
+                 "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
+                 "presented,present_backpressure_ms\n";
     }
   }
 
@@ -190,8 +275,13 @@ struct Viewer {
     }
   }
 
-  void title()
+  void title(bool force = true)
   {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now - last_title < std::chrono::milliseconds(250)) {
+      return;
+    }
+    last_title = now;
     char text[512];
     std::snprintf(text,
                   sizeof(text),
@@ -202,6 +292,7 @@ struct Viewer {
                   last_ms,
                   paused ? "Paused" : (!running && !dirty && !realtime ? "Complete" : "Running"));
     SetWindowTextA(window, text);
+    ++title_updates;
   }
 
   void save()
@@ -230,10 +321,37 @@ struct Viewer {
     }
   }
 
+  void try_present()
+  {
+    if (!presenter.present(window)) {
+      return;
+    }
+    present_pending = false;
+    if (!completed_frame_pending) {
+      return;
+    }  // Resize-only redraw.
+    completed_frame_pending = false;
+    ++rendered_frames_presented;
+    if (metrics) {
+      const auto &frame = pending_frame;
+      const double submit_ms = std::chrono::duration<double, std::milli>(
+                                   std::chrono::steady_clock::now() - frame.submitted)
+                                   .count();
+      metrics << frame.index << ',' << (frame.realtime ? "REALTIME" : "REFERENCE") << ','
+              << frame.samples << ',' << frame.observed_ms << ',' << frame.worker_ms << ",0,"
+              << presenter.present_attempts << ',' << presenter.presented_frames << ','
+              << presenter.surface_queries << ',' << title_updates << ','
+              << rendered_frames_presented << ',' << submit_ms - frame.observed_ms << '\n';
+      if ((rendered_frames_presented & 63) == 0) {
+        metrics.flush();
+      }
+    }
+  }
+
   void tick()
   {
     if (present_pending && !IsIconic(window)) {
-      present_pending = !presenter.present(window);
+      try_present();
     }
     if (running) {
       if (session->is_rendering()) {
@@ -259,14 +377,16 @@ struct Viewer {
         const double observed_ms = std::chrono::duration<double, std::milli>(
                                        std::chrono::steady_clock::now() - started)
                                        .count();
-        if (metrics) {
-          metrics << completed << ',' << (realtime ? "REALTIME" : "REFERENCE") << ','
-                  << (realtime ? spp : reference_samples) << ',' << observed_ms << ',' << last_ms
-                  << ",0\n";
-          metrics.flush();
-        }
-        present_pending = !presenter.present(window);
+        pending_frame = {completed,
+                         realtime ? spp : reference_samples,
+                         realtime,
+                         observed_ms,
+                         last_ms,
+                         started};
+        completed_frame_pending = true;
+        present_pending = true;
         ++completed;
+        try_present();
         // Optional deterministic stress sequence for mode/resize/ownership tests.
         if (smoke_cycle) {
           if (completed == 8 || completed == 24) {
@@ -284,17 +404,26 @@ struct Viewer {
                 window, nullptr, 0, 0, 640, 480, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
           }
         }
-        InvalidateRect(window, nullptr, FALSE);
-        title();
-        if (smoke_frames && completed >= smoke_frames) {
-          save();
-          PostMessage(window, WM_CLOSE, 0, 0);
-          return;
-        }
+        title(!realtime);
       }
     }
     if (closing) {
       DestroyWindow(window);
+      return;
+    }
+    if (smoke_frames && completed >= smoke_frames) {
+      if (present_pending) {
+        return;
+      }  // Include the final frame's Present submission.
+      if (rendered_frames_presented != uint64_t(completed)) {
+        throw std::runtime_error("A completed frame was not submitted for presentation");
+      }
+      save();
+      PostMessage(window, WM_CLOSE, 0, 0);
+      return;
+    }
+    // Never overwrite a completed image before its Present submission succeeds.
+    if (present_pending) {
       return;
     }
     if (paused || IsIconic(window) || (!realtime && !dirty)) {
@@ -316,6 +445,7 @@ struct Viewer {
     started = std::chrono::steady_clock::now();
     session->reset(frame, buffers);
     session->start();
+    completion->submitted();
     if (realtime) {
       frames.advance();
     }
@@ -331,8 +461,9 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
   auto &v = *viewer;
   try {
     switch (message) {
-      case WM_TIMER:
-        v.tick();
+      case WM_SIZE:
+        v.presenter.request_resize();
+        v.present_pending = v.have_image;
         return 0;
       case WM_CLOSE:
         v.closing = true;
@@ -428,15 +559,12 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
         PAINTSTRUCT paint;
         BeginPaint(hwnd, &paint);
         EndPaint(hwnd, &paint);
-        if (v.have_image) {
-          v.present_pending = true;
-        }
+        // Vulkan keeps the presented image; painting does not create a new frame.
         return 0;
       }
     }
   }
   catch (const std::exception &error) {
-    KillTimer(hwnd, 1);
     MessageBoxA(hwnd, error.what(), "Photara Viewer error", MB_ICONERROR);
     DestroyWindow(hwnd);
     PostQuitMessage(1);
@@ -534,15 +662,22 @@ int main(int argc, char **argv)
     }
     app.display = driver.get();
     app.session->set_display_driver(std::move(driver));
+    app.completion = make_unique<RenderCompletion>(*app.session);
     ShowWindow(app.window, SW_SHOW);
     app.title();
-    // WM_TIMER has a platform minimum interval and made a 5 ms render appear
-    // as a 15 ms frame. Wake for input immediately, and poll finite jobs at 2 ms.
+    // Wake directly on finite render completion or input. Retry only a pending
+    // swapchain acquisition; idle and paused windows need no periodic wakeups.
     MSG message = {};
     bool quit = false;
+    const HANDLE completed = app.completion->event();
+    app.tick();
     while (!quit) {
-      const DWORD timeout = app.running || (!app.paused && app.realtime) ? 2 : 50;
-      MsgWaitForMultipleObjectsEx(0, nullptr, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      const DWORD timeout = app.present_pending && !IsIconic(app.window) ? 2 : INFINITE;
+      const DWORD result = MsgWaitForMultipleObjectsEx(
+          1, &completed, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      if (result == WAIT_FAILED) {
+        throw std::runtime_error("Viewer completion wait failed");
+      }
       while (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
         if (message.message == WM_QUIT) {
           quit = true;

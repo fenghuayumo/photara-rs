@@ -101,6 +101,10 @@ class ViewerPresenter {
     GetClientRect(window_, &rect);
     if (IsIconic(window_) || rect.right < 1 || rect.bottom < 1)
       return false;
+    if (!resized_ && swap_) {
+      return true;
+    }
+    ++surface_queries;
     VkSurfaceCapabilitiesKHR caps;
     check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps));
     auto extent = caps.currentExtent;
@@ -193,7 +197,12 @@ class ViewerPresenter {
   }
 
  public:
+  void request_resize()
+  {
+    resized_ = true;
+  }
   std::mutex interop_mutex;
+  uint64_t present_attempts = 0, presented_frames = 0, surface_queries = 0;
   const std::vector<uint8_t> &device_uuid() const
   {
     return uuid_;
@@ -490,6 +499,7 @@ class ViewerPresenter {
   }
   bool present(HWND window)
   {
+    ++present_attempts;
     std::unique_lock<std::mutex> lock(interop_mutex, std::try_to_lock);
     if (!lock.owns_lock() || IsIconic(window) || vkGetFenceStatus(device_, fence_) == VK_NOT_READY)
       return false;
@@ -548,10 +558,17 @@ class ViewerPresenter {
     info.pSwapchains = &swap_;
     info.pImageIndices = &index;
     result = vkQueuePresentKHR(queue_, &info);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
       resized_ = true;
-    else
+      return false;  // Retry the same completed image with a rebuilt swapchain.
+    }
+    if (result == VK_SUBOPTIMAL_KHR) {
+      resized_ = true;
+    }
+    else {
       check(result);
+    }
+    ++presented_frames;
     return true;
   }
   std::vector<unsigned char> capture();
