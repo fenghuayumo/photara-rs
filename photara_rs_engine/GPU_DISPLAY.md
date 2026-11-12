@@ -75,3 +75,22 @@ selected. The Python API accepts `denoiser="DLSS"` and
 
 Run `PHOTARA_TEST_DLSS=QUALITY` with the GPU display verification script to test
 DLSS through Blender's native display driver.
+
+### Offline DLSS sampling
+
+Final images and each animation frame accumulate the requested samples before
+DLSS reconstruction. Offline sessions do not use the interactive DLSS buffer
+reset. In Render > Denoise, Minimum SPP Before Denoise = 0 follows the sampling
+settings; a positive value uses max(Samples, Minimum SPP Before Denoise) and
+disables adaptive early stopping to guarantee that sample count. This setting
+also applies to OptiX and OIDN. Viewport DLSS retains its interactive behavior;
+this offline setting does not change viewport sample accumulation.
+
+Regression: scripts/test_blender_dlss_final.py checks final PNG and two animated
+frames; scripts/test_blender_gpu_display.py with PHOTARA_TEST_DLSS=QUALITY checks
+the native viewport display. These verify execution, not temporal video quality.
+
+Viewport intermediate denoising: embedded sessions set background=true even
+when they have a display. Only background AND headless sessions defer denoising
+until completion. test_blender_gpu_motion.py checks frames while rendering is
+still running across three view changes (PHOTARA_TEST_DLSS=QUALITY).

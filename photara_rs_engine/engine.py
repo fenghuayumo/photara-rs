@@ -49,6 +49,12 @@ def _denoiser_options(settings, viewport=False):
         'denoise_quality', 'denoise_use_gpu', 'denoise_upscale_quality')}
 
 
+def _final_sampling_options(settings):
+    minimum = settings.denoise_min_samples if settings.denoise else 0
+    return dict(samples=max(settings.samples, minimum),
+                adaptive_sampling=settings.adaptive_sampling and minimum == 0)
+
+
 def _film_options(scene):
     settings = scene.photara
     return dict(exposure=settings.film_exposure,
@@ -121,11 +127,10 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             scene = photara_rs.Scene(
                 width=width,
                 height=height,
-                samples=settings.samples,
+                **_final_sampling_options(settings),
                 seed=settings.seed,
                 max_bounces=settings.max_bounces,
                 denoise=settings.denoise,
-                adaptive_sampling=settings.adaptive_sampling,
                 device=settings.device,
                 **_denoiser_options(settings),
             )

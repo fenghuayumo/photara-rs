@@ -31,38 +31,134 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 
-def _socket_color(node, name, default):
-    try:
-        socket = node.inputs[name]
-    except KeyError:
-        return default
-    if socket is None:
-        return default
-    value = socket.default_value
-    try:
-        return tuple(float(x) for x in value[:3])
-    except TypeError:
-        return default
-
-
 def _node_input(node, name):
-    """Look up a node input by name without collection `.get()` (Blender 5.x
-    only supports `.get()` on bpy.data collections)."""
     try:
         return node.inputs[name]
     except KeyError:
         return None
 
 
-def _socket_scalar(node, names, default):
+def _source(socket):
+    """Follow links and reroutes, guarding malformed cyclic graphs."""
+    seen = set()
+    while socket is not None and socket.is_linked:
+        socket = socket.links[0].from_socket
+        key = socket.as_pointer()
+        if key in seen:
+            return None
+        seen.add(key)
+        if socket.node.type != 'REROUTE':
+            return socket
+        socket = socket.node.inputs[0]
+    return None
+
+
+def _socket_value(node, names, default):
+    if isinstance(names, str):
+        names = (names,)
     for name in names:
-        try:
-            socket = node.inputs[name]
-        except KeyError:
+        socket = _node_input(node, name)
+        if socket is None:
             continue
-        if socket is not None:
-            return float(socket.default_value)
+        source = _source(socket)
+        if source is not None and source.node.type in {'RGB', 'VALUE'}:
+            return source.default_value
+        return socket.default_value
     return default
+
+
+def _socket_color(node, names, default):
+    value = _socket_value(node, names, default)
+    try:
+        return tuple(float(x) for x in value[:3])
+    except TypeError:
+        return (float(value),) * 3
+
+
+def _socket_scalar(node, names, default):
+    return float(_socket_value(node, names, default))
+
+
+def _surface_node(tree):
+    # Match Cycles' output selection; ignore disconnected Principled nodes.
+    outputs = [n for n in tree.nodes if n.type == 'OUTPUT_MATERIAL'
+               and getattr(n, 'target', 'ALL') in {'ALL', 'CYCLES'}
+               and n.is_active_output]
+    outputs.sort(key=lambda n: n.target == 'CYCLES', reverse=True)
+    if not outputs:
+        return None
+    source = _source(_node_input(outputs[0], "Surface"))
+    return source.node if source is not None else None
+
+
+def _image_filepath(image):
+    """Expose packed file bytes to the native file-based image loader.
+
+    Never unpack into the user's project or change the Blender image datablock.
+    Content-addressed names avoid stale textures after packed image edits.
+    """
+    if image.packed_file is None:
+        return bpy.path.abspath(image.filepath, library=image.library)
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    data = bytes(image.packed_file.data)
+    digest = hashlib.sha256(data).hexdigest()
+    directory = Path(tempfile.gettempdir()) / "photara_rs" / "packed_images"
+    directory.mkdir(parents=True, exist_ok=True)
+    suffix = Path(image.filepath).suffix or ".img"
+    path = directory / (digest + suffix)
+    if not path.is_file():
+        # Publish only complete files, including when multiple Blender processes
+        # synchronize the same packed image at once.
+        import os
+        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as handle:
+            temporary = handle.name
+            handle.write(data)
+        try:
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    return str(path)
+
+
+def _base_texture(node):
+    source = _source(_node_input(node, "Base Color"))
+    if source is None or source.node.type != 'TEX_IMAGE' or source.name != 'Color':
+        return None
+    texture = source.node
+    image = texture.image
+    if image is None:
+        return None
+    # The current native texture API uses files and the active UV map.
+    # Reject mappings it cannot represent instead of silently misprojecting them.
+    if image.source != 'FILE' or texture.projection != 'FLAT':
+        raise ValueError("Photara Base Color requires a file image with flat UV projection")
+    vector = _source(_node_input(texture, "Vector"))
+    if vector is not None and not (vector.node.type == 'TEX_COORD' and vector.name == 'UV'):
+        raise ValueError("Photara Base Color currently supports only the active UV coordinates")
+    colorspace = image.colorspace_settings.name
+    spaces = {'sRGB': 'sRGB', 'Non-Color': 'data', 'Linear': 'scene_linear',
+              'Linear Rec.709': 'scene_linear'}
+    if colorspace not in spaces:
+        raise ValueError(f"Unsupported Photara image colorspace: {colorspace}")
+    return dict(path=_image_filepath(image),
+                colorspace=spaces[colorspace], interpolation=texture.interpolation.lower(),
+                extension=texture.extension.lower())
+
+
+def _material_warning(state, material, error):
+    # Unsupported mappings or missing images affect one material, not the
+    # entire scene. Keep diagnostics without flooding every viewport update.
+    seen = getattr(state, '_material_warnings', None)
+    if seen is None:
+        state._material_warnings = seen = set()
+    message = f"Photara material {material.name!r}: {error}; using socket color"
+    if message not in seen:
+        seen.add(message)
+        print(message, flush=True)
 
 
 def sync_material(state, blender_material):
@@ -81,17 +177,17 @@ def sync_material(state, blender_material):
     emission_color = (0.0, 0.0, 0.0)
     emission_strength = 0.0
 
+    texture = None
     node_tree = getattr(blender_material, "node_tree", None)
     if node_tree is not None:
-        principled = None
-        for node in node_tree.nodes:
-            # `node.type` is stable across Blender versions; `bl_idname`
-            # changed shape historically (BSDF_PRINCIPLED vs
-            # ShaderNodeBsdfPrincipled).
-            if getattr(node, "type", "") == 'BSDF_PRINCIPLED':
-                principled = node
-                break
+        principled = _surface_node(node_tree)
+        if principled is not None and principled.type != 'BSDF_PRINCIPLED':
+            principled = None
         if principled is not None:
+            try:
+                texture = _base_texture(principled)
+            except (ValueError, OSError) as exc:
+                _material_warning(state, blender_material, exc)
             base_color = _socket_color(principled, "Base Color", base_color)
             metallic = _socket_scalar(principled, ("Metallic",), metallic)
             roughness = _socket_scalar(principled, ("Roughness",), roughness)
@@ -107,6 +203,12 @@ def sync_material(state, blender_material):
                 principled, ("Emission Strength",), emission_strength
             )
 
+    fallback_base_color = base_color
+    if texture is not None:
+        # An image link replaces the socket default; the native API multiplies
+        # its texture by base_color, so use a neutral multiplier.
+        base_color = (1.0, 1.0, 1.0)
+
     material.update(
         base_color=base_color,
         metallic=max(0.0, min(1.0, metallic)),
@@ -116,6 +218,13 @@ def sync_material(state, blender_material):
         emission_color=emission_color,
         emission_strength=max(0.0, emission_strength),
     )
+    if material.base_color_texture != texture:
+        try:
+            material.base_color_texture = texture
+        except (ValueError, OSError) as exc:
+            _material_warning(state, blender_material, exc)
+            material.base_color_texture = None
+            material.base_color = fallback_base_color
     return material
 
 

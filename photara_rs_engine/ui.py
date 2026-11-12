@@ -73,6 +73,11 @@ class PhotaraDenoisePanel:
         settings = context.scene.photara
         prefix = 'viewport_' if self.setting == 'viewport_denoise' else ''
         layout.prop(settings, prefix + 'denoiser')
+        if not prefix:
+            layout.prop(settings, 'denoise_min_samples')
+            layout.label(text='Denoise after frame sampling completes')
+            if settings.denoise_min_samples > 0:
+                layout.label(text=f'{max(settings.samples, settings.denoise_min_samples)} SPP, adaptive stopping disabled')
         if getattr(settings, prefix + 'denoiser') == 'DLSS':
             layout.prop(settings, prefix + 'denoise_upscale_quality')
         else:

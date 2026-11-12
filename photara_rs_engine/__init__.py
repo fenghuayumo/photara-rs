@@ -10,7 +10,7 @@
 bl_info = {
     "name": "Photara Renderer",
     "author": "Photara contributors",
-    "version": (0, 1, 0),
+    "version": (0, 1, 2),
     "blender": (4, 2, 0),
     "location": "Render Properties > Photara",
     "description": "Render with the Photara OptiX path tracer",

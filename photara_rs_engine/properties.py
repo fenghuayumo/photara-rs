@@ -62,6 +62,12 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         default=True,
     )  # type: ignore[attr-defined]
 
+    denoise_min_samples: bpy.props.IntProperty(
+        name="Minimum SPP Before Denoise",
+        description="Final images and animation frames: 0 follows Samples; otherwise render at least this many samples per pixel and disable adaptive early stopping",
+        default=0, min=0, max=1048576,
+    )
+
     adaptive_sampling: bpy.props.BoolProperty(
         name="Adaptive Sampling",
         description="Stop sampling pixels that converged early",

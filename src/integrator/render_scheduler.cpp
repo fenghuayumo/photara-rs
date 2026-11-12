@@ -1057,8 +1057,10 @@ bool RenderScheduler::work_need_denoise(bool &delayed, bool &ready_to_display)
     return true;
   }
 
-  if (background_) {
-    /* Background render, only denoise when rendering the last sample. */
+  if (background_ && headless_) {
+    /* Offline render, only denoise when rendering the last sample.
+     * Embedded viewport sessions also use background mode, but have a display
+     * and must denoise intermediate frames while navigating. */
     /* TODO(sergey): Follow similar logic to viewport, giving an overview of how final denoised
      * image looks like even for the background rendering. */
     return false;
@@ -1265,7 +1267,9 @@ bool RenderScheduler::is_denoise_active_during_update() const
 
 bool RenderScheduler::is_denoiser_interactive() const
 {
-  return denoiser_params_.use && denoiser_params_.type == DENOISER_DLSS;
+  /* Offline output must accumulate all requested samples before reconstruction.
+   * The interactive path resets the accumulation buffer on each update. */
+  return !headless_ && denoiser_params_.use && denoiser_params_.type == DENOISER_DLSS;
 }
 
 bool RenderScheduler::work_is_usable_for_first_render_estimation(const RenderWork &render_work)
