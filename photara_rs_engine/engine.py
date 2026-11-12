@@ -271,8 +271,8 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
 class ViewportState:
     """Owns the viewport photara scene, render job and display texture."""
 
-    POLL_INTERVAL = 0.016
-    MIN_RESTART_INTERVAL = 1.0 / 30.0
+    POLL_INTERVAL = 0.008
+    MIN_RESTART_INTERVAL = 1.0 / 60.0
 
     def __init__(self, engine, width, height, context):
         import photara_rs
@@ -295,6 +295,7 @@ class ViewportState:
         self._last_start = 0.0
         self._world_settings = None
         self._film_settings = None
+        self._sampling_settings = None
 
         blender_scene = bpy.context.scene
         settings = blender_scene.photara
@@ -368,8 +369,18 @@ class ViewportState:
         self.ensure_timer()
 
     def apply_updates(self, context, depsgraph):
-        if not self.needs_update or self.job is not None:
+        if not self.needs_update:
             return
+        if self.job is not None:
+            # Navigation already schedules draw callbacks. Retire a cancelled
+            # job here instead of waiting for another Python timer tick.
+            progress = self.job.poll()
+            if progress.state == "running":
+                return
+            if progress.state == "failed":
+                raise RuntimeError(progress.status or "Viewport render failed")
+            self.job = None
+            self._cancel_requested = False
         if time.monotonic() - self._last_start < self.MIN_RESTART_INTERVAL:
             return
         width, height = self.width, self.height
@@ -485,9 +496,15 @@ class ViewportState:
         self.seed = int(settings.seed)
         self.current_samples = self.samples
         self._preview_revision = 0
-        self.scene.configure_sampling(**_sampling_options(settings, viewport=True))
-        self.scene.samples = self.samples
-        self.scene.seed = self.seed
+        sampling = _sampling_options(settings, viewport=True)
+        signature = tuple(sampling.values())
+        if signature != self._sampling_settings:
+            self.scene.configure_sampling(**sampling)
+            self._sampling_settings = signature
+        if self.scene.samples != self.samples:
+            self.scene.samples = self.samples
+        if self.scene.seed != self.seed:
+            self.scene.seed = self.seed
         self.job = self.scene.render_async()
         self._cancel_requested = False
         self._last_start = time.monotonic()

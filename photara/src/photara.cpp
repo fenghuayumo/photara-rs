@@ -1090,7 +1090,7 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     params.device = device;
     params.denoise_device = device;
     params.headless = !viewport;
-    params.preview_update_interval = viewport ? 0.05 : 0.0;
+    params.preview_update_interval = viewport ? (1.0 / 60.0) : 0.0;
     params.background = true;
     params.samples = std::max(options->samples > 0 ? options->samples : 64, 1);
     params.use_auto_tile = false;
@@ -2176,6 +2176,12 @@ int photara_render_request_cancel(PhotaraContext *ctx, const unsigned long long 
       throw std::runtime_error("Render job is invalid or was superseded");
     }
     ctx->render_job.cancel_requested = true;
+    /* Once upload has completed, signal cancellation immediately. Waiting for
+     * the next Python poll adds another UI frame to every navigation update.
+     * Keep the deferred poll path while the first sample is still uploading. */
+    if (ctx->session->progress.get_current_sample() > 0) {
+      ctx->session->progress.set_cancel("Superseded by a viewport update");
+    }
   });
 }
 

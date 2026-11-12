@@ -97,3 +97,10 @@ Viewport intermediate denoising: embedded sessions set background=true even
 when they have a display. Only background AND headless sessions defer denoising
 until completion. test_blender_gpu_motion.py checks frames while rendering is
 still running across three view changes (PHOTARA_TEST_DLSS=QUALITY).
+
+Viewport update latency: completed/cancelled jobs may be retired by navigation
+draw callbacks without waiting for the polling timer. Cancellation is signaled
+immediately after the first completed sample; initial upload remains protected.
+Sampling options are cached across restarts. The display scheduling target is
+1/60 second, not a guaranteed frame rate. benchmark_blender_viewport.py records
+invalidation-to-restart latency; it does not measure input-to-photon latency.

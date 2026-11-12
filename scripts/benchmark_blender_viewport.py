@@ -20,6 +20,21 @@ area.spaces.active.region_3d.view_perspective='PERSP'
 area.spaces.active.shading.use_scene_world_render=False
 bpy.context.preferences.view.show_splash=False
 stats={'view_draw':[],'view_update':[],'uploads':0}
+latencies=[]
+old_invalidate=engine.ViewportState.invalidate
+old_restart=engine.ViewportState.restart_render
+def invalidate(self,depsgraph=None):
+ if not self.needs_update:self._benchmark_invalidated=time.perf_counter()
+ return old_invalidate(self,depsgraph)
+def restart(self):
+ requested=getattr(self,'_benchmark_invalidated',None)
+ if requested is not None:
+  latencies.append((time.perf_counter()-requested)*1000)
+  self._benchmark_invalidated=None
+ result=old_restart(self)
+ return result
+engine.ViewportState.invalidate=invalidate
+engine.ViewportState.restart_render=restart
 def make_timed(old,name):
  def timed(self,context,depsgraph):
   t=time.perf_counter()
@@ -30,6 +45,7 @@ def make_timed(old,name):
     import _cycles
     native=_cycles.photara_display_stats(viewport._display_capsule)
     stats.update(native)
+
    return result
   finally:stats[name].append((time.perf_counter()-t)*1000)
  return timed
@@ -55,6 +71,10 @@ def tick():
  for name in ('view_draw','view_update'):
   v=sorted(stats[name]);result['callback_ms'][name]={'max':max(v,default=0),'p95':v[int((len(v)-1)*.95)] if v else 0,'count':len(v)}
  result['timer_gap_max_ms']=max(gaps)
+ for label,values in [('invalidate_to_restart_ms',latencies)]:
+  values=sorted(values)
+  result[label]={'count':len(values),'median':values[len(values)//2] if values else 0,'p95':values[int((len(values)-1)*.95)] if values else 0}
+
  args=sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
  path=Path(args[0]) if args else Path(__file__).resolve().parent.parent/'test_outputs/viewport_benchmark.json'
  path.parent.mkdir(parents=True,exist_ok=True)
