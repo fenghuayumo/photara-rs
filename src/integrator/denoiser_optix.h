@@ -54,6 +54,9 @@ class OptiXDenoiser : public DenoiserGPU {
   /* OptiX denoiser state and scratch buffers, stored in a single memory buffer.
    * The memory layout goes as following: [denoiser state][scratch buffer]. */
   device_only_memory<unsigned char> state_;
+  device_vector<float> temporal_color_;
+  device_vector<unsigned char> temporal_guide_previous_;
+  device_vector<unsigned char> temporal_guide_output_;
   OptixDenoiserSizes sizes_ = {};
 
   bool use_pass_albedo_ = false;

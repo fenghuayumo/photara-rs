@@ -575,8 +575,12 @@ void PathTrace::set_denoiser_params(const DenoiseParams &params)
 
   Device *effective_denoise_device;
   Device *cpu_fallback_device = cpu_device_.get();
-  const DenoiseParams effective_denoise_params = get_effective_denoise_params(
+  DenoiseParams effective_denoise_params = get_effective_denoise_params(
       denoise_device_, cpu_fallback_device, params, interop_device, effective_denoise_device);
+
+  if (denoise_temporal_history && effective_denoise_params.type == DENOISER_OPTIX) {
+    effective_denoise_params.temporally_stable = true;
+  }
 
   bool need_to_recreate_denoiser = false;
   if (denoiser_) {
@@ -625,8 +629,14 @@ void PathTrace::set_denoiser_params(const DenoiseParams &params)
       /* Only take into account the "immediate" cancel to have interactive rendering responding to
        * navigation as quickly as possible, but allow to run denoiser after user hit Escape key
        * while doing offline rendering. */
-      denoiser_->is_cancelled_cb = [this]() { return render_cancel_.is_requested; };
+      denoiser_->is_cancelled_cb = [this]() {
+        return render_cancel_.is_requested.load(std::memory_order_relaxed);
+      };
     }
+  }
+
+  if (denoiser_) {
+    denoiser_->temporal_history = denoise_temporal_history;
   }
 
   /* Use actual parameters, if available */
@@ -945,6 +955,12 @@ void PathTrace::finalize_full_buffer_on_disk(const RenderWork &render_work)
   /* NOTE: The rest of full-frame post-processing (such as full-frame denoising) will be done after
    * all scenes and layers are rendered by the Session (which happens after freeing Session memory,
    * so that we never hold scene and full-frame buffer in memory at the same time). */
+}
+
+void PathTrace::request_cancel()
+{
+  const thread_scoped_lock lock(render_cancel_.mutex);
+  render_cancel_.is_requested = true;
 }
 
 void PathTrace::cancel()

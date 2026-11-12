@@ -9,13 +9,18 @@
 
 #  include "device/optix/device_impl.h"
 #  include "device/optix/queue.h"
+#  include "util/log.h"
 
 #  include <optix_denoiser_tiling.h>
 
 CCL_NAMESPACE_BEGIN
 
 OptiXDenoiser::OptiXDenoiser(Device *denoiser_device, const DenoiseParams &params)
-    : DenoiserGPU(denoiser_device, params), state_(denoiser_device, "__denoiser_state", true)
+    : DenoiserGPU(denoiser_device, params),
+      state_(denoiser_device, "__denoiser_state", true),
+      temporal_color_(denoiser_device, "__denoiser_previous_color", MEM_READ_WRITE),
+      temporal_guide_previous_(denoiser_device, "__denoiser_previous_guide", MEM_READ_WRITE),
+      temporal_guide_output_(denoiser_device, "__denoiser_output_guide", MEM_READ_WRITE)
 {
 }
 
@@ -47,12 +52,35 @@ bool OptiXDenoiser::denoise_buffer(const BufferParams &buffer_params,
   OptiXDevice *const optix_device = static_cast<OptiXDevice *>(denoiser_device_);
   const CUDAContextScope scope(optix_device);
 
-  return DenoiserGPU::denoise_buffer(buffer_params,
-                                     denoised_buffer_params,
-                                     render_buffers,
-                                     num_samples,
-                                     allow_inplace_modification,
-                                     pixel_jitter);
+  if (temporal_history) {
+    const std::vector<int> geometry = {buffer_params.width,
+                                       buffer_params.height,
+                                       buffer_params.full_x,
+                                       buffer_params.full_y,
+                                       buffer_params.full_width,
+                                       buffer_params.full_height,
+                                       buffer_params.window_x,
+                                       buffer_params.window_y,
+                                       buffer_params.window_width,
+                                       buffer_params.window_height,
+                                       params_.passes};
+    if (temporal_history->geometry != geometry) {
+      temporal_history->previous.clear();
+      temporal_history->geometry = geometry;
+    }
+    temporal_history->output.clear();
+  }
+
+  const bool success = DenoiserGPU::denoise_buffer(buffer_params,
+                                                   denoised_buffer_params,
+                                                   render_buffers,
+                                                   num_samples,
+                                                   allow_inplace_modification && !temporal_history,
+                                                   pixel_jitter);
+  if (temporal_history && (!success || is_cancelled() || denoiser_device_->have_error())) {
+    temporal_history->output.clear();
+  }
+  return success;
 }
 
 bool OptiXDenoiser::denoise_create_if_needed(DenoiseContext &context)
@@ -84,7 +112,8 @@ bool OptiXDenoiser::denoise_create_if_needed(DenoiseContext &context)
       model = OPTIX_DENOISER_MODEL_KIND_TEMPORAL_UPSCALE2X;
     }
     else {
-      model = OPTIX_DENOISER_MODEL_KIND_TEMPORAL;
+      model = temporal_history ? OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV :
+                                 OPTIX_DENOISER_MODEL_KIND_TEMPORAL;
     }
   }
   else {
@@ -265,6 +294,55 @@ bool OptiXDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass
   /* Finally run denoising. */
   OptixDenoiserParams params = {}; /* All parameters are disabled/zero. */
 
+  bool use_history = false;
+  size_t guide_size = 0;
+  if (use_pass_motion_ && temporal_history) {
+    const size_t num_pixels = size_t(output_layer.width) * output_layer.height;
+    guide_size = num_pixels * sizes_.internalGuideLayerPixelSizeInBytes;
+    auto previous = temporal_history->previous.find(int(pass.type));
+    use_history = previous != temporal_history->previous.end() &&
+                  previous->second.color.size() == num_pixels * 3 &&
+                  previous->second.guide.size() == guide_size;
+
+    /* Both buffers must be provided even on the first frame. OptiX ignores previous data when
+     * temporalModeUsePreviousLayers is zero, and initializes its internal guide history. */
+    float *color = temporal_color_.alloc(num_pixels * 3);
+    unsigned char *guide = temporal_guide_previous_.alloc(guide_size);
+    if (use_history) {
+      memcpy(color, previous->second.color.data(), num_pixels * 3 * sizeof(float));
+      memcpy(guide, previous->second.guide.data(), guide_size);
+    }
+    else {
+      memset(color, 0, num_pixels * 3 * sizeof(float));
+      memset(guide, 0, guide_size);
+    }
+    temporal_color_.copy_to_device();
+    temporal_guide_previous_.copy_to_device();
+    memset(temporal_guide_output_.alloc(guide_size), 0, guide_size);
+    temporal_guide_output_.copy_to_device();
+
+    image_layers.previousOutput = output_layer;
+    image_layers.previousOutput.data = temporal_color_.device_pointer;
+    image_layers.previousOutput.pixelStrideInBytes = 3 * sizeof(float);
+    image_layers.previousOutput.rowStrideInBytes = output_layer.width * 3 * sizeof(float);
+    image_layers.previousOutput.format = OPTIX_PIXEL_FORMAT_FLOAT3;
+
+    OptixImage2D internal_guide = {};
+    internal_guide.width = output_layer.width;
+    internal_guide.height = output_layer.height;
+    internal_guide.pixelStrideInBytes = sizes_.internalGuideLayerPixelSizeInBytes;
+    internal_guide.rowStrideInBytes = internal_guide.width * internal_guide.pixelStrideInBytes;
+    internal_guide.format = OPTIX_PIXEL_FORMAT_INTERNAL_GUIDE_LAYER;
+    internal_guide.data = temporal_guide_previous_.device_pointer;
+    guide_layers.previousOutputInternalGuideLayer = internal_guide;
+    internal_guide.data = temporal_guide_output_.device_pointer;
+    guide_layers.outputInternalGuideLayer = internal_guide;
+    params.temporalModeUsePreviousLayers = use_history;
+    LOG_INFO << "OptiX temporal denoising: " << (use_history ? "reuse history" : "reset history")
+             << ", pass " << int(pass.type) << ", " << output_layer.width << "x"
+             << output_layer.height;
+  }
+
   optix_device_assert(denoiser_device_,
                       optixUtilDenoiserInvokeTiled(
                           optix_denoiser_,
@@ -280,6 +358,31 @@ bool OptiXDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass
                           sizes_.overlapWindowSizeInPixels,
                           configured_size_.x,
                           configured_size_.y));
+
+  if (use_pass_motion_ && temporal_history) {
+    if (!denoiser_queue_->synchronize() || denoiser_device_->have_error()) {
+      return false;
+    }
+    DenoiseTemporalHistory::Layer &output = temporal_history->output[int(pass.type)];
+    output.color.resize(size_t(output_layer.width) * output_layer.height * 3);
+    CUDA_MEMCPY2D copy = {};
+    copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+    copy.srcDevice = output_layer.data;
+    copy.dstMemoryType = CU_MEMORYTYPE_HOST;
+    copy.dstHost = output.color.data();
+    /* Output pixels are interleaved with other passes, so gather RGB without copying the
+     * complete render buffer. A CUDA 2D copy gathers one RGB pixel per row. */
+    copy.srcPitch = output_layer.pixelStrideInBytes;
+    copy.dstPitch = 3 * sizeof(float);
+    copy.WidthInBytes = 3 * sizeof(float);
+    copy.Height = size_t(output_layer.width) * output_layer.height;
+    cuda_device_assert(denoiser_device_, cuMemcpy2DUnaligned(&copy));
+    temporal_guide_output_.copy_from_device();
+    output.guide.assign(temporal_guide_output_.data(), temporal_guide_output_.data() + guide_size);
+    if (denoiser_device_->have_error()) {
+      return false;
+    }
+  }
 
   return true;
 }

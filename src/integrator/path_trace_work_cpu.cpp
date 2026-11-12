@@ -47,7 +47,7 @@ static inline ThreadKernelGlobalsCPU *kernel_thread_globals_get(
 PathTraceWorkCPU::PathTraceWorkCPU(Device *device,
                                    Film *film,
                                    DeviceScene *device_scene,
-                                   const bool *cancel_requested_flag)
+                                   const std::atomic<bool> *cancel_requested_flag)
     : PathTraceWork(device, film, device_scene, cancel_requested_flag),
       kernels_(Device::get_cpu_kernels())
 {

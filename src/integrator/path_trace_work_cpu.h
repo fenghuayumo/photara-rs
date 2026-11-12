@@ -31,7 +31,7 @@ class PathTraceWorkCPU : public PathTraceWork {
   PathTraceWorkCPU(Device *device,
                    Film *film,
                    DeviceScene *device_scene,
-                   const bool *cancel_requested_flag);
+                   const std::atomic<bool> *cancel_requested_flag);
 
   void init_execution() override;
   void deinit_execution() override;

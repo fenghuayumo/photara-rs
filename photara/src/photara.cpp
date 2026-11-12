@@ -1093,7 +1093,8 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     params.denoise_device = device;
     params.headless = !viewport;
     params.preview_update_interval = viewport ? (1.0 / 60.0) : 0.0;
-    params.background = true;
+    params.background = !viewport;
+    params.stop_when_done = true;
     params.samples = std::max(options->samples > 0 ? options->samples : 64, 1);
     params.use_auto_tile = false;
     params.tile_size = 0;
@@ -1760,6 +1761,54 @@ int photara_set_camera_matrix(PhotaraContext *ctx,
   });
 }
 
+int photara_queue_camera_matrix(PhotaraContext *ctx,
+                                const unsigned long long job,
+                                const float matrix[16],
+                                const float fov_degrees,
+                                const float near_clip,
+                                const float far_clip)
+{
+  return guarded_read(ctx, [&]() {
+    auto &record = ctx->render_job;
+    if (ctx->session_params.headless || !record.active || record.id != job ||
+        record.cancel_requested || record.state != PHOTARA_RENDER_RUNNING)
+    {
+      throw std::runtime_error("Camera updates require a valid viewport render job");
+    }
+    if (!matrix || !std::isfinite(fov_degrees) || fov_degrees <= 0.0f ||
+        fov_degrees >= 180.0f || !std::isfinite(near_clip) || near_clip <= 0.0f ||
+        !std::isfinite(far_clip) || far_clip <= near_clip)
+    {
+      throw std::runtime_error("Invalid queued camera parameters");
+    }
+    for (int i = 0; i < 16; ++i) {
+      if (!std::isfinite(matrix[i])) {
+        throw std::runtime_error("Camera matrix must be finite");
+      }
+    }
+    Camera *camera = ctx->scene->camera;
+    const Transform transform = transform_from_matrix(matrix);
+    const int width = ctx->width, height = ctx->height;
+    ctx->session->queue_scene_update(
+        [camera, transform, fov_degrees, near_clip, far_clip, width, height]() {
+          camera->set_camera_type(CAMERA_PERSPECTIVE);
+          camera->set_fov(fov_degrees * kPi / 180.0f);
+          camera->set_nearclip(near_clip);
+          camera->set_farclip(far_clip);
+          camera->set_full_width(width);
+          camera->set_full_height(height);
+          camera->set_matrix(transform);
+          camera->need_flags_update = true;
+          camera->compute_auto_viewplane();
+        },
+        ctx->session_params,
+        ctx->buffer_params);
+    record.state = PHOTARA_RENDER_RUNNING;
+    record.status = "Rendering";
+    ctx->rendered = false;
+  });
+}
+
 int photara_add_area_light(PhotaraContext *ctx, const PhotaraAreaLightDesc *desc)
 {
   return guarded_index(ctx, [&]() -> int {
@@ -2167,7 +2216,7 @@ int photara_render_poll(PhotaraContext *ctx,
     if (record.state == PHOTARA_RENDER_RUNNING) {
       // Preserve the upload safety rule without waiting on the UI thread.
       if (record.cancel_requested && progress.get_current_sample() > 0) {
-        progress.set_cancel("Superseded by a viewport update");
+        ctx->session->request_cancel();
       }
       if (!ctx->session->is_rendering()) {
         ctx->session->wait();
@@ -2216,7 +2265,13 @@ int photara_render_poll(PhotaraContext *ctx,
     progress_out->progress = (record.state == PHOTARA_RENDER_DONE) ?
                                  1.0f :
                                  progress.get_progress();
-    progress_out->current_sample = progress.get_current_sample();
+    progress_out->current_sample = ctx->session->get_current_sample();
+    /* A queued view has not rendered any samples yet. Do not advertise the
+     * previous camera's sample count while the worker is applying its reset. */
+    if (progress_out->current_sample == 0) {
+      progress_out->progress = 0.0f;
+      progress_out->current_sample = 0;
+    }
     progress_out->num_samples = ctx->session_params.samples;
     progress_out->status = record.status.c_str();
     progress_out->substatus = record.substatus.c_str();
@@ -2243,7 +2298,7 @@ int photara_render_request_cancel(PhotaraContext *ctx, const unsigned long long 
      * the next Python poll adds another UI frame to every navigation update.
      * Keep the deferred poll path while the first sample is still uploading. */
     if (ctx->session->progress.get_current_sample() > 0) {
-      ctx->session->progress.set_cancel("Superseded by a viewport update");
+      ctx->session->request_cancel();
     }
   });
 }

@@ -21,6 +21,7 @@
 
 CCL_NAMESPACE_BEGIN
 
+struct DenoiseTemporalHistory;
 class BufferParams;
 class Device;
 class DeviceScene;
@@ -45,6 +46,9 @@ class SessionParams {
   bool headless;
   double preview_update_interval = 0.0;
   bool background;
+  /* Embedded interactive clients use finite jobs instead of waiting for a reset
+   * after convergence. Scheduling remains interactive, independently of job lifetime. */
+  bool stop_when_done = false;
 
   int samples;
   bool use_sample_subset;
@@ -98,6 +102,7 @@ class SessionParams {
      * that can be handled by an existing Session are omitted. */
     return !(device == params.device && headless == params.headless &&
              background == params.background && pixel_size == params.pixel_size &&
+             stop_when_done == params.stop_when_done &&
              threads == params.threads && use_profiling == params.use_profiling &&
              use_auto_tile == params.use_auto_tile && tile_size == params.tile_size &&
              use_resolution_divider == params.use_resolution_divider &&
@@ -134,6 +139,17 @@ class Session {
   /* When quick cancel is requested path tracing is cancels as soon as possible, without waiting
    * for the buffer to be uniformly sampled. */
   void cancel(bool quick = false);
+
+  /* Non-blocking cancellation after the first completed viewport sample. */
+  void request_cancel();
+  void set_denoise_temporal_history(std::shared_ptr<DenoiseTemporalHistory> history);
+
+  /* Coalesce camera-only viewport updates and apply them on the render thread.
+   * The callback runs with the scene mutex held, between render iterations. */
+  void queue_scene_update(std::function<void()> update,
+                          const SessionParams &session_params,
+                          const BufferParams &buffer_params);
+  int get_current_sample();
 
   void draw();
   void wait();
@@ -172,6 +188,13 @@ class Session {
   void process_full_buffer_from_disk(string_view filename);
 
  protected:
+  struct QueuedUpdate {
+    thread_mutex mutex;
+    std::function<void()> apply;
+    SessionParams session_params;
+    BufferParams buffer_params;
+  } queued_update_;
+
   struct DelayedReset {
     thread_mutex mutex;
     bool do_reset;

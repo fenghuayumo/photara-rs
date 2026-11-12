@@ -27,7 +27,7 @@ class PathTraceWorkGPU : public PathTraceWork {
   PathTraceWorkGPU(Device *device,
                    Film *film,
                    DeviceScene *device_scene,
-                   const bool *cancel_requested_flag);
+                   const std::atomic<bool> *cancel_requested_flag);
 
   void alloc_work_memory() override;
   void init_execution() override;

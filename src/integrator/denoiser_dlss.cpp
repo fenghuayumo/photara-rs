@@ -118,6 +118,7 @@ DLSSDenoiser::~DLSSDenoiser()
   CUDADevice *const cuda_device = static_cast<CUDADevice *>(denoiser_device_);
   const CUDAContextScope scope(cuda_device);
 
+  denoiser_queue_->synchronize();
   tex_color_.destroy();
   tex_depth_.destroy();
   tex_diffuse_albedo_.destroy();
@@ -213,11 +214,16 @@ bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
   tex_specular_motion_.destroy();
   tex_output_.destroy();
 
+  history_valid_ = false;
+
   /* Feature creation fails below these dimensions.
    * Avoid hard error that stops rendering and only disable denoising for very small viewports. */
   if (context.denoised_buffer_params.width < 32 || context.denoised_buffer_params.height < 32) {
     last_width_ = 0;
     last_height_ = 0;
+    if (temporal_history) {
+      set_error("DLSS final rendering requires an image of at least 32 by 32 pixels");
+    }
     return false;
   }
 
@@ -427,7 +433,21 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
   CUDADevice *const cuda_device = static_cast<CUDADevice *>(denoiser_device_);
   const CUDAContextScope scope(cuda_device);
 
-  params->Set(NVSDK_NGX_Parameter_Reset, 0);
+  const BufferParams &buffer = context.buffer_params;
+  const std::vector<int> geometry = {buffer.width,
+                                     buffer.height,
+                                     buffer.full_x,
+                                     buffer.full_y,
+                                     buffer.full_width,
+                                     buffer.full_height,
+                                     buffer.window_x,
+                                     buffer.window_y,
+                                     buffer.window_width,
+                                     buffer.window_height};
+  const bool reset = !history_valid_ || geometry != last_geometry_ ||
+                     (temporal_history &&
+                      (temporal_history->reset || last_history_.lock() != temporal_history));
+  params->Set(NVSDK_NGX_Parameter_Reset, int(reset));
 
   params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, context.pixel_jitter.x);
   params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, context.pixel_jitter.y);
@@ -453,7 +473,22 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
 
   NVSDK_NGX_CUDA_DestroyParameters(params);
 
-  return NVSDK_NGX_SUCCEED(result);
+  history_valid_ = NVSDK_NGX_SUCCEED(result);
+  if (history_valid_) {
+    last_geometry_ = geometry;
+    last_history_ = temporal_history;
+    if (temporal_history) {
+      temporal_history->reset = false;
+      LOG_INFO << "DLSS animation denoising: " << (reset ? "reset history" : "reuse history");
+      LOG_INFO << "DLSS render resolution: " << buffer.width << "x" << buffer.height << " -> "
+               << context.denoised_buffer_params.width << "x"
+               << context.denoised_buffer_params.height;
+    }
+  }
+  else {
+    set_error("DLSS Ray Reconstruction evaluation failed");
+  }
+  return history_valid_;
 }
 
 CCL_NAMESPACE_END

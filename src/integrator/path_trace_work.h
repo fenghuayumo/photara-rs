@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "integrator/pass_accessor.h"
 #include "scene/pass.h"
 #include "session/buffers.h"
@@ -32,7 +34,7 @@ class PathTraceWork {
   static unique_ptr<PathTraceWork> create(Device *device,
                                           Film *film,
                                           DeviceScene *device_scene,
-                                          const bool *cancel_requested_flag);
+                                          const std::atomic<bool> *cancel_requested_flag);
 
   virtual ~PathTraceWork();
 
@@ -139,9 +141,8 @@ class PathTraceWork {
    * possible, without waiting for any samples to be finished. */
   bool is_cancel_requested() const
   {
-    /* NOTE: Rely on the fact that on x86 CPU reading scalar can happen without atomic even in
-     * threaded environment. */
-    return *cancel_requested_flag_;
+    /* This flag is set by the UI thread while workers are tracing paths. */
+    return cancel_requested_flag_->load(std::memory_order_relaxed);
   }
 
   /* Access to the device which is used to path trace this work on. */
@@ -163,7 +164,7 @@ class PathTraceWork {
   PathTraceWork(Device *device,
                 Film *film,
                 DeviceScene *device_scene,
-                const bool *cancel_requested_flag);
+                const std::atomic<bool> *cancel_requested_flag);
 
   PassAccessor::PassAccessInfo get_display_pass_access_info(PassMode pass_mode) const;
 
@@ -196,7 +197,7 @@ class PathTraceWork {
   BufferParams effective_denoised_big_tile_params_;
   BufferParams effective_denoised_buffer_params_;
 
-  const bool *cancel_requested_flag_ = nullptr;
+  const std::atomic<bool> *cancel_requested_flag_ = nullptr;
 };
 
 CCL_NAMESPACE_END

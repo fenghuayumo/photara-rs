@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 
 #include "integrator/denoiser.h"
@@ -43,6 +44,7 @@ class TileManager;
  *  - Adaptive stopping. */
 class PathTrace {
  public:
+  std::shared_ptr<DenoiseTemporalHistory> denoise_temporal_history;
   /* Render scheduler is used to report timing information and access things like start/finish
    * sample. */
   PathTrace(Device *device,
@@ -123,6 +125,11 @@ class PathTrace {
    * This is a blocking call, which returns as soon as there is no running `render_samples()` call.
    */
   void cancel();
+
+  /* Signal an obsolete viewport frame without waiting for device work to finish.
+   * The caller must finish scene upload and display a first sample before using
+   * this, and call cancel() before resetting the path tracer. */
+  void request_cancel();
 
   /* Copy an entire render buffer to/from the path trace. */
 
@@ -347,7 +354,7 @@ class PathTrace {
     bool is_rendering = false;
 
     /* Indicates whether rendering is requested to be canceled by `cancel()`. */
-    bool is_requested = false;
+    std::atomic<bool> is_requested{false};
 
     /* Synchronization between thread which does `render_samples()` and thread which does
      * `cancel()`. */

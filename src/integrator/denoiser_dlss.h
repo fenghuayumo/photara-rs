@@ -36,6 +36,11 @@ class DLSSDenoiser : public DenoiserGPU {
 
   bool denoise_run(const DenoiseContext &context, const DenoisePass &pass) override;
 
+  /* A different layer/view/job must not consume this handle's previous frame. */
+  std::weak_ptr<DenoiseTemporalHistory> last_history_;
+  std::vector<int> last_geometry_;
+  bool history_valid_ = false;
+
   NVSDK_NGX_Handle *handle_ = nullptr;
   NVSDK_NGX_CUDADevice *ngx_device_ = nullptr;
 

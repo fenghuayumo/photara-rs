@@ -357,6 +357,16 @@ PHOTARA_API int photara_render_poll(PhotaraContext *ctx,
  * before modifying the scene or starting another job. */
 PHOTARA_API int photara_render_request_cancel(PhotaraContext *ctx, unsigned long long job);
 
+/* Queue the latest perspective camera on an existing viewport job. Scene
+ * mutation happens on the render thread; intermediate camera updates coalesce.
+ * The job remains valid and converges normally when updates stop. */
+PHOTARA_API int photara_queue_camera_matrix(PhotaraContext *ctx,
+                                          unsigned long long job,
+                                          const float matrix[16],
+                                          float fov_degrees,
+                                          float near_clip,
+                                          float far_clip);
+
 PHOTARA_API int photara_render_cancel(PhotaraContext *ctx, unsigned long long job);
 /* Finish a job. Returns 0 only for a successful completed render, -1 while
  * running, cancelled, failed, or for an invalid job. */

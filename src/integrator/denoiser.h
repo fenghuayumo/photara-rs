@@ -8,6 +8,9 @@
  * better place is figured out. */
 
 #include <functional>
+#include <map>
+#include <memory>
+#include <vector>
 
 #include "device/denoise.h"
 #include "device/device.h"
@@ -20,6 +23,20 @@ class Device;
 class GraphicsInteropDevice;
 class RenderBuffers;
 class Progress;
+
+/* Host memory survives device/session destruction between animation frames. Each pass needs its
+ * own color and OptiX internal guide history (including shadow catcher passes). */
+struct DenoiseTemporalHistory {
+  struct Layer {
+    std::vector<float> color;
+    std::vector<unsigned char> guide;
+  };
+  std::map<int, Layer> previous;
+  std::map<int, Layer> output;
+  std::vector<int> geometry;
+  /* DLSS retains opaque GPU history in its persistent denoiser. */
+  bool reset = true;
+};
 
 bool use_optix_denoiser(Device *denoiser_device, const DenoiseParams &params);
 
@@ -113,6 +130,8 @@ class Denoiser {
   Device *get_denoiser_device() const;
 
   std::function<bool(void)> is_cancelled_cb;
+
+  std::shared_ptr<DenoiseTemporalHistory> temporal_history;
 
   bool is_cancelled() const
   {

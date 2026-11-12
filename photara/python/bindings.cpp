@@ -457,6 +457,20 @@ class Context {
     }
   }
 
+  void queue_camera_matrix(const unsigned long long job,
+                           const FloatArray &matrix,
+                           const float fov_degrees,
+                           const float near_clip,
+                           const float far_clip)
+  {
+    const FloatArray matrix_array = require_matrix(matrix, "matrix");
+    if (photara_queue_camera_matrix(
+            context_, job, matrix_array.data(), fov_degrees, near_clip, far_clip) != 0)
+    {
+      throw_last_error();
+    }
+  }
+
   int add_area_light(const FloatArray &position,
                      const FloatArray &target,
                      const py::object &up,
@@ -1069,6 +1083,13 @@ PYBIND11_MODULE(_photara, module)
            &Context::set_camera_matrix,
            py::arg("matrix"),
            py::arg("fov_degrees") = 45.0f,
+           py::arg("near_clip") = 0.001f,
+           py::arg("far_clip") = 1000.0f)
+      .def("queue_camera_matrix",
+           &Context::queue_camera_matrix,
+           py::arg("job"),
+           py::arg("matrix"),
+           py::arg("fov_degrees"),
            py::arg("near_clip") = 0.001f,
            py::arg("far_clip") = 1000.0f)
       .def("add_area_light",

@@ -1,3 +1,12 @@
+# Native synchronization in 0.2
+
+The matching custom Blender build now provides `_photara_native`, compiled
+from Photara's renderer and the complete Blender/Cycles scene synchronization
+layer. This path supports complete SVM material node graphs, textures and
+dependency-graph updates. See [native build and validation](../docs/BLENDER_NATIVE_SYNC.md).
+The earlier standalone-wheel display bridge below remains the fallback for
+Blender builds without this module and has more limited material conversion.
+
 # Photara Blender 插件
 
 在 Blender 中直接使用 Photara（OptiX 路径追踪）渲染。插件通过

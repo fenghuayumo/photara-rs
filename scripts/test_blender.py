@@ -160,8 +160,8 @@ def run_viewport(scene, cube, material):
     upload = engine.ViewportState._upload_result
     draw = engine.ViewportState.draw
     invalidate = engine.ViewportState.invalidate
-    def checked_invalidate(self, depsgraph=None):
-        invalidate(self, depsgraph)
+    def checked_invalidate(self, depsgraph=None, **kwargs):
+        invalidate(self, depsgraph, **kwargs)
         assert self.pending_frame is None, "Pending frames from the previous view must be discarded"
     def checked_upload(self, frame):
         assert not self.gpu_display, "Native GPU display must never upload CPU pixels"

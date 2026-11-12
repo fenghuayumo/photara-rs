@@ -184,7 +184,7 @@ DenoiserGPU::DenoiseContext::DenoiseContext(Device *device,
       buffer_params(buffer_params),
       denoised_buffer_params(denoised_buffer_params),
       guiding_buffer(device, "denoiser guiding passes buffer", true),
-      use_guiding_passes(params.passes != DENOISER_PASS_NONE),
+      use_guiding_passes(params.passes != DENOISER_PASS_NONE || params.temporally_stable),
       num_samples(num_samples),
       pixel_jitter(pixel_jitter)
 {
@@ -439,7 +439,8 @@ bool DenoiserGPU::denoise_pass(DenoiseContext &context, PassType pass_type)
       return false;
     }
   }
-  else if (context.use_guiding_passes && !context.albedo_replaced_with_fake) {
+  else if (context.guiding_params.pass_albedo != PASS_UNUSED && !context.albedo_replaced_with_fake)
+  {
     context.albedo_replaced_with_fake = true;
     if (!denoise_filter_guiding_set_fake_albedo(context)) {
       LOG_ERROR << "Error replacing real albedo with the fake one.";

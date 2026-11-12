@@ -79,7 +79,7 @@ static size_t estimate_single_state_size(const uint64_t kernel_features,
 PathTraceWorkGPU::PathTraceWorkGPU(Device *device,
                                    Film *film,
                                    DeviceScene *device_scene,
-                                   const bool *cancel_requested_flag)
+                                   const std::atomic<bool> *cancel_requested_flag)
     : PathTraceWork(device, film, device_scene, cancel_requested_flag),
       queue_(device->gpu_queue_create()),
       integrator_state_soa_kernel_features_(0),

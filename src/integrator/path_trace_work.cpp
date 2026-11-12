@@ -21,7 +21,7 @@ CCL_NAMESPACE_BEGIN
 unique_ptr<PathTraceWork> PathTraceWork::create(Device *device,
                                                 Film *film,
                                                 DeviceScene *device_scene,
-                                                const bool *cancel_requested_flag)
+                                                const std::atomic<bool> *cancel_requested_flag)
 {
   if (device->info.type == DEVICE_CPU) {
     return make_unique<PathTraceWorkCPU>(device, film, device_scene, cancel_requested_flag);
@@ -37,7 +37,7 @@ unique_ptr<PathTraceWork> PathTraceWork::create(Device *device,
 PathTraceWork::PathTraceWork(Device *device,
                              Film *film,
                              DeviceScene *device_scene,
-                             const bool *cancel_requested_flag)
+                             const std::atomic<bool> *cancel_requested_flag)
     : device_(device),
       film_(film),
       device_scene_(device_scene),

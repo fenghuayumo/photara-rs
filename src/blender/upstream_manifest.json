@@ -1,0 +1,194 @@
+{
+  "source": "D:\\ProgramCode\\C++\\blender\\intern\\cycles\\blender",
+  "blender_revision": "47d5372d4dd92ccde4025ce9132c606c7407c2fd",
+  "files": [
+    {
+      "path": "attribute_convert.h",
+      "sha256": "3a9e8f2d70daf9ec601dd0f23ec4698f954f7f886614a5d8d522b05bf1052207"
+    },
+    {
+      "path": "camera.cpp",
+      "sha256": "fbe5d1da80328e72810e44adc255e2b4818c68f5c1f003cde41779df5e90bd94"
+    },
+    {
+      "path": "CCL_api.h",
+      "sha256": "94e69073e18f752048eed4c931cc8f7a04095230196e384f198f4c9e5b6cc63c"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5fa98801b60eeaa23c29bde784fb08d688d97f05b758f827e5f4d1903793a927"
+    },
+    {
+      "path": "curves.cpp",
+      "sha256": "4aa943393e872d5ae459e068f0129241b93ec0d0f5a130030494c0b2d2e542c1"
+    },
+    {
+      "path": "device.cpp",
+      "sha256": "192d56eb1cb6c471ed235ecac02cb9847d6883ea0ed1ff4a85177435942c387e"
+    },
+    {
+      "path": "device.h",
+      "sha256": "3b079f549efd65f201e906b01a70811f7b03604719accddc706edf1ee064eaae"
+    },
+    {
+      "path": "display_driver.cpp",
+      "sha256": "deb29dfcbb8fe2d42dd3087d53bf8939d3594494d60f293a043b0a41e023a8ea"
+    },
+    {
+      "path": "display_driver.h",
+      "sha256": "feab64d0318ec3b8f8e61b29e3e94a95b5deeffcdf8cf91c781408338be7240b"
+    },
+    {
+      "path": "geometry.cpp",
+      "sha256": "7d649d5972ad93a7cd96746740fb39398a84fe54b46a93de7fab3867cc0011da"
+    },
+    {
+      "path": "id_map.h",
+      "sha256": "3af075037671f0f9656a9f10c584cb7c3a09afbdf77b7617eda5e1d9d034bfc3"
+    },
+    {
+      "path": "image.cpp",
+      "sha256": "a3fc2492e68cd197b402ef7c738189b52dd745fa4a2ca24484f17b5acd4f8176"
+    },
+    {
+      "path": "image.h",
+      "sha256": "18730627cfcc65dd8b067f30c130ba8305703c6cf2ec14db7b2d045b97135789"
+    },
+    {
+      "path": "implicit_sharing.cpp",
+      "sha256": "3294d23f9cea58b83a7d142fa320e4942b4c4c054371d10130c5c038fc2e8fdc"
+    },
+    {
+      "path": "light.cpp",
+      "sha256": "721926273fe860ad8f22a5521370e7dac25c45facdd6027248ddac441c073d1a"
+    },
+    {
+      "path": "light_linking.cpp",
+      "sha256": "8a93abac76c03e7aeb1a8e12b4cff64aee00a7908f190d1f129737804a6edde1"
+    },
+    {
+      "path": "light_linking.h",
+      "sha256": "0632708a07eea6b01c04632096255399d24d76d245e9b9ce51543c06c65e6d73"
+    },
+    {
+      "path": "logging.cpp",
+      "sha256": "560132bae29070eb8f906337d1e658dea750fd9e86d0233fbf514247f212cc37"
+    },
+    {
+      "path": "mesh.cpp",
+      "sha256": "34c9857db70519f1068ffae1c3ad8c13087f7c105d29c88407996b7cd1f9cd0a"
+    },
+    {
+      "path": "object.cpp",
+      "sha256": "750d8d9f47f0b1305eac0d8eb101630106c8ac10a01119a5615525a28e8c2e3d"
+    },
+    {
+      "path": "object_cull.cpp",
+      "sha256": "2c1deaaba8bd9e3ce21a8fca5973a4c33112336cb59f28abb74bad2815ae5edd"
+    },
+    {
+      "path": "object_cull.h",
+      "sha256": "e7ba285674eca41741b64b2122a3bbb2d40a278b0bdb83b0881bbd4b61a76475"
+    },
+    {
+      "path": "output_driver.cpp",
+      "sha256": "bffd0f24c87e917bba8cfb4630b41ecf241311ae0ddfe97c6abc75f57835e4a3"
+    },
+    {
+      "path": "output_driver.h",
+      "sha256": "43732fb59db037804784f854a87d2fd54e11f8f178272eaa90fe3eaa3e955695"
+    },
+    {
+      "path": "particles.cpp",
+      "sha256": "3d8539f13dea070ac0730e1d956eb9920066df12d20518e6f41552ae329adcef"
+    },
+    {
+      "path": "pointcloud.cpp",
+      "sha256": "6464e2674200ee85006877e27b2da07c52a555835a50f9a59c98f4fced85fb31"
+    },
+    {
+      "path": "python.cpp",
+      "sha256": "850459a54afa63e054abdf4c38d20d605cd0e7cf3dc6854a10bd4653245d3768"
+    },
+    {
+      "path": "session.cpp",
+      "sha256": "e1547c4cff757230f1fd6e247955bac2f91d0922170964cc4c1ae66a4a0698b9"
+    },
+    {
+      "path": "session.h",
+      "sha256": "77020a99009661e30936a9acddb23aff7358de1dff4546a355295f0b48e2a162"
+    },
+    {
+      "path": "shader.cpp",
+      "sha256": "f3507271ea826eeb151f583a69c62732ed3a9152ad5bd3fce6ac31ae9a8c905e"
+    },
+    {
+      "path": "sync.cpp",
+      "sha256": "fb91924cebac6f70db2fe564c54098df7f36bbcf13f29118ec9695ca818d65fa"
+    },
+    {
+      "path": "sync.h",
+      "sha256": "b670a43f7890c66e5d264148459b244dcddc5b76e1490d48a76d37af0c9e3658"
+    },
+    {
+      "path": "texture_cache.cpp",
+      "sha256": "2fc949d758bd0a1bbd2f97113b70e14dd765a00632fdb1e969aa283b63f1b666"
+    },
+    {
+      "path": "util.h",
+      "sha256": "90701847d39d20e0b11d5688bf0af78136e57793b8e9789ea542af0afb1ef852"
+    },
+    {
+      "path": "viewport.cpp",
+      "sha256": "f8b20f6c5ebeb5834058901369f9a3637dcb6b48d71a2ba42d0c2105ce9c6ca9"
+    },
+    {
+      "path": "viewport.h",
+      "sha256": "ef577a4fe9e4b91c196d9d91ba2b79c21bff4869472cb704ab0216bae16a6adc"
+    },
+    {
+      "path": "volume.cpp",
+      "sha256": "865a9564c2a15a74e898a8e1db09b37aa0e609c7bf302bf7b7bd0658ab1fddb3"
+    },
+    {
+      "path": "addon/camera.py",
+      "sha256": "550ab5504ba36c3be4c71b2399c0b466ed31b12f945e2b9c3ceec7ffb69f1f9d"
+    },
+    {
+      "path": "addon/engine.py",
+      "sha256": "7dc9fa826a2e229ae7890e6f3545c39c7005f97a2ce2966d0505d2c0e7124a8e"
+    },
+    {
+      "path": "addon/maketx.py",
+      "sha256": "65ba3f3c5a0786d80358070ca879aeab5d44cb86afb1adea066ff5e09d64a5cb"
+    },
+    {
+      "path": "addon/operators.py",
+      "sha256": "1f9a402a901886e8b6d9882b19751b8eb6f337e2aac1a74f521841b900dc3885"
+    },
+    {
+      "path": "addon/osl.py",
+      "sha256": "3bed0266b3ed88479d8ff4c55debaea3c2191d077af8748357c9c2fbe59c3590"
+    },
+    {
+      "path": "addon/presets.py",
+      "sha256": "3f3c11aeca9951d9308fa6a282f0446f7b71292a24475c7364a4739092441745"
+    },
+    {
+      "path": "addon/properties.py",
+      "sha256": "f34fa76c39c75f5d39e8dd5779a3ed20109332c567830185d32fe56c5d2a303e"
+    },
+    {
+      "path": "addon/ui.py",
+      "sha256": "1f4491c3ea5231e223518d66f2a0eaed53d732aab0716ee84a71f43f7b281148"
+    },
+    {
+      "path": "addon/version_update.py",
+      "sha256": "a2297806b3e251dda6446b2d24dfd91d9321a7c17f3a7843b7010eb0d1fc1165"
+    },
+    {
+      "path": "addon/__init__.py",
+      "sha256": "7436be136f1ea964d3c0d74568d5867544587a8ad5a3c93da9083121616c2188"
+    }
+  ]
+}

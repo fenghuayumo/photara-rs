@@ -89,9 +89,16 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
         super().__init__(*args, **kwargs)
         self._viewport = None
         self._viewport_failed = False
+        from . import native_backend
+        self._native = native_backend.available()
+        self.session = None
 
     def __del__(self):
         try:
+            if getattr(self, '_native', False):
+                from . import native_engine
+                native_engine.free(self)
+                return
             viewport = getattr(self, "_viewport", None)
         except ReferenceError:
             return
@@ -104,6 +111,11 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     # ------------------------------------------------------------------
 
     def update_render_passes(self, scene, render_layer):
+        if getattr(self, '_native', False):
+            from . import native_backend, native_engine
+            native_backend.configure(scene)
+            native_engine.register_passes(self, scene, render_layer)
+            return
         self.register_pass(scene, render_layer, "Combined", 4, 'RGBA', 'COLOR')
         if render_layer.use_pass_z:
             self.register_pass(scene, render_layer, "Depth", 1, 'Z', 'VALUE')
@@ -112,7 +124,24 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     # Final render
     # ------------------------------------------------------------------
 
+    def update(self, data, depsgraph):
+        if self._native:
+            from . import native_backend, native_engine
+            native_backend.configure(depsgraph.scene_eval)
+            if not self.session:
+                native_engine.create(self, data)
+            native_engine.reset(self, data, depsgraph)
+
+    def render_frame_finish(self):
+        if self._native:
+            from . import native_engine
+            native_engine.render_frame_finish(self)
+
     def render(self, depsgraph):
+        if self._native:
+            from . import native_engine
+            native_engine.render(self, depsgraph)
+            return
         blender_scene = depsgraph.scene_eval
         settings = blender_scene.photara
         render = blender_scene.render
@@ -207,6 +236,10 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     # ------------------------------------------------------------------
 
     def view_update(self, context, depsgraph):
+        if self._native:
+            from . import native_backend
+            native_backend.view_update(self, context, depsgraph)
+            return
         if self._viewport_failed:
             return
 
@@ -221,6 +254,10 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             self._report_viewport_failure(exc)
 
     def view_draw(self, context, depsgraph):
+        if self._native:
+            from . import native_backend
+            native_backend.view_draw(self, context, depsgraph)
+            return
         if self._viewport_failed:
             return
 
@@ -230,7 +267,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             if viewport is None:
                 return
             if not viewport.sync_state._full_sync_done or viewport.camera_changed(context):
-                viewport.invalidate()
+                viewport.invalidate(camera_only=viewport.can_queue_camera(context))
             viewport.apply_updates(context, depsgraph)
             viewport.draw(context)
             viewport.ensure_timer()
@@ -272,6 +309,7 @@ class ViewportState:
     """Owns the viewport photara scene, render job and display texture."""
 
     POLL_INTERVAL = 0.008
+    NAVIGATION_POLL_INTERVAL = 0.004
     MIN_RESTART_INTERVAL = 1.0 / 60.0
 
     def __init__(self, engine, width, height, context):
@@ -292,7 +330,9 @@ class ViewportState:
         self.needs_update = True
         self.sync_dirty = True
         self._cancel_requested = False
+        self._camera_only_pending = False
         self._last_start = 0.0
+        self._navigation_until = 0.0
         self._world_settings = None
         self._film_settings = None
         self._sampling_settings = None
@@ -356,14 +396,26 @@ class ViewportState:
 
     # -- sync / camera -----------------------------------------------------
 
-    def invalidate(self, depsgraph=None):
+    def can_queue_camera(self, context):
+        signature = self._camera_signature(context)
+        return (self.gpu_display and self.job is not None
+                and not self._cancel_requested and not self.sync_dirty
+                and (not self.needs_update or self._camera_only_pending)
+                and self.camera_matrix is not None
+                and signature[0] == self.camera_matrix[0] == 'PERSP'
+                and signature[3:] == self.camera_matrix[3:]
+                and (self.scene.width, self.scene.height) == (self.width, self.height)
+                and hasattr(self.scene._session._ctx, 'queue_camera_matrix'))
+
+    def invalidate(self, depsgraph=None, camera_only=False):
         """Coalesce updates without waiting for GPU work on Blender's UI thread."""
         self.needs_update = True
+        self._camera_only_pending = camera_only and depsgraph is None
         self.pending_frame = None
         if depsgraph is not None:
             self.sync_state.queue_updates(depsgraph)
             self.sync_dirty = True
-        if self.job is not None and not self._cancel_requested:
+        if self.job is not None and not self._cancel_requested and not self._camera_only_pending:
             self.job.request_cancel()
             self._cancel_requested = True
         self.ensure_timer()
@@ -371,6 +423,19 @@ class ViewportState:
     def apply_updates(self, context, depsgraph):
         if not self.needs_update:
             return
+        if self._camera_only_pending and self.job is not None:
+            progress = self.job.poll()
+            if progress.state == "failed":
+                raise RuntimeError(progress.status or "Viewport render failed")
+            if progress.state == "running":
+                self.sync_state.sync_camera_view(
+                    context.region_data, self.width, self.height, queued=self.job.id)
+                self.camera_matrix = self._camera_signature(context)
+                self.needs_update = False
+                self._navigation_until = time.monotonic() + .15
+                self._camera_only_pending = False
+                return
+            self._camera_only_pending = False
         if self.job is not None:
             # Navigation already schedules draw callbacks. Retire a cancelled
             # job here instead of waiting for another Python timer tick.
@@ -471,9 +536,10 @@ class ViewportState:
         if not shading.use_scene_world_render:
             self.background_mix = shading.studiolight_background_alpha
         self._world_settings = settings
-        for light in self.scene.lights:
-            if light.visible != shading.use_scene_lights_render:
-                light.visible = shading.use_scene_lights_render
+        if changed or world_dirty:
+            for light in self.scene.lights:
+                if light.visible != shading.use_scene_lights_render:
+                    light.visible = shading.use_scene_lights_render
 
     def camera_changed(self, context):
         return self.camera_matrix != self._camera_signature(context)
@@ -518,6 +584,8 @@ class ViewportState:
         bpy.app.timers.register(self._poll_timer, first_interval=self.POLL_INTERVAL)
 
     def _poll_timer(self):
+        interval = (self.NAVIGATION_POLL_INTERVAL if time.monotonic() < self._navigation_until
+                    else self.POLL_INTERVAL)
         engine = self.engine()
         if engine is None:
             self.timer_running = False
@@ -534,7 +602,7 @@ class ViewportState:
                             self._preview_revision, self.pending_frame = update
                             self.pending_samples = progress.current_sample
                             engine.tag_redraw()
-                    return self.POLL_INTERVAL
+                    return interval
                 if progress.state == "failed":
                     raise RuntimeError(progress.status or "Viewport render failed")
                 if progress.state == "done" and not self.needs_update and not self.gpu_display:
@@ -546,7 +614,7 @@ class ViewportState:
             elif self.needs_update:
                 engine.tag_redraw()
             if self.job is not None or self.needs_update:
-                return self.POLL_INTERVAL
+                return interval
         except Exception as exc:
             engine._report_viewport_failure(exc)
             self.job = None

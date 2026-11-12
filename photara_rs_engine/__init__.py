@@ -10,7 +10,7 @@
 bl_info = {
     "name": "Photara Renderer",
     "author": "Photara contributors",
-    "version": (0, 1, 8),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "Render Properties > Photara",
     "description": "Render with the Photara OptiX path tracer",
@@ -21,7 +21,7 @@ bl_info = {
 
 import bpy
 
-from . import engine, properties, sync, ui, gsplat_import
+from . import engine, properties, sync, ui, gsplat_import, native_backend
 
 
 def ensure_photara_module():
@@ -94,6 +94,7 @@ _classes = (
 
 
 def register():
+    native_backend.register()
     for cls in _classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.photara = bpy.props.PointerProperty(
@@ -114,3 +115,4 @@ def unregister():
         del bpy.types.Scene.photara
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)
+    native_backend.unregister()

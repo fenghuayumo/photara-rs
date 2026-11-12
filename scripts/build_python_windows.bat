@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set VSLANG=1033
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\Installer;%PATH%"
 call "D:\ProgramTool\VS2022\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 (

@@ -128,6 +128,10 @@ void Session::start()
 
 void Session::cancel(bool quick)
 {
+  {
+    const thread_scoped_lock lock(queued_update_.mutex);
+    queued_update_.apply = nullptr;
+  }
   /* Cancel any long running device operations (e.g. shader compilations). */
   device->cancel();
 
@@ -155,6 +159,41 @@ void Session::cancel(bool quick)
   }
 }
 
+void Session::set_denoise_temporal_history(std::shared_ptr<DenoiseTemporalHistory> history)
+{
+  path_trace_->denoise_temporal_history = std::move(history);
+}
+
+void Session::request_cancel()
+{
+  path_trace_->request_cancel();
+  progress.set_cancel("Superseded by a viewport update");
+}
+
+void Session::queue_scene_update(std::function<void()> update,
+                                const SessionParams &session_params,
+                                const BufferParams &buffer_params)
+{
+  {
+    const thread_scoped_lock lock(queued_update_.mutex);
+    queued_update_.apply = std::move(update);
+    queued_update_.session_params = session_params;
+    queued_update_.buffer_params = buffer_params;
+    /* Signal before publishing the update: otherwise the worker could consume
+     * it and then receive a cancellation intended for the previous view. */
+    if (progress.get_current_sample() > 0) {
+      path_trace_->request_cancel();
+    }
+  }
+  start();
+}
+
+int Session::get_current_sample()
+{
+  const thread_scoped_lock lock(queued_update_.mutex);
+  return queued_update_.apply ? 0 : progress.get_current_sample();
+}
+
 bool Session::ready_to_reset()
 {
   return path_trace_->ready_to_reset();
@@ -162,7 +201,11 @@ bool Session::ready_to_reset()
 
 void Session::run_main_render_loop()
 {
-  path_trace_->zero_display();
+  /* Finite viewport jobs restart on navigation. Keep the previous image visible
+   * until the next preview arrives, as in a persistent interactive session. */
+  if (params.background || !params.stop_when_done) {
+    path_trace_->zero_display();
+  }
 
   while (true) {
     RenderWork render_work = run_update_for_next_iteration();
@@ -183,8 +226,8 @@ void Session::run_main_render_loop()
         }
       }
 
-      if (params.background) {
-        /* if no work left and in background mode, we can stop immediately. */
+      if (params.background || params.stop_when_done) {
+        /* Background renders and finite interactive jobs finish at convergence. */
         progress.set_status("Finished");
         break;
       }
@@ -261,7 +304,14 @@ void Session::thread_run()
     {
       const thread_scoped_lock session_thread_lock(session_thread_mutex_);
       if (session_thread_state_ == SESSION_THREAD_RENDER) {
-        session_thread_state_ = SESSION_THREAD_WAIT;
+        const thread_scoped_lock update_lock(queued_update_.mutex);
+        /* An update can arrive after the last render iteration decided to
+         * finish. Keep ownership until that update is consumed, so polling
+         * never observes a completed job with an unrendered camera queued. */
+        if (progress.get_cancel() || !queued_update_.apply) {
+          queued_update_.apply = nullptr;
+          session_thread_state_ = SESSION_THREAD_WAIT;
+        }
       }
     }
     session_thread_cond_.notify_all();
@@ -318,6 +368,18 @@ RenderWork Session::run_update_for_next_iteration()
   RenderWork render_work;
 
   thread_scoped_lock scene_lock(scene->mutex);
+
+  {
+    const thread_scoped_lock update_lock(queued_update_.mutex);
+    if (queued_update_.apply) {
+      if (!progress.get_cancel()) {
+        queued_update_.apply();
+        progress.reset();
+        reset(queued_update_.session_params, queued_update_.buffer_params);
+      }
+      queued_update_.apply = nullptr;
+    }
+  }
 
   /* Perform delayed reset if requested. */
   const bool reset_buffers = delayed_reset_buffer_params();

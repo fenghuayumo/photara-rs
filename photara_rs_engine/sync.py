@@ -182,6 +182,8 @@ def sync_material(state, blender_material):
     if node_tree is not None:
         principled = _surface_node(node_tree)
         if principled is not None and principled.type != 'BSDF_PRINCIPLED':
+            _material_warning(state, blender_material,
+                              f"unsupported surface shader {principled.type}")
             principled = None
         if principled is not None:
             try:
@@ -881,14 +883,23 @@ class SceneSyncState:
             float(camera.clip_end), float(camera.clip_start) + 1e-3
         )
 
-    def sync_camera_view(self, region_data, width=1, height=1):
+    def sync_camera_view(self, region_data, width=1, height=1, queued=None):
         """Camera from viewport navigation (no scene camera object)."""
         matrix_world = region_data.view_matrix.inverted()
-        self.scene.camera.matrix_world = np.asarray(
+        matrix = np.asarray(
             camera_matrix_photara(matrix_world), dtype=np.float32
         )
         aspect = max(1e-6, float(width) / max(1.0, float(height)))
         fov = fov_from_projection_degrees(region_data.window_matrix, aspect)
         if fov is None or not (fov > 0.1):
             fov = 50.0
-        self.scene.camera.fov = fov
+        camera = self.scene.camera
+        if queued is not None:
+            self.scene._session._ctx.queue_camera_matrix(
+                queued, matrix, fov, camera.near_clip, camera.far_clip)
+            # Mirror the accepted snapshot without invoking synchronous setters.
+            camera._matrix = matrix
+            camera._fov = fov
+        else:
+            camera.matrix_world = matrix
+            camera.fov = fov
