@@ -1331,6 +1331,14 @@ class Scene:
     def adaptive_sampling(self) -> bool:
         return self._session.adaptive_sampling
 
+    def neeat_stats(self):
+        """Return idle-context light count, global PDF and screen-tile diagnostics."""
+        return self._session.neeat_stats()
+
+    def configure_neeat(self, enabled=True):
+        """Enable the experimental RealTime global and screen-tile light proposal."""
+        self._session.configure_neeat(enabled)
+
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select Reference or the experimental frame-scheduled RealTime baseline."""
         self._ensure_open()

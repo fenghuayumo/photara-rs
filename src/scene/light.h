@@ -214,6 +214,9 @@ class LightManager {
   void device_update(Device *device, DeviceScene *dscene, Scene *scene, Progress &progress);
   void device_free(Device *device, DeviceScene *dscene, const bool free_background = true);
 
+  /* Only between finite frame jobs, after scene synchronization. */
+  void update_neeat(Device *device, DeviceScene *dscene, bool enabled, bool reset,
+                    int screen_width = 0, int screen_height = 0);
   void tag_update(Scene *scene, const uint32_t flag);
 
   bool need_update() const;

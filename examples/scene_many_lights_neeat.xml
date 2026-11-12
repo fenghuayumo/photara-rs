@@ -1,0 +1,217 @@
+<cycles>
+  <!--NEE-AT learning fixture: one visible analytic key and many occluded lights.-->
+  <integrator max_bounce="8" use_adaptive_sampling="false" />
+  <transform translate="0 1 -3.2">
+    <camera width="512" height="512" type="perspective" fov="0.6806784082777885" />
+  </transform>
+  <background>
+    <background name="bg" color="0 0 0" strength="0" />
+    <connect from="bg background" to="output surface" />
+  </background>
+  <shader name="white">
+    <principled_bsdf name="bsdf" base_color="0.73 0.73 0.73" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="red">
+    <principled_bsdf name="bsdf" base_color="0.65 0.05 0.05" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="green">
+    <principled_bsdf name="bsdf" base_color="0.12 0.45 0.15" roughness="0.7" />
+    <connect from="bsdf bsdf" to="output surface" />
+  </shader>
+  <shader name="light">
+    <emission name="bsdf" color="1 1 1" strength="0" />
+    <connect from="bsdf emission" to="output surface" />
+  </shader>
+  <object name="floor">
+    <state shader="white">
+      <mesh P="-1 0 0 -1 0 2 1 0 2 1 0 0" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="ceiling">
+    <state shader="white">
+      <mesh P="-1 2 0 1 2 0 1 2 2 -1 2 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="back">
+    <state shader="white">
+      <mesh P="-1 0 2 -1 2 2 1 2 2 1 0 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="left">
+    <state shader="red">
+      <mesh P="-1 0 0 -1 2 0 -1 2 2 -1 0 2" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="right">
+    <state shader="green">
+      <mesh P="1 0 0 1 0 2 1 2 2 1 2 0" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="emitter">
+    <state shader="light">
+      <mesh P="-0.3 1.99 0.7 0.3 1.99 0.7 0.3 1.99 1.3 -0.3 1.99 1.3" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_0">
+    <state shader="white">
+      <mesh P="-0.5797710661376577 0.6 0.2971794170123717 -0.047179417012371716 0.6 0.4702289338623423 -0.047179417012371716 0.0 0.4702289338623423 -0.5797710661376577 0.0 0.2971794170123717" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_1">
+    <state shader="white">
+      <mesh P="-0.047179417012371716 0.6 0.4702289338623423 -0.2202289338623423 0.6 1.0028205829876282 -0.2202289338623423 0.0 1.0028205829876282 -0.047179417012371716 0.0 0.4702289338623423" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_2">
+    <state shader="white">
+      <mesh P="-0.2202289338623423 0.6 1.0028205829876282 -0.7528205829876283 0.6 0.8297710661376577 -0.7528205829876283 0.0 0.8297710661376577 -0.2202289338623423 0.0 1.0028205829876282" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_3">
+    <state shader="white">
+      <mesh P="-0.7528205829876283 0.6 0.8297710661376577 -0.5797710661376577 0.6 0.2971794170123717 -0.5797710661376577 0.0 0.2971794170123717 -0.7528205829876283 0.0 0.8297710661376577" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_4">
+    <state shader="white">
+      <mesh P="-0.7528205829876283 0.6 0.8297710661376577 -0.2202289338623423 0.6 1.0028205829876282 -0.047179417012371716 0.6 0.4702289338623423 -0.5797710661376577 0.6 0.2971794170123717" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="short_5">
+    <state shader="white">
+      <mesh P="-0.5797710661376577 0.0 0.2971794170123717 -0.047179417012371716 0.0 0.4702289338623423 -0.2202289338623423 0.0 1.0028205829876282 -0.7528205829876283 0.0 0.8297710661376577" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_0">
+    <state shader="white">
+      <mesh P="0.0503705910079838 1.2 1.1640987456527165 0.5859012543472837 1.2 1.0003705910079839 0.5859012543472837 0.0 1.0003705910079839 0.0503705910079838 0.0 1.1640987456527165" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_1">
+    <state shader="white">
+      <mesh P="0.5859012543472837 1.2 1.0003705910079839 0.7496294089920162 1.2 1.5359012543472836 0.7496294089920162 0.0 1.5359012543472836 0.5859012543472837 0.0 1.0003705910079839" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_2">
+    <state shader="white">
+      <mesh P="0.7496294089920162 1.2 1.5359012543472836 0.2140987456527164 1.2 1.6996294089920163 0.2140987456527164 0.0 1.6996294089920163 0.7496294089920162 0.0 1.5359012543472836" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_3">
+    <state shader="white">
+      <mesh P="0.2140987456527164 1.2 1.6996294089920163 0.0503705910079838 1.2 1.1640987456527165 0.0503705910079838 0.0 1.1640987456527165 0.2140987456527164 0.0 1.6996294089920163" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_4">
+    <state shader="white">
+      <mesh P="0.2140987456527164 1.2 1.6996294089920163 0.7496294089920162 1.2 1.5359012543472836 0.5859012543472837 1.2 1.0003705910079839 0.0503705910079838 1.2 1.1640987456527165" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <object name="tall_5">
+    <state shader="white">
+      <mesh P="0.0503705910079838 0.0 1.1640987456527165 0.5859012543472837 0.0 1.0003705910079839 0.7496294089920162 0.0 1.5359012543472836 0.2140987456527164 0.0 1.6996294089920163" nverts="3 3" verts="0 1 2 0 2 3" />
+    </state>
+  </object>
+  <shader name="analytic">
+    <emission name="emit" color="1 1 1" strength="1" />
+    <connect from="emit emission" to="output surface" />
+  </shader>
+  <state shader="analytic">
+    <light name="analytic_0" light_type="point" strength="150 150 150" size="0.05" tfm="1 0 0 0 0 1 0 1.8 0 0 1 0.6" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_1" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.5244129544236893 0 1 0 3.2 0 0 1 3.5403023058681398" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_2" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.727892280477045 0 1 0 3.2 0 0 1 3.4161468365471426" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_3" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 0.4233600241796016 0 1 0 3.2 0 0 1 3.989992496600445" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_4" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.2704074859237844 0 1 0 3.2 0 0 1 3.653643620863612" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_5" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.8767728239894153 0 1 0 3.2 0 0 1 3.283662185463226" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_6" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -0.8382464945967776 0 1 0 3.2 0 0 1 3.960170286650366" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_7" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 1.9709597961563672 0 1 0 3.2 0 0 1 3.7539022543433047" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_8" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.9680747398701453 0 1 0 3.2 0 0 1 3.1455000338086134" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_9" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 1.2363554557252698 0 1 0 3.2 0 0 1 3.911130261884677" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_10" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -1.6320633326681093 0 1 0 3.2 0 0 1 3.8390715290764525" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_11" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.9999706196521103 0 1 0 3.2 0 0 1 3.004425697988051" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_12" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -1.609718754001305 0 1 0 3.2 0 0 1 3.8438539587324922" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_13" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 1.2605011104799226 0 1 0 3.2 0 0 1 3.9074467814501963" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_14" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.971822067084611 0 1 0 3.2 0 0 1 3.1367372182078337" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_15" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 1.9508635204713505 0 1 0 3.2 0 0 1 3.7596879128588214" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_16" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -0.8637099499951959 0 1 0 3.2 0 0 1 3.9576594803233847" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_17" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.8841924756386703 0 1 0 3.2 0 0 1 3.275163338051597" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_18" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.2529617403150284 0 1 0 3.2 0 0 1 3.66031670824408" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_19" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 0.449631628988857 0 1 0 3.2 0 0 1 3.988704618186669" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_20" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.738835752182883 0 1 0 3.2 0 0 1 3.408082061813392" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_21" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.5099669156081683 0 1 0 3.2 0 0 1 3.5477292602242683" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_22" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -0.02655392787121163 0 1 0 3.2 0 0 1 3.999960826394637" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_23" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.538661212525512 0 1 0 3.2 0 0 1 3.5328330203333973" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_24" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.716735086019871 0 1 0 3.2 0 0 1 3.424179007336997" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_25" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -0.3970552502933191 0 1 0 3.2 0 0 1 3.9912028118634737" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_26" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.287675351438808 0 1 0 3.2 0 0 1 3.6469193223286402" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_27" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 2.869127785213509 0 1 0 3.2 0 0 1 3.2921388087338364" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_28" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 0.8127173649236071 0 1 0 3.2 0 0 1 3.9626058663135666" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_29" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -1.9909016526389025 0 1 0 3.2 0 0 1 3.7480575296890004" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_30" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -2.9640948722785856 0 1 0 3.2 0 0 1 3.154251449887584" />
+  </state>
+  <state shader="analytic">
+    <light name="analytic_31" light_type="point" strength="400 400 400" size="0.05" tfm="1 0 0 -1.2121129359691951 0 1 0 3.2 0 0 1 3.9147423578045313" />
+  </state>
+</cycles>

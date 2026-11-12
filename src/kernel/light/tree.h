@@ -18,6 +18,7 @@
 #include "kernel/light/area.h"
 #include "kernel/light/background.h"
 #include "kernel/light/common.h"
+#include "kernel/light/neeat.h"
 #include "kernel/light/point.h"
 #include "kernel/light/spot.h"
 #include "kernel/light/sun.h"
@@ -935,7 +936,8 @@ ccl_device float light_tree_pdf(KernelGlobals kg,
                                 const uint32_t path_flag,
                                 const int emitter_object,
                                 const uint emitter_id,
-                                const int object_receiver)
+                                const int object_receiver,
+                                const uint pixel)
 {
   if (path_visibility & PATH_RAY_VISIBILITY_VOLUME_SCATTER) {
     const float3 D_times_t = N;
@@ -945,8 +947,8 @@ ccl_device float light_tree_pdf(KernelGlobals kg,
         kg, P, D, dt, path_flag, emitter_object, emitter_id, object_receiver);
   }
 
-  return light_tree_pdf<false>(
-      kg, P, N, 0.0f, path_flag, emitter_object, emitter_id, object_receiver);
+  return neeat_mix_pdf(kg, emitter_id, light_tree_pdf<false>(
+      kg, P, N, 0.0f, path_flag, emitter_object, emitter_id, object_receiver), pixel);
 }
 
 CCL_NAMESPACE_END

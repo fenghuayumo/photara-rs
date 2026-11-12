@@ -1101,6 +1101,7 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     params.preview_update_interval = viewport ? (1.0 / 60.0) : 0.0;
     params.background = !viewport;
     params.stop_when_done = true;
+    params.use_neeat = true;
     params.samples = std::max(options->samples > 0 ? options->samples : 64, 1);
     params.use_auto_tile = false;
     params.tile_size = 0;
@@ -2136,6 +2137,7 @@ int photara_set_seed(PhotaraContext *ctx, const int seed)
 {
   return guarded(ctx, [&]() {
     ctx->scene->integrator->set_seed(std::max(seed, 0));
+    ctx->session_params.reset_neeat = true;
   });
 }
 
@@ -2149,6 +2151,43 @@ int photara_set_samples(PhotaraContext *ctx, const int samples)
   });
 }
 
+int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf)
+{
+  return guarded(ctx, [&]() {
+    if (!lights || !max_pdf) throw std::runtime_error("NULL NEE-AT stats output");
+    *lights = 0;
+    *max_pdf = 0;
+    auto &dscene = ctx->scene->dscene;
+    for (int i = 0; i < dscene.data.integrator.neeat_count; ++i) {
+      const float pdf = dscene.neeat_distribution[i].y;
+      if (pdf > 0) ++*lights;
+      *max_pdf = std::max(*max_pdf, pdf);
+    }
+  });
+}
+
+int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pdf)
+{
+  return guarded(ctx, [&]() {
+    if (!tiles || !max_pdf) throw std::runtime_error("NULL NEE-AT stats output");
+    auto &dscene = ctx->scene->dscene;
+    const int count = dscene.data.integrator.neeat_count;
+    *tiles = count ? dscene.data.integrator.neeat_local_count : 0;
+    *max_pdf = 0;
+    for (size_t i = count; i < size_t(count) * (1 + *tiles); ++i) {
+      *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[i].y);
+    }
+  });
+}
+
+int photara_set_neeat(PhotaraContext *ctx, const int enabled)
+{
+  return guarded(ctx, [&]() {
+    ctx->session_params.use_neeat = enabled != 0;
+    ctx->session_params.reset_neeat = true;
+  });
+}
+
 int photara_set_render_mode(PhotaraContext *ctx,
                             const PhotaraRenderMode mode,
                             const int samples_per_frame)
@@ -2159,6 +2198,7 @@ int photara_set_render_mode(PhotaraContext *ctx,
     }
     ctx->realtime.configure(samples_per_frame);
     ctx->render_mode = mode;
+    ctx->session_params.reset_neeat = true;
   });
 }
 
@@ -2210,6 +2250,7 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
     ctx->session->reset(frame_params, ctx->buffer_params);
     ctx->session->start();
     ctx->last_frame_mode = ctx->render_mode;
+    ctx->session_params.reset_neeat = false;
     if (ctx->render_mode == PHOTARA_RENDER_REALTIME) {
       ctx->realtime.advance();
     }

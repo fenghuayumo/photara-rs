@@ -71,6 +71,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile commands for c
 
 project(photara_rs)
 
+# Ninja's MSVC header scanner must use the same locale as /showIncludes.
+# Existing build trees may cache a localized prefix from compiler detection;
+# vcvars and build scripts can subsequently select English. Make both the
+# compiler invocation and scanner deterministic, retaining any caller launcher.
+if(MSVC AND CMAKE_GENERATOR MATCHES "Ninja")
+  set(CMAKE_CL_SHOWINCLUDES_PREFIX "Note: including file:")
+  foreach(lang C CXX)
+    set(_photara_msvc_launcher "${CMAKE_COMMAND}" -E env VSLANG=1033)
+    list(APPEND _photara_msvc_launcher ${CMAKE_${lang}_COMPILER_LAUNCHER})
+    set(CMAKE_${lang}_COMPILER_LAUNCHER ${_photara_msvc_launcher})
+  endforeach()
+  unset(_photara_msvc_launcher)
+endif()
+
+
 ###########################################################################
 # Macros and utilities.
 

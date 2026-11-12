@@ -933,6 +933,14 @@ class Session:
             self._active_job = None
             return False
 
+    def neeat_stats(self):
+        """Return idle-context light count, global PDF and screen-tile diagnostics."""
+        return self._ctx.neeat_stats()
+
+    def configure_neeat(self, enabled=True):
+        """Enable the experimental RealTime global and screen-tile light proposal."""
+        self._ctx.configure_neeat(bool(enabled))
+
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select an experimental per-frame baseline; does not enable ReSTIR/GI cache.
 

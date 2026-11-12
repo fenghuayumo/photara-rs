@@ -332,6 +332,13 @@ PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
 /* Configure an idle context. Reference sample settings are retained.
  * RealTime uses fresh films and consecutive sample subsets per render job.
  * Reconfiguration resets the subset sequence; denoiser choice is unchanged. */
+/* Experimental temporal analytic-light proposal, RealTime only. Default on.
+ * Mesh emitters retain tree sampling. Changing this resets feedback history. */
+PHOTARA_API int photara_set_neeat(PhotaraContext *ctx, int enabled);
+/* Idle-context diagnostics: active analytic count and largest learned probability. */
+PHOTARA_API int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf);
+/* Screen-cache diagnostics; probabilities are measured before proposal mixing. */
+PHOTARA_API int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pdf);
 PHOTARA_API int photara_set_render_mode(PhotaraContext *ctx,
                                        PhotaraRenderMode mode,
                                        int samples_per_frame);

@@ -654,6 +654,29 @@ class Context {
     }
   }
 
+  py::dict neeat_stats()
+  {
+    int lights = 0;
+    float max_pdf = 0;
+    if (photara_get_neeat_stats(context_, &lights, &max_pdf) != 0) { throw_last_error(); }
+    py::dict result;
+    result["active_lights"] = lights;
+    result["max_pdf"] = max_pdf;
+    int tiles = 0;
+    float local_max_pdf = 0;
+    if (photara_get_neeat_local_stats(context_, &tiles, &local_max_pdf) != 0) {
+      throw_last_error();
+    }
+    result["local_tiles"] = tiles;
+    result["local_max_pdf"] = local_max_pdf;
+    return result;
+  }
+
+  void configure_neeat(const bool enabled)
+  {
+    if (photara_set_neeat(context_, enabled) != 0) { throw_last_error(); }
+  }
+
   void set_render_mode(const int mode, const int samples_per_frame)
   {
     if (photara_set_render_mode(context_, static_cast<PhotaraRenderMode>(mode),
@@ -1190,6 +1213,8 @@ PYBIND11_MODULE(_photara, module)
       .def("clear_background_texture", &Context::clear_background_texture)
       .def("set_seed", &Context::set_seed, py::arg("seed"))
       .def("set_samples", &Context::set_samples, py::arg("samples"))
+      .def("neeat_stats", &Context::neeat_stats)
+      .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
       .def("set_render_mode", &Context::set_render_mode,
            py::arg("mode"), py::arg("samples_per_frame"))
       .def("render_begin", &Context::render_begin)

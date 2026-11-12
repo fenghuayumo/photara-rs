@@ -84,7 +84,9 @@ The example uses Vulkan swapchain presentation and CUDA/Vulkan shared GPU memory
 with Reference/RealTime switching and no CPU pixel transfer during normal frames.
 See [viewer controls and measurements](examples/VIEWER.md) for build requirements,
 screenshots and smoke tests. The RealTime mode is currently a frame-scheduled
-OptiX baseline; NEE-AT, ReSTIR and GI caches are not enabled yet.
+OptiX baseline with an experimental global and screen-tile NEE-AT analytic-light feedback proposal.
+See [NEE-AT scope and tests](photara/src/realtime/NEE_AT.md); ReSTIR and GI caches
+are not enabled yet.
 
 ## Python package
 

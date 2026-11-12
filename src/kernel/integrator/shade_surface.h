@@ -360,7 +360,8 @@ ccl_device
                                     sd->runtime_flag,
                                     bounce,
                                     path_flag,
-                                    &ls))
+                                    &ls,
+                                    INTEGRATOR_STATE(state, path, render_pixel_index)))
     {
       return SHADER_EVAL_EMPTY;
     }
@@ -457,6 +458,10 @@ ccl_device
       ls.group,
       mnee_vertex_count,
       is_constant_light_shader);
+
+  if (kernel_data.integrator.neeat_count && ls.type != LIGHT_TRIANGLE) {
+    INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, neeat_emitter) = ls.emitter_id;
+  }
 
   if (is_transmission) {
 #ifdef __VOLUME__

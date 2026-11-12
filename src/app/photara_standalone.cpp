@@ -48,6 +48,7 @@ struct Options {
   bool realtime = false;
   int samples_per_frame = 1;
   int frame_index = 0;
+  bool use_neeat = true;
   SceneParams scene_params;
   SessionParams session_params;
   bool quiet;
@@ -418,6 +419,7 @@ static void options_parse(const int argc, const char **argv)
   bool version = false;
   string log_level;
   string render_mode = "REFERENCE";
+  string light_sampler = "NEE_AT";
 
   ap.usage("photara_rs [options] file.xml");
   ap.arg("filename").hidden().action([&](auto argv) { options.filepath = argv[0]; });
@@ -435,6 +437,8 @@ static void options_parse(const int argc, const char **argv)
   ap.arg("--samples %d:SAMPLES").help("Number of samples to render").action([&](auto argv) {
     parse_int(argv, &options.session_params.samples);
   });
+  ap.arg("--light-sampler %s:SAMPLER").help("RealTime light sampler: NEE_AT or LIGHT_TREE")
+      .action([&](auto argv) { parse_string(argv, &light_sampler); });
   ap.arg("--render-mode %s:MODE").help("REFERENCE or experimental REALTIME baseline")
       .action([&](auto argv) { parse_string(argv, &render_mode); });
   ap.arg("--samples-per-frame %d:SPP").help("RealTime frame budget (1-64)")
@@ -501,6 +505,11 @@ static void options_parse(const int argc, const char **argv)
     fprintf(stderr, "Render mode must be REFERENCE or REALTIME\n");
     exit(EXIT_FAILURE);
   }
+  if (light_sampler != "NEE_AT" && light_sampler != "LIGHT_TREE") {
+    fprintf(stderr, "Light sampler must be NEE_AT or LIGHT_TREE\n");
+    exit(EXIT_FAILURE);
+  }
+  options.use_neeat = light_sampler == "NEE_AT";
   options.realtime = render_mode == "REALTIME";
   if (options.realtime) {
     if (options.samples_per_frame < 1 || options.samples_per_frame > 64 ||
@@ -513,6 +522,7 @@ static void options_parse(const int argc, const char **argv)
     frames.seek(options.frame_index);
     options.session_params.samples = frames.sample_period;
     options.session_params.realtime_frame = true;
+    options.session_params.use_neeat = options.use_neeat;
     options.session_params.use_sample_subset = true;
     options.session_params.sample_subset_offset = frames.offset();
     options.session_params.sample_subset_length = frames.samples();

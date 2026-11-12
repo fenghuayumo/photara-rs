@@ -2,7 +2,8 @@
 
 This is the first, frame-scheduled baseline for an independent real-time pipeline.
 It shares the existing OptiX wavefront tracer, scene, materials and light tree.
-The default Reference path and device kernels are unchanged.
+Reference retains its original sampling behavior; shared kernels include the
+opt-in RealTime feedback path.
 
 ```python
 import photara_rs as pr
@@ -22,19 +23,24 @@ on submission (including cancelled frames). Configuring the mode restarts it.
 Reference sample settings and the integrator seed are retained. Queued camera
 updates retain the active job's frame budget and sample subset.
 
-This stage does **not** implement ReSTIR PT, NEE-AT, GI caching, material
+This stage does **not** implement ReSTIR PT, GI caching, material
 simplification, an automatic animation loop, or Blender UI controls. It makes no
 frame-rate guarantee. Films are cleared per job; there is no radiance-history
 accumulation in this module. Existing denoiser behavior is retained; this module
 does not yet establish temporal validity for moving objects or lights.
+
+RealTime now enables an experimental global and screen-tile NEE-AT analytic-light
+proposal. Use `scene.configure_neeat(False)` or viewer `--light-sampler LIGHT_TREE`
+for the original sampler. See [scope, estimator and tests](NEE_AT.md). Mesh-only
+Cornell Box uses the original tree fallback.
 
 The local RTXPT `PathTracerNEE.hlsli` and `NEEATBaker.hlsli` were inspected as
 architectural references. No RTXPT source is copied or linked here. Future work:
 
 1. Add GPU timings and explicit scene/history revisions for camera, geometry,
    lighting and material changes, plus persistent device buffers owned by this mode.
-2. Add feedback-based light proposals with an exploration distribution and
-   evaluable mixture PDF, preserving the current light tree as the baseline.
+2. Move global and screen-tile feedback reduction to GPU-only caches,
+   preserving exploration and an evaluable mixture PDF.
 3. Add path reservoirs, temporal/spatial reuse and validated shift mappings.
 4. Add selectively queried world-space radiance caching for rough indirect paths.
 

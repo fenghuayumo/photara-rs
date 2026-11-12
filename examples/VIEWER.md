@@ -35,7 +35,11 @@ the image; tracing resolution remains fixed at `--size`.
 Reference renders once at `--reference-samples` (default 256); camera changes or
 mode changes start a new render. RealTime continuously submits fresh films and
 advances the sample sequence. Denoising is disabled to expose sampling artifacts.
-ReSTIR, NEE-AT and GI caching are not enabled yet.
+RealTime enables an experimental global and screen-tile NEE-AT analytic-light feedback proposal.
+Use `--light-sampler LIGHT_TREE` for the original proposal. Pure emissive-mesh
+Cornell Box falls back to Light Tree; use `scripts/test_neeat.py` for a many-light
+learning comparison. See [algorithm scope and validation](../photara/src/realtime/NEE_AT.md).
+ReSTIR and GI caching are not enabled yet.
 
 ## Presentation and measurements
 
@@ -102,3 +106,39 @@ The optional `--smoke-cycle` flag with at least 26 smoke frames exercises two
 Reference/RealTime switches, camera movement and window resizing. For example,
 add it to the 32-frame command above. Validation-layer smoke runs can be enabled
 using the Vulkan SDK's standard `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`.
+
+A ready-to-run analytic-light fixture is `examples/scene_many_lights_neeat.xml`:
+
+```powershell
+install/photara_viewer.exe --light-sampler NEE_AT examples/scene_many_lights_neeat.xml
+```
+
+It complements the emissive-mesh-only Cornell Box. Use the Python many-light
+benchmark for quantitative linear-image comparisons rather than judging the
+noise from a single tone-mapped viewer frame.
+
+## Additional XML regression scenes
+
+`scripts/test_xml_realtime.py` accepts original XML paths and keeps includes and
+resources relative to their source scene. For example:
+
+```powershell
+python scripts/test_xml_realtime.py --size 256 --frames 32 --reference-samples 256 D:/ProgramCode/C++/cycles/examples/scene_monkey.xml D:/ProgramCode/C++/cycles/examples/scene_osl_stripes.xml D:/ProgramCode/C++/cycles/examples/scene_sphere_bump.xml
+```
+
+It renders Reference, then exercises each supported scene with Light Tree and
+NEE-AT viewer jobs. Every completed frame must be presented. Results, logs and
+images are saved under `test_outputs/xml_realtime`, including `summary.json`.
+Original scene files are not modified. Reference PNGs and viewer BMPs have
+different display transforms; their pixel values are not used as a cross-mode
+quality metric. These environment-lit fixtures primarily test compatibility;
+they do not establish a many-light learning advantage.
+
+Local 256x256 validation: Monkey and Sphere Bump each completed 32/32 frames
+for both samplers with zero normal-frame CPU pixel-readback bytes. Median worker
+through GPU display times (after eight warm-up frames) were 1.94/1.92 ms for
+Monkey and 0.72/0.74 ms for Sphere Bump (Light Tree/NEE-AT respectively).
+The OSL stripes fixture is unsupported in the current build, which has OSL
+disabled. The legacy XML loader can report an unknown shader and still exit
+zero, so the test checks error logs as well as process status and does not
+count missing-material output as a successful render.

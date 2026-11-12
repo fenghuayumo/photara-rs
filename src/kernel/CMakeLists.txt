@@ -223,6 +223,7 @@ set(SRC_KERNEL_LIGHT_HEADERS
   light/background.h
   light/common.h
   light/distribution.h
+  light/neeat.h
   light/light.h
   light/point.h
   light/sample.h

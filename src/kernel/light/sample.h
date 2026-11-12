@@ -401,14 +401,42 @@ ccl_device bool light_sample_from_position(KernelGlobals kg,
                                            const int runtime_flags,
                                            const int bounce,
                                            const uint32_t path_flag,
-                                           ccl_private LightSample *ls)
+                                           ccl_private LightSample *ls,
+                                           const uint pixel = 0)
 {
   /* Randomly select a light. */
 #ifdef __LIGHT_TREE__
   if (kernel_data.integrator.use_light_tree) {
-    if (!light_tree_sample<false>(kg, rand.z, P, N, 0.0f, object_receiver, runtime_flags, ls)) {
-      return false;
+    float selection = rand.z;
+    const int count = kernel_data.integrator.neeat_count;
+    if (count && selection >= 0.25f) {
+      const int local_table = neeat_table(kg, pixel);
+      const int table = local_table && selection >= 0.5f ? local_table : 0;
+      selection = local_table ? (table ? (selection - 0.5f) / 0.5f :
+                                                        (selection - 0.25f) / 0.25f) :
+                                (selection - 0.25f) / 0.75f;
+      selection = min(selection, 0.99999994f);
+      int lo = 0, hi = count;
+      while (lo < hi) {
+        const int mid = (lo + hi) / 2;
+        if (selection < kernel_data_fetch(neeat_distribution, table * count + mid).x) hi = mid;
+        else lo = mid + 1;
+      }
+      ls->emitter_id = min(lo, count - 1);
+      if (!(neeat_pdf(kg, ls->emitter_id, table) > 0)) return false;
+      const uint32_t flags = (runtime_flags & SR_BSDF_HAS_TRANSMISSION) ?
+                                 path_flag | PATH_RAY_MIS_HAD_TRANSMISSION :
+                                 path_flag & ~PATH_RAY_MIS_HAD_TRANSMISSION;
+      ls->pdf_selection = light_tree_pdf<false>(
+          kg, P, N, 0.0f, flags, 0, ls->emitter_id, object_receiver);
     }
+    else {
+      if (count) selection /= 0.25f;
+      if (!light_tree_sample<false>(kg, selection, P, N, 0.0f, object_receiver, runtime_flags, ls)) {
+        return false;
+      }
+    }
+    ls->pdf_selection = neeat_mix_pdf(kg, ls->emitter_id, ls->pdf_selection, pixel);
   }
   else
 #endif
@@ -501,7 +529,8 @@ ccl_device_inline float light_sample_mis_weight_forward_surface(
                           path_flag,
                           sd->object,
                           triangle,
-                          light_link_receiver_forward(kg, state));
+                          light_link_receiver_forward(kg, state),
+                          INTEGRATOR_STATE(state, path, render_pixel_index));
   }
   else
 #endif
@@ -541,7 +570,8 @@ ccl_device_inline float light_sample_mis_weight_forward_lamp(
                           path_flag,
                           0,
                           kernel_data_fetch(light_to_tree, object_id),
-                          light_link_receiver_forward(kg, state));
+                          light_link_receiver_forward(kg, state),
+                          INTEGRATOR_STATE(state, path, render_pixel_index));
   }
   else
 #endif
@@ -596,7 +626,8 @@ ccl_device_inline float light_sample_mis_weight_forward_background(
                           path_flag,
                           0,
                           light,
-                          light_link_receiver_forward(kg, state));
+                          light_link_receiver_forward(kg, state),
+                          INTEGRATOR_STATE(state, path, render_pixel_index));
   }
   else
 #endif

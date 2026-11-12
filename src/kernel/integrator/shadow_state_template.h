@@ -5,6 +5,8 @@
 /********************************* Shadow Path State **************************/
 
 KERNEL_STRUCT_BEGIN(shadow_path)
+/* Surface NEE feedback emitter; -1 for AO/volume/unsupported paths. */
+KERNEL_STRUCT_MEMBER(shadow_path, int, neeat_emitter, KERNEL_FEATURE_PATH_TRACING)
 /* Index of a pixel within the device render buffer. */
 KERNEL_STRUCT_MEMBER(shadow_path, uint32_t, render_pixel_index, KERNEL_FEATURE_PATH_TRACING)
 /* Current sample number. */

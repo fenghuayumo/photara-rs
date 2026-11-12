@@ -2,6 +2,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+#include <cmath>
+
 #include "device/device.h"
 
 #include "scene/background.h"
@@ -747,6 +749,108 @@ void LightManager::device_update_distribution(Device * /*unused*/,
 
   /* Copy distribution to device. */
   dscene->light_distribution.copy_to_device();
+}
+
+/* Frame-frozen global and screen-tile feedback proposals. Mesh emitters retain
+ * full support through the tree component. */
+void LightManager::update_neeat(Device *device,
+                                DeviceScene *dscene,
+                                bool enabled,
+                                bool reset,
+                                const int screen_width,
+                                const int screen_height)
+{
+  auto &integrator = dscene->data.integrator;
+  const size_t count = dscene->light_tree_emitters.size();
+  enabled = enabled && integrator.use_light_tree && count > 0 && count <= 4096 &&
+            !(dscene->data.kernel_features & KERNEL_FEATURE_MNEE) &&
+            integrator.num_portals == 0;
+  int analytic_count = 0;
+  if (enabled) {
+    for (size_t i = 0; i < count; ++i) {
+      analytic_count += dscene->light_tree_emitters[i].light.id < 0;
+    }
+  }
+  if (!enabled || !analytic_count) {
+    if (integrator.neeat_count) {
+      integrator.neeat_count = 0;
+      integrator.neeat_local_count = 0;
+      device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
+    }
+    return;
+  }
+
+  // Bound the dense cache to at most 8x8 tiles and 4096 emitter entries.
+  const int tile_size = screen_width > 0 && screen_height > 0 ?
+                            std::max(32, (std::max(screen_width, screen_height) + 7) / 8) : 0;
+  const int tiles_x = tile_size ? (screen_width + tile_size - 1) / tile_size : 0;
+  const int tiles_y = tile_size ? (screen_height + tile_size - 1) / tile_size : 0;
+  const int local_count = tiles_x * tiles_y;
+  const size_t entries = count * (1 + local_count);
+  const bool fresh = reset || dscene->neeat_distribution.size() != entries ||
+                     !integrator.neeat_count || integrator.neeat_stride != screen_width ||
+                     integrator.neeat_tile_size != tile_size || integrator.neeat_tiles_x != tiles_x;
+  auto *distribution = fresh ? dscene->neeat_distribution.alloc(entries) :
+                               dscene->neeat_distribution.data();
+  if (fresh) {
+    dscene->neeat_feedback.alloc(entries);
+    for (size_t i = 0; i < entries; ++i) distribution[i] = make_float2(0, 0);
+  }
+  else {
+    dscene->neeat_feedback.copy_from_device();
+  }
+  // Update global first. Empty local tiles inherit its proposal rather than
+  // retaining stale local preferences indefinitely after camera movement.
+  for (int table = 0; table <= local_count; ++table) {
+    const size_t base = table * count;
+    double total = 0;
+    for (size_t i = 0; i < count; ++i) {
+      if (dscene->light_tree_emitters[i].light.id < 0) {
+        const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
+        if (std::isfinite(feedback) && feedback > 0) total += feedback;
+      }
+    }
+    double cdf = 0;
+    for (size_t i = 0; i < count; ++i) {
+      float pdf = 0;
+      if (dscene->light_tree_emitters[i].light.id < 0) {
+        const float uniform = 1.0f / analytic_count;
+        const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
+        const float fallback = table ? distribution[i].y : uniform;
+        const float target = total > 0 && std::isfinite(feedback) ?
+                                 float(std::max(0.0f, feedback) / total) : fallback;
+        const float learned = fresh ? uniform :
+                                      0.8f * distribution[base + i].y + 0.2f * target;
+        pdf = 0.95f * learned + 0.05f * uniform;
+      }
+      cdf += pdf;
+      distribution[base + i] = make_float2(float(cdf), pdf);
+    }
+    // Interval widths, including rounding, are the exact sampled PDF.
+    double prefix = 0;
+    float previous = 0;
+    int remaining = analytic_count;
+    for (size_t i = 0; i < count; ++i) {
+      auto &entry = distribution[base + i];
+      prefix += entry.y;
+      float endpoint = previous;
+      if (entry.y > 0) {
+        --remaining;
+        endpoint = remaining == 0 ? 1.0f : float(prefix / cdf);
+      }
+      entry = make_float2(endpoint, endpoint - previous);
+      previous = endpoint;
+    }
+  }
+  dscene->neeat_distribution.copy_to_device();
+  dscene->neeat_feedback.zero_to_device();
+  integrator.neeat_count = int(count);
+  integrator.neeat_feedback = dscene->neeat_feedback.device_pointer;
+  integrator.neeat_stride = screen_width;
+  integrator.neeat_tile_size = tile_size;
+  integrator.neeat_tiles_x = tiles_x;
+  integrator.neeat_local_count = local_count;
+  device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
 }
 
 /* Arguments for functions to convert the light tree to the kernel representation. */
@@ -1506,6 +1610,11 @@ void LightManager::device_free(Device * /*unused*/,
                                const bool free_background)
 {
   dscene->light_tree_nodes.free();
+  dscene->neeat_distribution.free();
+  dscene->neeat_feedback.free();
+  dscene->data.integrator.neeat_count = 0;
+  dscene->data.integrator.neeat_local_count = 0;
+  dscene->data.integrator.neeat_feedback = 0;
   dscene->light_tree_emitters.free();
   dscene->light_to_tree.free();
   dscene->object_lookup_offset.free();

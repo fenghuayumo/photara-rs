@@ -52,6 +52,8 @@ class SessionParams {
   /* RealTime advances host-only sample subsets while keeping the device
    * sampling sequence fixed. Reference keeps the original update policy. */
   bool realtime_frame = false;
+  bool use_neeat = false;
+  bool reset_neeat = false;
 
   int samples;
   bool use_sample_subset;

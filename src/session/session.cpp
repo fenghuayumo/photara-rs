@@ -386,6 +386,17 @@ RenderWork Session::run_update_for_next_iteration()
 
   /* Update scene */
   const bool reset_scene = update_scene(delayed_reset_.do_reset);
+  if (reset_buffers) {
+    /* Pixel indices match the full screen only for an untiled, unscaled,
+     * single-device buffer. Other configurations retain global feedback. */
+    const bool screen_cache = !params.use_auto_tile && !params.use_resolution_divider &&
+                              params.pixel_size == 1 && params.device.type != DEVICE_MULTI &&
+                              buffer_params_.full_x == 0 && buffer_params_.full_y == 0;
+    scene->light_manager->update_neeat(device.get(), &scene->dscene,
+                                     params.realtime_frame && params.use_neeat, params.reset_neeat,
+                                     screen_cache ? buffer_params_.width : 0,
+                                     screen_cache ? buffer_params_.height : 0);
+  }
 
   /* Update buffers for new parameters. After scene update which influences the passes used. */
   bool have_tiles = true;

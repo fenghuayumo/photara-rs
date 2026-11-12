@@ -147,7 +147,7 @@ def main():
                   "average_rgb_rmse": float(np.sqrt(np.mean((average[..., :3] - reference[..., :3]) ** 2))),
                   "timing_scope": "Scene.render including CPU pass capture; excludes PNG/NPZ writes",
                   "average_scope": "Offline arithmetic mean, not renderer temporal reconstruction",
-                  "algorithms": "OptiX frame baseline + Light Tree; no NEE-AT/ReSTIR/cache yet"}
+                  "algorithms": "OptiX + Light Tree (mesh-only NEE-AT fallback); no ReSTIR/GI cache"}
         (args.output / "metrics.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(json.dumps(result, indent=2))
 

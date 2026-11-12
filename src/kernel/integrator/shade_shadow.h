@@ -10,6 +10,7 @@
 #include "kernel/integrator/volume_stack.h"
 
 #include "kernel/geom/shader_data.h"
+#include "kernel/light/neeat.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -290,6 +291,24 @@ ccl_device void integrator_shade_shadow(KernelGlobals kg,
     return;
   }
 
+  if (kernel_data.integrator.neeat_count) {
+    const int emitter = INTEGRATOR_STATE(state, shadow_path, neeat_emitter);
+    if (emitter >= 0 && emitter < kernel_data.integrator.neeat_count) {
+      const Spectrum contribution = INTEGRATOR_STATE(state, shadow_path, throughput);
+      const float weight = average(contribution);
+      if (weight > 0.0f && isfinite_safe(weight)) {
+        ccl_global float *feedback = reinterpret_cast<ccl_global float *>(
+            kernel_data.integrator.neeat_feedback);
+        atomic_add_and_fetch_float(&feedback[emitter], weight);
+        const int table = neeat_table(
+            kg, INTEGRATOR_STATE(state, shadow_path, render_pixel_index));
+        if (table) {
+          atomic_add_and_fetch_float(
+              &feedback[table * kernel_data.integrator.neeat_count + emitter], weight);
+        }
+      }
+    }
+  }
   guiding_record_direct_light(kg, state);
   film_write_direct_light(kg, state, render_buffer);
   integrator_shadow_path_terminate(state, DEVICE_KERNEL_INTEGRATOR_SHADE_SHADOW);

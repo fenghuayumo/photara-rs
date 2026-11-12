@@ -184,6 +184,7 @@ struct Viewer {
   bool realtime = true, paused = false, dirty = true, running = false;
   bool closing = false, dragging = false;
   bool smoke_cycle = false;
+  bool use_neeat = true;
   int mouse_x = 0, mouse_y = 0;
   int size = 512, spp = 1, reference_samples = 256;
   int completed = 0, smoke_frames = 0;
@@ -437,6 +438,8 @@ struct Viewer {
     SessionParams frame = params;
     frame.samples = realtime ? frames.sample_period : reference_samples;
     frame.realtime_frame = realtime;
+    frame.use_neeat = use_neeat;
+    frame.reset_neeat = dirty;
     frame.use_sample_subset = realtime;
     frame.sample_subset_offset = realtime ? frames.offset() : 0;
     frame.sample_subset_length = realtime ? spp : reference_samples;
@@ -599,6 +602,13 @@ int main(int argc, char **argv)
       }
       else if (arg == "--reference-samples") {
         app.reference_samples = std::stoi(value());
+      }
+      else if (arg == "--light-sampler") {
+        const string sampler = value();
+        if (sampler != "NEE_AT" && sampler != "LIGHT_TREE") {
+          throw std::runtime_error("Light sampler must be NEE_AT or LIGHT_TREE");
+        }
+        app.use_neeat = sampler == "NEE_AT";
       }
       else if (arg == "--smoke-cycle") {
         app.smoke_cycle = true;
