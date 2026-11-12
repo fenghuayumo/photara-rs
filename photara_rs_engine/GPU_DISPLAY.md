@@ -80,10 +80,13 @@ DLSS through Blender's native display driver.
 
 Final images and each animation frame accumulate the requested samples before
 DLSS reconstruction. Offline sessions do not use the interactive DLSS buffer
-reset. In Render > Denoise, Minimum SPP Before Denoise = 0 follows the sampling
-settings; a positive value uses max(Samples, Minimum SPP Before Denoise) and
-disables adaptive early stopping to guarantee that sample count. This setting
-also applies to OptiX and OIDN. Viewport DLSS retains its interactive behavior;
+reset. The Sampling panels follow Cycles: Noise Threshold, Max Samples, Min Samples,
+Time Limit (seconds, final render) and Start Sample (viewport denoising).
+Final denoising runs after frame sampling. Disable Noise Threshold for a fixed
+sample count; with adaptive sampling enabled, Min Samples controls when early
+stopping may begin. Old denoise_min_samples values remain supported for saved
+settings, but the custom control is no longer shown.
+Viewport DLSS retains its interactive behavior;
 this offline setting does not change viewport sample accumulation.
 
 Regression: scripts/test_blender_dlss_final.py checks final PNG and two animated

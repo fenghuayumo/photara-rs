@@ -737,6 +737,13 @@ class Context {
     }
   }
 
+  void configure_sampling(float threshold, int min_samples, double time_limit, int start_sample)
+  {
+    if (photara_configure_sampling(context_, threshold, min_samples, time_limit, start_sample) != 0) {
+      throw_last_error();
+    }
+  }
+
   void configure_dlss(float factor)
   {
     if (photara_configure_dlss(context_, factor) != 0) { throw_last_error(); }
@@ -933,6 +940,7 @@ static void fill_display_device(void *pointer, int type, const uint8_t *uuid, si
 
 PYBIND11_MODULE(_photara, module)
 {
+  module.def("auto_denoiser", &photara_auto_denoiser);
   module.def("display_device_allocator", []() {
     return py::capsule(reinterpret_cast<void *>(&fill_display_device),
                        "photara.DisplayDeviceAllocator.v1");
@@ -1151,6 +1159,7 @@ PYBIND11_MODULE(_photara, module)
       .def("preview", &Context::preview)
       .def("resize", &Context::resize)
       .def("configure_film", &Context::configure_film)
+      .def("configure_sampling", &Context::configure_sampling)
       .def("configure_dlss", &Context::configure_dlss)
       .def("configure_denoiser", &Context::configure_denoiser)
       .def("get_pass", &Context::get_pass, py::arg("name"))

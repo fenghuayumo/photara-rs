@@ -961,6 +961,12 @@ class Session:
         self._ctx.resize(width, height)
         self.width_, self.height_ = width, height
 
+    def configure_sampling(self, *, noise_threshold=0.01, min_samples=0,
+                           time_limit=0.0, denoise_start_sample=0):
+        """Configure adaptive sampling, time limit in seconds and viewport denoise start."""
+        self._ctx.configure_sampling(float(noise_threshold), int(min_samples),
+                                     float(time_limit), int(denoise_start_sample))
+
     def configure_film(self, *, exposure=1.0, transparent=False, transparent_glass=False,
                        roughness_threshold=0.1, filter_type="BLACKMAN_HARRIS", filter_width=1.5):
         """Configure an idle session's film; exposure is a linear multiplier."""

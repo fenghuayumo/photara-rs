@@ -3,7 +3,7 @@
 import bpy
 
 
-DENOISERS = [('AUTO', 'Automatic', 'Prefer OptiX'), ('DLSS', 'DLSS Ray Reconstruction', 'NVIDIA DLSS denoising and optional upscaling'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]
+DENOISERS = [('AUTO', 'Automatic', 'Prefer GPU OpenImageDenoise, then OptiX, matching Cycles'), ('DLSS', 'DLSS', 'NVIDIA DLSS denoising and optional upscaling'), ('OPTIX', 'OptiX', 'NVIDIA GPU denoiser'), ('OPENIMAGEDENOISE', 'OpenImageDenoise', 'Intel Open Image Denoise')]
 DENOISE_PASSES = [('RGB', 'None', 'Color only'), ('RGB_ALBEDO', 'Albedo', 'Albedo guidance'), ('RGB_ALBEDO_NORMAL', 'Albedo and Normal', 'Albedo and normal guidance')]
 PREFILTERS = [('NONE', 'None', 'Unfiltered guidance'), ('FAST', 'Fast', 'Filter jointly'), ('ACCURATE', 'Accurate', 'Prefilter guidance')]
 QUALITIES = [('HIGH', 'High', 'Best quality'), ('BALANCED', 'Balanced', 'Balanced quality'), ('FAST', 'Fast', 'Fastest')]
@@ -40,6 +40,13 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         max=4096,
     )  # type: ignore[attr-defined]
 
+    adaptive_threshold: bpy.props.FloatProperty(name="Noise Threshold", default=0.01, min=0.0, max=1.0, precision=4)
+    adaptive_min_samples: bpy.props.IntProperty(name="Min Samples", default=0, min=0, max=1048576, description="Minimum samples before adaptive stopping; 0 selects automatically")
+    time_limit: bpy.props.FloatProperty(name="Time Limit", default=0.0, min=0.0, subtype='TIME', unit='TIME', description="Render time limit in seconds; 0 disables the limit")
+    viewport_adaptive_threshold: bpy.props.FloatProperty(name="Noise Threshold", default=0.1, min=0.0, max=1.0, precision=4)
+    viewport_adaptive_min_samples: bpy.props.IntProperty(name="Min Samples", default=0, min=0, max=4096)
+    viewport_denoise_start_sample: bpy.props.IntProperty(name="Start Sample", default=8, min=0, max=4096, description="Viewport sample count at which denoising starts; final output is always denoised")
+
     seed: bpy.props.IntProperty(
         name="Seed",
         description="Random seed; the same seed reproduces the same noise pattern",
@@ -73,6 +80,17 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         description="Stop sampling pixels that converged early",
         default=True,
     )  # type: ignore[attr-defined]
+
+    # Disabled capability indicators until cross-frame history is implemented.
+    # Never save these as operational renderer settings.
+    temporal_denoising_unavailable: bpy.props.BoolProperty(
+        name="Temporal Denoising", default=False, options={'SKIP_SAVE'},
+        description="Not yet supported by Photara: requires previous-frame output and motion vectors",
+    )
+    animation_history_unavailable: bpy.props.BoolProperty(
+        name="Keep Animation History", default=False, options={'SKIP_SAVE'},
+        description="Not yet supported by Photara: final render sessions are recreated per frame",
+    )
 
     denoiser: bpy.props.EnumProperty(name="Denoiser", items=DENOISERS, default="AUTO")
 

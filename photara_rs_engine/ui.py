@@ -31,6 +31,27 @@ class RENDER_PT_photara_sampling(PhotaraButtonsPanel, bpy.types.Panel):
         pass
 
 
+def draw_sampling(layout, settings, viewport=False):
+    prefix = 'viewport_' if viewport else ''
+    enabled = getattr(settings, prefix + 'adaptive_sampling')
+    dlss = viewport and settings.viewport_denoise and settings.viewport_denoiser == 'DLSS'
+    heading = layout.column(align=True, heading="Noise Threshold")
+    heading.active = not dlss
+    row = heading.row(align=True)
+    row.prop(settings, prefix + 'adaptive_sampling', text='')
+    sub = row.row()
+    sub.active = enabled
+    sub.prop(settings, prefix + 'adaptive_threshold', text='')
+    col = layout.column(align=True)
+    col.prop(settings, 'viewport_samples' if viewport else 'samples', text='Max Samples' if enabled else 'Samples')
+    if enabled:
+        row = col.row()
+        row.active = not dlss
+        row.prop(settings, prefix + 'adaptive_min_samples', text='Min Samples')
+    if not viewport:
+        col.prop(settings, 'time_limit')
+
+
 class RENDER_PT_photara_viewport(PhotaraButtonsPanel, bpy.types.Panel):
     bl_label = 'Viewport'
     bl_parent_id = 'RENDER_PT_photara_sampling'
@@ -40,8 +61,7 @@ class RENDER_PT_photara_viewport(PhotaraButtonsPanel, bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.photara
-        layout.prop(settings, 'viewport_adaptive_sampling', text='Adaptive Sampling')
-        layout.prop(settings, 'viewport_samples', text='Max Samples' if settings.viewport_adaptive_sampling else 'Samples')
+        draw_sampling(layout, settings, viewport=True)
 
 
 class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
@@ -53,8 +73,7 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.photara
-        layout.prop(settings, 'adaptive_sampling')
-        layout.prop(settings, 'samples', text='Max Samples' if settings.adaptive_sampling else 'Samples')
+        draw_sampling(layout, settings)
 
 
 class PhotaraDenoisePanel:
@@ -66,26 +85,53 @@ class PhotaraDenoisePanel:
         self.layout.prop(context.scene.photara, self.setting, text='')
 
     def draw(self, context):
+        # Match Cycles sampling_viewport_denoise / sampling_render_denoise:
+        # Start Sample belongs to the viewport, final renders denoise at the end.
         layout = self.layout
-        layout.active = getattr(context.scene.photara, self.setting)
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.photara
-        prefix = 'viewport_' if self.setting == 'viewport_denoise' else ''
-        layout.prop(settings, prefix + 'denoiser')
-        if not prefix:
-            layout.prop(settings, 'denoise_min_samples')
-            layout.label(text='Denoise after frame sampling completes')
-            if settings.denoise_min_samples > 0:
-                layout.label(text=f'{max(settings.samples, settings.denoise_min_samples)} SPP, adaptive stopping disabled')
-        if getattr(settings, prefix + 'denoiser') == 'DLSS':
-            layout.prop(settings, prefix + 'denoise_upscale_quality')
-        else:
-            layout.prop(settings, prefix + 'denoise_passes')
-        if getattr(settings, prefix + 'denoiser') == 'OPENIMAGEDENOISE':
-            layout.prop(settings, prefix + 'denoise_prefilter')
-            layout.prop(settings, prefix + 'denoise_quality')
-            layout.prop(settings, prefix + 'denoise_use_gpu')
+        viewport = self.setting == 'viewport_denoise'
+        prefix = 'viewport_' if viewport else ''
+        col = layout.column()
+        col.active = getattr(settings, self.setting)
+        sub = col.column()
+        sub.prop(settings, prefix + 'denoiser', text='Denoiser')
+        denoiser = getattr(settings, prefix + 'denoiser')
+        if denoiser == 'AUTO':
+            import photara_rs
+            denoiser = photara_rs.auto_denoiser()
+        if not viewport and denoiser == 'OPTIX':
+            row = col.row()
+            row.enabled = False
+            row.prop(settings, 'temporal_denoising_unavailable', text='Temporal Denoising')
+            col.label(text='Animation history is not yet supported', icon='INFO')
+        if denoiser == 'DLSS':
+            if not viewport:
+                row = col.row()
+                row.enabled = False
+                row.prop(settings, 'animation_history_unavailable', text='Keep Animation History')
+            col.prop(settings, prefix + 'denoise_upscale_quality',
+                     text='Upscale Mode' if viewport else 'Upscaling')
+            if not viewport:
+                col.label(text='Use low render samples', icon='INFO')
+                if settings.denoise_upscale_quality != 'NONE':
+                    col.label(text='Disable extra render passes for upscaling', icon='INFO')
+                    col.label(text='Shadow catchers / 3DGS: native resolution')
+                col.label(text='Only the combined image is reconstructed')
+                col.label(text='Animation history is not yet supported', icon='INFO')
+                if context.scene.render.use_motion_blur:
+                    col.label(text='Disable motion blur for DLSS final rendering', icon='ERROR')
+            return
+        col.prop(settings, prefix + 'denoise_passes', text='Passes')
+        if denoiser == 'OPENIMAGEDENOISE':
+            col.prop(settings, prefix + 'denoise_prefilter', text='Prefilter')
+            col.prop(settings, prefix + 'denoise_quality', text='Quality')
+        if viewport:
+            col.prop(settings, 'viewport_denoise_start_sample', text='Start Sample')
+        if denoiser == 'OPENIMAGEDENOISE':
+            row = col.row()
+            row.prop(settings, prefix + 'denoise_use_gpu', text='Use GPU')
 
 
 class RENDER_PT_photara_viewport_denoise(PhotaraDenoisePanel, PhotaraButtonsPanel, bpy.types.Panel):

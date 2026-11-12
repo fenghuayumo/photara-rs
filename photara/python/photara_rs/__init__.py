@@ -81,3 +81,9 @@ __all__ = [
     "parse_obj",
     "save_png",
 ]
+
+
+def auto_denoiser():
+    """Return the effective automatic denoiser for the selected OptiX device."""
+    from ._backend import _core
+    return {4: "OPENIMAGEDENOISE", 2: "OPTIX", 0: "NONE"}[_core.auto_denoiser()]

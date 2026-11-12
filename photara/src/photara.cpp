@@ -1126,8 +1126,8 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     integrator->set_use_adaptive_sampling(options->use_adaptive_sampling != 0);
 
     if (options->use_denoise) {
-      const DenoiserType denoiser = (device.denoisers & DENOISER_OPTIX) ? DENOISER_OPTIX :
-                                                                          DENOISER_OPENIMAGEDENOISE;
+      const DenoiserType denoiser = (device.denoisers & DENOISER_OPENIMAGEDENOISE) ?
+                                        DENOISER_OPENIMAGEDENOISE : DENOISER_OPTIX;
       integrator->set_use_denoise(true);
       integrator->set_denoiser_type(denoiser);
       integrator->set_denoiser_passes(DENOISER_PASS_ALBEDO | DENOISER_PASS_NORMAL);
@@ -2426,6 +2426,17 @@ int photara_configure_film(PhotaraContext *ctx, float exposure, int transparent,
   });
 }
 
+int photara_auto_denoiser(void)
+{
+  DeviceInfo device;
+  std::string error;
+  if (!find_device(PHOTARA_DEVICE_OPTIX, device, error)) {
+    return 0;
+  }
+  return (device.denoisers & DENOISER_OPENIMAGEDENOISE) ? DENOISER_OPENIMAGEDENOISE :
+                                                       DENOISER_OPTIX;
+}
+
 int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
                                int prefilter, int quality, int use_gpu)
 {
@@ -2458,6 +2469,25 @@ int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
     integrator->set_denoiser_prefilter(static_cast<DenoiserPrefilter>(prefilter));
     integrator->set_denoiser_quality(static_cast<DenoiserQuality>(quality));
     integrator->set_denoise_use_gpu(use_gpu != 0);
+    integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
+  });
+}
+
+int photara_configure_sampling(PhotaraContext *ctx, float threshold, int min_samples,
+                               double time_limit, int denoise_start_sample)
+{
+  return guarded(ctx, [&]() {
+    if (!std::isfinite(threshold) || threshold < 0.0f || threshold > 1.0f ||
+        min_samples < 0 || !std::isfinite(time_limit) || time_limit < 0.0 ||
+        denoise_start_sample < 0) {
+      throw std::runtime_error("Invalid sampling settings");
+    }
+    Integrator *integrator = ctx->scene->integrator;
+    integrator->set_adaptive_threshold(threshold);
+    integrator->set_adaptive_min_samples(min_samples);
+    integrator->set_denoise_start_sample(denoise_start_sample);
+    ctx->session_params.time_limit = time_limit;
+    ctx->session->set_time_limit(time_limit);
     integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
   });
 }

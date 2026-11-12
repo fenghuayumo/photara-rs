@@ -55,6 +55,14 @@ def _final_sampling_options(settings):
                 adaptive_sampling=settings.adaptive_sampling and minimum == 0)
 
 
+def _sampling_options(settings, viewport=False):
+    prefix = 'viewport_' if viewport else ''
+    return dict(noise_threshold=getattr(settings, prefix + 'adaptive_threshold'),
+                min_samples=getattr(settings, prefix + 'adaptive_min_samples'),
+                time_limit=0.0 if viewport else settings.time_limit,
+                denoise_start_sample=settings.viewport_denoise_start_sample if viewport else 0)
+
+
 def _film_options(scene):
     settings = scene.photara
     return dict(exposure=settings.film_exposure,
@@ -134,6 +142,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
                 device=settings.device,
                 **_denoiser_options(settings),
             )
+            scene.configure_sampling(**_sampling_options(settings))
             scene.configure_film(**_film_options(blender_scene))
             state = sync.SceneSyncState(scene)
             state.sync(depsgraph)
@@ -415,6 +424,7 @@ class ViewportState:
             ViewportState._world_signature(context),
             tuple(_film_options(context.scene).values()),
             context.scene.photara.viewport_samples,
+            tuple(_sampling_options(context.scene.photara, viewport=True).values()),
             context.scene.photara.seed,
         )
 
@@ -475,6 +485,7 @@ class ViewportState:
         self.seed = int(settings.seed)
         self.current_samples = self.samples
         self._preview_revision = 0
+        self.scene.configure_sampling(**_sampling_options(settings, viewport=True))
         self.scene.samples = self.samples
         self.scene.seed = self.seed
         self.job = self.scene.render_async()

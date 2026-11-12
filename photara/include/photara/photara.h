@@ -381,7 +381,12 @@ PHOTARA_API int photara_configure_film(PhotaraContext *ctx, float exposure, int 
                                      int filter_type, float filter_width);
 
 /* DLSS upscale factor: 1 native, 1.5 quality, 1/0.58 balanced, 2 performance, 3 ultra. */
+/* Sampling controls use seconds for time_limit, matching Blender's UI. */
+PHOTARA_API int photara_configure_sampling(PhotaraContext *ctx, float threshold,
+                                         int min_samples, double time_limit,
+                                         int denoise_start_sample);
 PHOTARA_API int photara_configure_dlss(PhotaraContext *ctx, float factor);
+PHOTARA_API int photara_auto_denoiser(void);
 PHOTARA_API int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,
                                          int prefilter, int quality, int use_gpu);
 

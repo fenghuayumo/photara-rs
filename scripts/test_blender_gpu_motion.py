@@ -41,7 +41,7 @@ def checked_draw(self, context):
     if self.job is None or self.needs_update:
         return
     progress = self.job.poll()
-    if progress.state != 'running' or progress.current_sample < 1:
+    if progress.state != 'running' or progress.current_sample < 8:
         return
     signature = repr(self.camera_matrix)
     if signature in seen:

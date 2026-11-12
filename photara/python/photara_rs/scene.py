@@ -1344,6 +1344,10 @@ class Scene:
         self._ensure_open()
         self._session.resize(width, height)
 
+    def configure_sampling(self, **settings):
+        """Configure sampling thresholds, minimum samples and time limit (seconds)."""
+        self._session.configure_sampling(**settings)
+
     def configure_film(self, **settings):
         """Configure film exposure, transparency and pixel filtering."""
         self._ensure_open()
