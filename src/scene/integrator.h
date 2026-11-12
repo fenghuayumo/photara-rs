@@ -78,6 +78,7 @@ class Integrator : public Node {
   NODE_SOCKET_API(bool, caustics_reflective)
   NODE_SOCKET_API(bool, caustics_refractive)
   NODE_SOCKET_API(float, filter_glossy)
+  NODE_SOCKET_API(TextureLODMethod, texture_lod_method)
 
   NODE_SOCKET_API(bool, use_gsplat_raster);
   NODE_SOCKET_API(bool, gsplat_receive_shadows);

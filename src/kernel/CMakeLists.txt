@@ -253,6 +253,7 @@ set(SRC_KERNEL_UTIL_HEADERS
   util/lookup_table.h
   util/nanovdb.h
   util/profiler.h
+  util/ray_cone.h
 )
 
 set(SRC_KERNEL_TYPES_HEADERS

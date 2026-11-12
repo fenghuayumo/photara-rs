@@ -41,3 +41,6 @@ install*/
 
 # OSL compiled examples
 examples/osl/*.oso
+
+# Generated tiled texture MIP caches
+photara_tx/

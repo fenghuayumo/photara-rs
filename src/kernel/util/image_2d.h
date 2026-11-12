@@ -6,6 +6,7 @@
 
 #include "kernel/globals.h"
 #include "kernel/sample/lcg.h"
+#include "kernel/util/ray_cone.h"
 
 #include "util/atomic.h"
 #include "util/defines.h"
@@ -80,23 +81,34 @@ kernel_image_tile_map(KernelGlobals kg,
                       const dual2 uv,
                       ccl_private float2 &xy)
 {
-  /* Find mipmap level. Use squared lengths to avoid two sqrt operations,
-   * compensating with 0.5 factor on the log2. Square as float to avoid
-   * integer overflow. */
-  const float dudxy_sq = len_squared(make_float2(uv.dx.x, uv.dy.x)) * sqr(float(tex.width));
-  const float dvdxy_sq = len_squared(make_float2(uv.dx.y, uv.dy.y)) * sqr(float(tex.height));
+  float flevel;
+  /* RTXPT-style isotropic cone LOD. The triangle/UV area ratio is recovered
+   * from mapped tangent-plane derivatives. No derivative-axis reconstruction
+   * is needed here; bump and procedural shading retain their existing inputs.
+   * Displacement, importance queries and singular mappings use the legacy LOD. */
+  const bool cone_lod = kernel_data.integrator.texture_lod_method == TEXTURE_LOD_RAY_CONES &&
+                        (sd->type & PRIMITIVE_TRIANGLE) && sd->lcg_state != 0 &&
+                        ray_cone_texture_lod(uv.dx, uv.dy, float(tex.width), float(tex.height),
+                                             dot(sd->wi, sd->Ng), &flevel);
+  if (!cone_lod) {
+    /* Find mipmap level. Use squared lengths to avoid two sqrt operations,
+     * compensating with 0.5 factor on the log2. Square as float to avoid
+     * integer overflow. */
+    const float dudxy_sq = len_squared(make_float2(uv.dx.x, uv.dy.x)) * sqr(float(tex.width));
+    const float dvdxy_sq = len_squared(make_float2(uv.dx.y, uv.dy.y)) * sqr(float(tex.height));
 
-  /* Limit max anisotropy ratio, to avoid loading too high mip resolutions
-   * for stretched UV coordinates, which don't really benefit from it anyway. */
-  const float maxdxy_sq = max(dudxy_sq, dvdxy_sq);
-  const float mindxy_sq = min(dudxy_sq, dvdxy_sq);
-  const float inv_aniso_ratio_sq = 1.0f / (16.0f * 16.0f);
-  /* Native log2 is faster on GPU. */
+    /* Limit max anisotropy ratio, to avoid loading too high mip resolutions
+     * for stretched UV coordinates, which don't really benefit from it anyway. */
+    const float maxdxy_sq = max(dudxy_sq, dvdxy_sq);
+    const float mindxy_sq = min(dudxy_sq, dvdxy_sq);
+    const float inv_aniso_ratio_sq = 1.0f / (16.0f * 16.0f);
+    /* Native log2 is faster on GPU. */
 #ifdef __KERNEL_GPU__
-  float flevel = 0.5f * log2(max(mindxy_sq, maxdxy_sq * inv_aniso_ratio_sq));
+    flevel = 0.5f * log2(max(mindxy_sq, maxdxy_sq * inv_aniso_ratio_sq));
 #else
-  float flevel = 0.5f * fast_log2f(max(mindxy_sq, maxdxy_sq * inv_aniso_ratio_sq));
+    flevel = 0.5f * fast_log2f(max(mindxy_sq, maxdxy_sq * inv_aniso_ratio_sq));
 #endif
+  }
 
   /* Select mipmap level. */
   if (sd->lcg_state != 0) {

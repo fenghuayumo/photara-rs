@@ -326,6 +326,15 @@ PHOTARA_API int photara_clear_background_texture(PhotaraContext *ctx);
 /* Remove all mesh objects and lights. Materials, camera and world are kept. */
 PHOTARA_API int photara_clear_scene(PhotaraContext *ctx);
 
+/* Texture LOD applies to both Reference and RealTime. The alternative retains
+ * the existing compact differential estimator, not full vector differentials. */
+typedef enum PhotaraTextureLOD {
+  PHOTARA_TEXTURE_LOD_RAY_CONES = 0,
+  PHOTARA_TEXTURE_LOD_RAY_DIFFERENTIALS = 1
+} PhotaraTextureLOD;
+PHOTARA_API int photara_set_texture_lod(PhotaraContext *ctx, PhotaraTextureLOD method);
+PHOTARA_API int photara_get_texture_lod(PhotaraContext *ctx, PhotaraTextureLOD *method);
+
 /* Per-frame render controls. */
 PHOTARA_API int photara_set_seed(PhotaraContext *ctx, int seed);
 PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);

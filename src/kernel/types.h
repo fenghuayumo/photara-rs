@@ -130,6 +130,11 @@ enum PathTraceDimension {
   PRNG_BOUNCE_NUM = 16,
 };
 
+enum TextureLODMethod {
+  TEXTURE_LOD_RAY_CONES = 0,
+  TEXTURE_LOD_RAY_DIFFERENTIALS = 1,
+};
+
 enum SamplingPattern {
   SAMPLING_PATTERN_SOBOL_BURLEY = 0,
   SAMPLING_PATTERN_TABULATED_SOBOL = 1,

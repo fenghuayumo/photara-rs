@@ -672,6 +672,20 @@ class Context {
     return result;
   }
 
+  void configure_texture_lod(const int method)
+  {
+    if (photara_set_texture_lod(context_, static_cast<PhotaraTextureLOD>(method)) != 0) {
+      throw_last_error();
+    }
+  }
+
+  int texture_lod()
+  {
+    PhotaraTextureLOD method;
+    if (photara_get_texture_lod(context_, &method) != 0) { throw_last_error(); }
+    return int(method);
+  }
+
   void configure_neeat(const bool enabled)
   {
     if (photara_set_neeat(context_, enabled) != 0) { throw_last_error(); }
@@ -1213,6 +1227,8 @@ PYBIND11_MODULE(_photara, module)
       .def("clear_background_texture", &Context::clear_background_texture)
       .def("set_seed", &Context::set_seed, py::arg("seed"))
       .def("set_samples", &Context::set_samples, py::arg("samples"))
+      .def("configure_texture_lod", &Context::configure_texture_lod, py::arg("method"))
+      .def("texture_lod", &Context::texture_lod)
       .def("neeat_stats", &Context::neeat_stats)
       .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
       .def("set_render_mode", &Context::set_render_mode,

@@ -1112,6 +1112,8 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
 
     SceneParams scene_params;
     scene_params.shadingsystem = SHADINGSYSTEM_SVM;
+    scene_params.auto_texture_cache = true;
+    scene_params.texture_cache_path = "photara_tx";
     /* Dynamic BVH keeps object transforms separate from geometry, so instances
      * can be added and animated after the first render. Static BVH bakes
      * single-user transforms into the mesh and breaks later instancing. */
@@ -2177,6 +2179,27 @@ int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pd
     for (size_t i = count; i < size_t(count) * (1 + *tiles); ++i) {
       *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[i].y);
     }
+  });
+}
+
+int photara_set_texture_lod(PhotaraContext *ctx, const PhotaraTextureLOD method)
+{
+  return guarded(ctx, [&]() {
+    if (method != PHOTARA_TEXTURE_LOD_RAY_CONES &&
+        method != PHOTARA_TEXTURE_LOD_RAY_DIFFERENTIALS) {
+      throw std::runtime_error("Invalid texture LOD method");
+    }
+    ctx->scene->integrator->set_texture_lod_method(static_cast<TextureLODMethod>(method));
+    ctx->scene->integrator->tag_update(ctx->scene, Integrator::UPDATE_ALL);
+    ctx->session_params.reset_neeat = true;
+  });
+}
+
+int photara_get_texture_lod(PhotaraContext *ctx, PhotaraTextureLOD *method)
+{
+  return guarded(ctx, [&]() {
+    if (!method) throw std::runtime_error("NULL texture LOD output");
+    *method = static_cast<PhotaraTextureLOD>(ctx->scene->integrator->get_texture_lod_method());
   });
 }
 

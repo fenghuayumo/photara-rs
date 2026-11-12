@@ -117,6 +117,10 @@ NODE_DEFINE(Integrator)
   SOCKET_BOOLEAN(caustics_reflective, "Reflective Caustics", true);
   SOCKET_BOOLEAN(caustics_refractive, "Refractive Caustics", true);
   SOCKET_FLOAT(filter_glossy, "Filter Glossy", 1.0f);
+  static NodeEnum texture_lod_enum;
+  texture_lod_enum.insert("ray_cones", TEXTURE_LOD_RAY_CONES);
+  texture_lod_enum.insert("ray_differentials", TEXTURE_LOD_RAY_DIFFERENTIALS);
+  SOCKET_ENUM(texture_lod_method, "Texture LOD", texture_lod_enum, TEXTURE_LOD_RAY_CONES);
 
   SOCKET_BOOLEAN(use_gsplat_raster, "Rasterize Gaussian Splats", true);
   SOCKET_BOOLEAN(gsplat_receive_shadows, "Gaussian Receive Shadows", true);
@@ -294,6 +298,7 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   kintegrator->caustics_refractive = caustics_refractive;
   kintegrator->filter_glossy = (filter_glossy == 0.0f) ? FLT_MAX : 1.0f / filter_glossy;
   kintegrator->differential_widen_scale = min(1.0f, filter_glossy);
+  kintegrator->texture_lod_method = texture_lod_method;
 
   kintegrator->filter_closures = 0;
   if (!use_direct_light) {

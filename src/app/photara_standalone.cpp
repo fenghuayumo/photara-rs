@@ -49,6 +49,7 @@ struct Options {
   int samples_per_frame = 1;
   int frame_index = 0;
   bool use_neeat = true;
+  string texture_lod;
   SceneParams scene_params;
   SessionParams session_params;
   bool quiet;
@@ -119,6 +120,10 @@ static void scene_init()
     xml_read_file(options.scene, options.filepath.c_str());
   }
 
+  if (!options.texture_lod.empty()) {
+    options.scene->integrator->set_texture_lod_method(
+        options.texture_lod == "RAY_CONES" ? TEXTURE_LOD_RAY_CONES : TEXTURE_LOD_RAY_DIFFERENTIALS);
+  }
   if (options.realtime) {
     options.scene->integrator->set_use_adaptive_sampling(false);
   }
@@ -140,6 +145,8 @@ static void scene_init()
 static void session_init()
 {
   options.output_pass = "combined";
+  options.scene_params.auto_texture_cache = true;
+  options.scene_params.texture_cache_path = "photara_tx";
   options.session = make_unique<Session>(options.session_params, options.scene_params);
 
 #ifdef WITH_CYCLES_STANDALONE_GUI
@@ -437,6 +444,8 @@ static void options_parse(const int argc, const char **argv)
   ap.arg("--samples %d:SAMPLES").help("Number of samples to render").action([&](auto argv) {
     parse_int(argv, &options.session_params.samples);
   });
+  ap.arg("--texture-lod %s:METHOD").help("RAY_CONES (default) or RAY_DIFFERENTIALS")
+      .action([&](auto argv) { parse_string(argv, &options.texture_lod); });
   ap.arg("--light-sampler %s:SAMPLER").help("RealTime light sampler: NEE_AT or LIGHT_TREE")
       .action([&](auto argv) { parse_string(argv, &light_sampler); });
   ap.arg("--render-mode %s:MODE").help("REFERENCE or experimental REALTIME baseline")
@@ -507,6 +516,11 @@ static void options_parse(const int argc, const char **argv)
   }
   if (light_sampler != "NEE_AT" && light_sampler != "LIGHT_TREE") {
     fprintf(stderr, "Light sampler must be NEE_AT or LIGHT_TREE\n");
+    exit(EXIT_FAILURE);
+  }
+  if (!options.texture_lod.empty() && options.texture_lod != "RAY_CONES" &&
+      options.texture_lod != "RAY_DIFFERENTIALS") {
+    fprintf(stderr, "Texture LOD must be RAY_CONES or RAY_DIFFERENTIALS\n");
     exit(EXIT_FAILURE);
   }
   options.use_neeat = light_sampler == "NEE_AT";

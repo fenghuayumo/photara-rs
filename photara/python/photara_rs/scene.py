@@ -1335,6 +1335,17 @@ class Scene:
         """Return idle-context light count, global PDF and screen-tile diagnostics."""
         return self._session.neeat_stats()
 
+    @property
+    def texture_lod(self):
+        """Active texture footprint estimator for both render modes."""
+        self._ensure_open()
+        return self._session.texture_lod
+
+    def configure_texture_lod(self, method="RAY_CONES"):
+        """Select RAY_CONES (default) or legacy compact RAY_DIFFERENTIALS."""
+        self._ensure_open()
+        self._session.configure_texture_lod(method)
+
     def configure_neeat(self, enabled=True):
         """Enable the experimental RealTime global and screen-tile light proposal."""
         self._session.configure_neeat(enabled)

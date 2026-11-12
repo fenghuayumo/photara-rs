@@ -937,6 +937,18 @@ class Session:
         """Return idle-context light count, global PDF and screen-tile diagnostics."""
         return self._ctx.neeat_stats()
 
+    @property
+    def texture_lod(self):
+        """Active texture footprint estimator for Reference and RealTime."""
+        return ("RAY_CONES", "RAY_DIFFERENTIALS")[self._ctx.texture_lod()]
+
+    def configure_texture_lod(self, method="RAY_CONES"):
+        """Select RAY_CONES or the legacy compact RAY_DIFFERENTIALS estimator."""
+        methods = {"RAY_CONES": 0, "RAY_DIFFERENTIALS": 1}
+        if not isinstance(method, str) or method not in methods:
+            raise ValueError("texture LOD must be RAY_CONES or RAY_DIFFERENTIALS")
+        self._ctx.configure_texture_lod(methods[method])
+
     def configure_neeat(self, enabled=True):
         """Enable the experimental RealTime global and screen-tile light proposal."""
         self._ctx.configure_neeat(bool(enabled))

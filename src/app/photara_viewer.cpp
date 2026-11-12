@@ -185,6 +185,7 @@ struct Viewer {
   bool closing = false, dragging = false;
   bool smoke_cycle = false;
   bool use_neeat = true;
+  int texture_lod_override = -1;
   int mouse_x = 0, mouse_y = 0;
   int size = 512, spp = 1, reference_samples = 256;
   int completed = 0, smoke_frames = 0;
@@ -235,7 +236,10 @@ struct Viewer {
     params.use_auto_tile = false;
     params.use_resolution_divider = false;
     params.samples = reference_samples;
-    session = make_unique<Session>(params, SceneParams());
+    SceneParams scene_params;
+    scene_params.auto_texture_cache = true;
+    scene_params.texture_cache_path = "photara_tx";
+    session = make_unique<Session>(params, scene_params);
     if (!path_exists(scene_path)) {
       scene_path = path_get(scene_path);
     }
@@ -244,6 +248,9 @@ struct Viewer {
     }
     xml_read_file(session->scene.get(), scene_path.c_str());
     auto *scene = session->scene.get();
+    if (texture_lod_override >= 0) {
+      scene->integrator->set_texture_lod_method(TextureLODMethod(texture_lod_override));
+    }
     scene->camera->set_full_width(size);
     scene->camera->set_full_height(size);
     scene->camera->compute_auto_viewplane();
@@ -602,6 +609,13 @@ int main(int argc, char **argv)
       }
       else if (arg == "--reference-samples") {
         app.reference_samples = std::stoi(value());
+      }
+      else if (arg == "--texture-lod") {
+        const string method = value();
+        if (method != "RAY_CONES" && method != "RAY_DIFFERENTIALS") {
+          throw std::runtime_error("Texture LOD must be RAY_CONES or RAY_DIFFERENTIALS");
+        }
+        app.texture_lod_override = method == "RAY_CONES" ? 0 : 1;
       }
       else if (arg == "--light-sampler") {
         const string sampler = value();
