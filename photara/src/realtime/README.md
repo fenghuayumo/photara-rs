@@ -65,3 +65,63 @@ Swapchain redraws do not add samples. CSV metrics expose `history_samples` and
 cadence. This is static-view progressive accumulation: camera motion discards
 history; motion-vector reprojection/disocclusion rejection is not implemented.
 The Python API's per-job film behavior is unchanged.
+
+## Viewer DLSS Ray Reconstruction
+
+`install/photara_viewer.exe --denoiser DLSS --spp 1 --size 1080 scene.xml`
+enables the existing core DLSS RR path at native trace/output resolution. The
+default remains `--denoiser NONE`. DLSS mode requires one new sample per frame
+and locks the +/- sample-budget controls. Depth, diffuse/specular albedo,
+normal, roughness and backward/specular motion guides are enabled. Interactive
+camera state supplies the previous rendered camera to the motion-guide kernels;
+continuous movement preserves DLSS history. DLSS owns reprojection, per-pixel
+history rejection and reconstruction; the Vulkan running mean is bypassed by
+replacing its history every frame. No custom temporal/spatial denoiser is added.
+
+First evaluation, explicit camera reset (`R`), mode switches and scripted camera
+cuts reset DLSS history. Continuous camera navigation does not. Rendering fails
+explicitly if the requested DLSS evaluation does not succeed; it cannot silently
+count noisy fallback images as DLSS frames. CSV adds `dlss_frames`, `dlss_resets`,
+`dlss_reuses`, the requested `temporal_reset`, `camera_x` and benchmark `phase`.
+These counters report successful NGX evaluations, not per-pixel rejection rates.
+
+`--camera-sweep` uses 60 static frames, a 180-frame horizontal sinusoidal sweep
+(0.6 world-unit amplitude), then a static view. `--camera-cut-frame N` translates
+the camera by one world unit and resets history on frame N (zero-based).
+`--camera-x X` sets an initial world-X offset, also useful for reference renders.
+`scripts/benchmark_sponza_dlss.py` checks finite viewer runs, successful DLSS
+evaluations, reset/reuse counts and zero timed pixel readback, and saves static,
+moving and cut snapshots alongside 256-SPP references. It requires the XML from
+`scripts/export_sponza_xml.py` and an OCIO configuration (via `--ocio` or `OCIO`).
+This benchmark covers static geometry with camera motion; moving geometry and
+animated lighting are not validated by it.
+
+## Experimental single mirror guide plane
+
+`--denoiser DLSS --spp 1 --stable-mirror-guide` opts into a first stable-surface
+guide experiment in the standalone viewer. This is not RTXPT's multi-plane
+radiance decomposition. It does not split or change the sampled radiance paths.
+
+The eligible primary surface must be a flat-shaded, static, unbumped, pure
+zero-roughness reflector. If the next hit is a fully diffuse-feature surface,
+the shader reflects that hit's position and normal into the mirror's virtual
+image and writes a consistent camera-space depth, normal and backward motion
+(including previous-depth delta), plus the target plane's roughness and specular
+albedo. Specular motion retains the existing virtual
+reflection projection. This avoids combining primary-surface backward motion
+with secondary-surface features for this restricted case. The option is disabled
+for Reference jobs, which can accumulate multiple samples in one film.
+
+Rough or mixed reflectors, glass/refraction, smooth/curved reflectors, moving
+reflectors, multiple reflection bounces and sky hits retain the original guides.
+The flat-shading check assumes a locally planar reflector; it does not prove that
+the entire object is a single plane. Mirror edges still rely on DLSS rejection.
+No separate per-plane history, path-branch identifier, refraction reconnection or
+multi-plane compositing is implemented yet. The option remains off by default
+until scene-specific A/B validation establishes a benefit.
+
+`scripts/test_stable_mirror_guides.py` generates mirror, glass-slab and rough
+reflector fixtures, compares option-off/on 1-SPP moving-camera DLSS captures
+against corresponding 256-SPP reference views, and records frame times. Glass
+and rough-reflector cases specifically validate fallback behavior; they must not
+be reported as supported stable planes. Set `OCIO` before running the script.
