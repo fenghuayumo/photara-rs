@@ -196,8 +196,11 @@ struct Viewer {
   bool reset_frame_history = true;
   bool dlss = false, camera_sweep = false, reset_temporal = true;
   bool submitted_temporal_reset = true;
+  bool submitted_neeat_reset = true;
+  int submitted_sample_offset = 0;
   bool stable_mirror_guide = false;
   int camera_cut_frame = -1;
+  int nee_candidates = 1;
   float sweep_base_x = 0.0f;
   std::shared_ptr<DenoiseTemporalHistory> dlss_history;
   uint64_t submitted_dlss_frames = 0;
@@ -303,14 +306,18 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset\n";
     }
   }
 
   void restart()
   {
     dirty = true;
-    frames.configure(spp);
+    // Reusing sample subset zero while retaining learned proposals would feed
+    // the same random samples back into their own future sampling policy.
+    if (reset_temporal) {
+      frames.configure(spp);
+    }
     if (running) {
       session->request_cancel();
     }
@@ -393,6 +400,8 @@ struct Viewer {
               << ',' << (dlss_history ? dlss_history->dlss_resets : 0)
               << ',' << (dlss_history ? dlss_history->dlss_reuses : 0)
               << ',' << (stable_mirror_guide && frame.realtime && frame.samples == 1)
+              << ',' << submitted_neeat_reset
+              << ',' << submitted_sample_offset
               << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
@@ -516,13 +525,18 @@ struct Viewer {
       submitted_dlss_frames = dlss_history->dlss_frames;
     }
     submitted_temporal_reset = reset_temporal || !realtime;
+    submitted_neeat_reset = reset_temporal;
     reset_temporal = false;
     frame.samples = realtime ? frames.sample_period : reference_samples;
     frame.realtime_frame = realtime;
     frame.use_neeat = use_neeat;
-    frame.reset_neeat = dirty;
+    frame.nee_candidates = nee_candidates;
+    // Film accumulation resets on movement; a full-support sampling proposal
+    // remains valid. Keep it until an explicit cut/reset or a mode change.
+    frame.reset_neeat = submitted_neeat_reset;
     frame.use_sample_subset = realtime;
     frame.sample_subset_offset = realtime ? frames.offset() : 0;
+    submitted_sample_offset = frame.sample_subset_offset;
     frame.sample_subset_length = realtime ? spp : reference_samples;
     scene->integrator->set_aa_samples(frame.samples);
     display->updates = 0;
@@ -688,6 +702,11 @@ int main(int argc, char **argv)
       }
       else if (arg == "--spp") {
         app.spp = std::stoi(value());
+      }
+      else if (arg == "--nee-candidates") {
+        app.nee_candidates = std::stoi(value());
+        if (app.nee_candidates < 1 || app.nee_candidates > 16)
+          throw std::runtime_error("NEE candidates must be in [1, 16]");
       }
       else if (arg == "--denoiser") {
         const string denoiser = value();
