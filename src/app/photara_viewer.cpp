@@ -250,6 +250,7 @@ struct Viewer {
     params.use_resolution_divider = false;
     params.samples = reference_samples;
     SceneParams scene_params;
+    scene_params.background = false;
     scene_params.auto_texture_cache = true;
     scene_params.texture_cache_path = "photara_tx";
     session = make_unique<Session>(params, scene_params);
@@ -288,6 +289,9 @@ struct Viewer {
       array<Transform> motion;
       motion.push_back_slow(original_camera);
       scene->camera->set_motion(motion);
+      // XML initializes the current FOV/viewplane only. Seed the previous
+      // projection before frame one, then Scene advances it after each frame.
+      scene->camera->update_interactive_motion();
     }
     if (stable_mirror_guide && !dlss) {
       throw std::runtime_error("--stable-mirror-guide requires --denoiser DLSS");

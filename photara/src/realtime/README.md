@@ -85,6 +85,22 @@ count noisy fallback images as DLSS frames. CSV adds `dlss_frames`, `dlss_resets
 `dlss_reuses`, the requested `temporal_reset`, `camera_x` and benchmark `phase`.
 These counters report successful NGX evaluations, not per-pixel rejection rates.
 
+The viewer sets both SessionParams and SceneParams to interactive mode and seeds
+the previous FOV/viewplane before the first frame. SceneParams otherwise defaults
+to background rendering: previous projection state is not advanced, and an XML
+camera whose FOV differs from the default can produce large motion vectors even
+when stationary. In Sponza at 512x512, the broken static motion had median absolute
+component 109.8 pixels and p99 214.3 pixels; the corrected motion was zero. Raw
+1-SPP input variability was unchanged, while warmed DLSS output temporal MAE
+fell from 2.423 to 0.055 display RGB units (0..255) across eight captured frames.
+This validates useful history accumulation, beyond merely counting NGX reuse.
+
+`scripts/test_dlss_temporal.py --ocio <config.ocio>` checks actual warmed static
+output pixels from deterministic runs ending at consecutive frame counts, then
+checks a camera sweep and cut. It requires the exported Sponza fixture. These
+capture runs measure image stability, not application performance; the final
+screenshot readback happens after the timed rendered frames.
+
 `--camera-sweep` uses 60 static frames, a 180-frame horizontal sinusoidal sweep
 (0.6 world-unit amplitude), then a static view. `--camera-cut-frame N` translates
 the camera by one world unit and resets history on frame N (zero-based).
