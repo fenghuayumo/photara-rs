@@ -53,6 +53,7 @@ class SessionParams {
    * sampling sequence fixed. Reference keeps the original update policy. */
   bool realtime_frame = false;
   bool use_neeat = false;
+  int nee_candidates = 1;
   bool reset_neeat = false;
 
   int samples;

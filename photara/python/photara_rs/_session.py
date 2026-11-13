@@ -959,6 +959,9 @@ class Session:
         """Enable the experimental RealTime global and screen-tile light proposal."""
         self._ctx.configure_neeat(bool(enabled))
 
+    def configure_nee_candidates(self, count=1):
+        self._ctx.configure_nee_candidates(int(count))
+
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select an experimental per-frame baseline; does not enable ReSTIR/GI cache.
 

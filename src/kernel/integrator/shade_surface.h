@@ -335,6 +335,7 @@ ccl_device
 
   LightSample ls ccl_optional_struct_init;
   int mnee_vertex_count = 0;  // NOLINT
+  float reservoir_correction = 1.0f;
 
 #ifdef __MNEE__
   if ((kernel_data.kernel_features & KERNEL_FEATURE_MNEE) &&
@@ -351,20 +352,50 @@ ccl_device
     const uint bounce = INTEGRATOR_STATE(state, path, bounce);
     const float3 rand_light = path_state_rng_3D(kg, rng_state, PRNG_LIGHT);
 
-    if (!light_sample_from_position(kg,
-                                    rand_light,
-                                    sd->time,
-                                    sd->P,
-                                    sd->N,
-                                    light_link_receiver_nee(kg, sd),
-                                    sd->runtime_flag,
-                                    bounce,
-                                    path_flag,
-                                    &ls,
-                                    INTEGRATOR_STATE(state, path, render_pixel_index)))
-    {
-      return SHADER_EVAL_EMPTY;
+    const int candidates = (kernel_data.kernel_features & KERNEL_FEATURE_MNEE) ?
+        1 : max(1, kernel_data.integrator.nee_candidates);
+    uint reservoir_rng = hash_uint3(INTEGRATOR_STATE(state, path, sample),
+        INTEGRATOR_STATE(state, path, render_pixel_index), bounce ^ 0x8a4f192bu);
+    float weight_sum = 0.0f, selected_weight = 0.0f;
+    for (int candidate_index = 0; candidate_index < candidates; ++candidate_index) {
+      LightSample candidate ccl_optional_struct_init;
+      const float3 candidate_random = candidate_index == 0 ? rand_light : lcg_step_float3(&reservoir_rng);
+      if (!light_sample_from_position(kg,
+                                      candidate_random,
+                                      sd->time,
+                                      sd->P,
+                                      sd->N,
+                                      light_link_receiver_nee(kg, sd),
+                                      sd->runtime_flag,
+                                      bounce,
+                                      path_flag,
+                                      &candidate,
+                                      INTEGRATOR_STATE(state, path, render_pixel_index)))
+      {
+        continue;
+      }
+      if (!(candidate.pdf > 0.0f) || !isfinite(candidate.pdf)) continue;
+      if (candidates == 1) { ls = candidate; selected_weight = 1.0f; break; }
+      BsdfEval proxy_bsdf ccl_optional_struct_init;
+      float proxy_roughness = 0.0f;
+      surface_shader_bsdf_eval(kg, state, sd, candidate.D, &proxy_bsdf, candidate.shader, proxy_roughness);
+      Spectrum proxy_radiance = one_spectrum();
+      if (!light_sample_shader_eval_nee_constant(kg, candidate.shader, candidate.prim,
+                                                 candidate.type != LIGHT_TRIANGLE, proxy_radiance)) {
+        proxy_radiance = one_spectrum();
+      }
+      const float estimate = average(fabs(bsdf_eval_sum(&proxy_bsdf) * proxy_radiance)) *
+          fabsf(candidate.eval_fac) / candidate.pdf;
+      const float weight = isfinite(estimate) ? clamp(estimate, 1e-12f, 1e15f) : 1.0f;
+      weight_sum += weight;
+      const float select_random = (lcg_step_uint(&reservoir_rng) >> 8) * (1.0f / 16777216.0f);
+      if (select_random * weight_sum < weight) {
+        ls = candidate;
+        selected_weight = weight;
+      }
     }
+    if (selected_weight == 0.0f) return SHADER_EVAL_EMPTY;
+    if (candidates > 1) reservoir_correction = weight_sum / (candidates * selected_weight);
   }
 
   kernel_assert(ls.pdf != 0.0f);
@@ -450,6 +481,12 @@ ccl_device
   }
 
   /* Branch off shadow kernel. */
+  /* Reservoir selects among ordinary MIS-weighted NEE estimators, then corrects
+   * the selection to their arithmetic mean. Keep base proposal PDFs for both
+   * NEE and forward BSDF-hit MIS; a conditional reservoir PDF is not a marginal
+   * light proposal and must NOT replace either of those PDFs. Failed candidates
+   * contribute zero but remain in the candidate-count denominator. */
+  bsdf_eval_mul(&bsdf_eval, reservoir_correction);
   IntegratorShadowState shadow_state = integrate_direct_light_shadow_init_common(
       kg,
       state,
@@ -459,7 +496,7 @@ ccl_device
       mnee_vertex_count,
       is_constant_light_shader);
 
-  if (kernel_data.integrator.neeat_count && ls.type != LIGHT_TRIANGLE) {
+  if (kernel_data.integrator.neeat_count) {
     INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, neeat_emitter) = ls.emitter_id;
   }
 

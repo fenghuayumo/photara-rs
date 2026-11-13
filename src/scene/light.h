@@ -19,6 +19,7 @@
 CCL_NAMESPACE_BEGIN
 
 class Device;
+class DeviceQueue;
 class DeviceScene;
 class Object;
 class Progress;
@@ -184,6 +185,8 @@ class BackgroundLight : public Light {
 };
 
 class LightManager {
+  unique_ptr<DeviceQueue> neeat_queue_;
+  Device *neeat_device_ = nullptr;
  public:
   enum : uint32_t {
     MESH_NEED_REBUILD = (1 << 0),
@@ -205,6 +208,8 @@ class LightManager {
   bool need_update_background;
 
   LightManager();
+  ~LightManager();
+  uint64_t neeat_gpu_updates = 0, neeat_cpu_updates = 0;
 
   /* IES texture management */
   int add_ies(const string &content, const bool log_parsing_error);

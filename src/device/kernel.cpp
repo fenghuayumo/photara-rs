@@ -191,6 +191,8 @@ const char *device_kernel_as_string(DeviceKernel kernel)
     case DEVICE_KERNEL_PREFIX_SUM:
       return "prefix_sum";
 
+    case DEVICE_KERNEL_NEEAT_UPDATE:
+      return "neeat_update";
     case DEVICE_KERNEL_NUM:
       break;
   };

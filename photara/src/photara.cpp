@@ -2235,6 +2235,7 @@ int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf)
     *lights = 0;
     *max_pdf = 0;
     auto &dscene = ctx->scene->dscene;
+    if (dscene.data.integrator.neeat_count) dscene.neeat_distribution.copy_from_device();
     for (int i = 0; i < dscene.data.integrator.neeat_count; ++i) {
       const float pdf = dscene.neeat_distribution[i].y;
       if (pdf > 0) ++*lights;
@@ -2249,10 +2250,13 @@ int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pd
     if (!tiles || !max_pdf) throw std::runtime_error("NULL NEE-AT stats output");
     auto &dscene = ctx->scene->dscene;
     const int count = dscene.data.integrator.neeat_count;
+    if (count) dscene.neeat_distribution.copy_from_device();
     *tiles = count ? dscene.data.integrator.neeat_local_count : 0;
     *max_pdf = 0;
-    for (size_t i = count; i < size_t(count) * (1 + *tiles); ++i) {
-      *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[i].y);
+    for (int table = 1; table <= *tiles; ++table) {
+      for (int i = 0; i < count; ++i) {
+        *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[table * (count + 1) + i].y);
+      }
     }
   });
 }
@@ -2275,6 +2279,23 @@ int photara_get_texture_lod(PhotaraContext *ctx, PhotaraTextureLOD *method)
   return guarded(ctx, [&]() {
     if (!method) throw std::runtime_error("NULL texture LOD output");
     *method = static_cast<PhotaraTextureLOD>(ctx->scene->integrator->get_texture_lod_method());
+  });
+}
+
+int photara_set_nee_candidates(PhotaraContext *ctx, const int count)
+{
+  return guarded(ctx, [&]() {
+    if (count < 1 || count > 16) throw std::runtime_error("NEE candidates must be in [1, 16]");
+    ctx->session_params.nee_candidates = count;
+  });
+}
+
+int photara_get_neeat_update_counts(PhotaraContext *ctx, uint64_t *gpu, uint64_t *cpu)
+{
+  return guarded(ctx, [&]() {
+    if (!gpu || !cpu) throw std::runtime_error("NULL NEE-AT update counts output");
+    *gpu = ctx->scene->light_manager->neeat_gpu_updates;
+    *cpu = ctx->scene->light_manager->neeat_cpu_updates;
   });
 }
 

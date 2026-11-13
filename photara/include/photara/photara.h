@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
+#include <stdint.h>
 
 #include <stddef.h>
 
@@ -350,6 +351,8 @@ PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
 /* Experimental temporal analytic-light proposal, RealTime only. Default on.
  * Mesh emitters retain tree sampling. Changing this resets feedback history. */
 PHOTARA_API int photara_set_neeat(PhotaraContext *ctx, int enabled);
+PHOTARA_API int photara_set_nee_candidates(PhotaraContext *ctx, int count);
+PHOTARA_API int photara_get_neeat_update_counts(PhotaraContext *ctx, uint64_t *gpu, uint64_t *cpu);
 /* Idle-context diagnostics: active analytic count and largest learned probability. */
 PHOTARA_API int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf);
 /* Screen-cache diagnostics; probabilities are measured before proposal mixing. */

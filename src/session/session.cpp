@@ -392,10 +392,13 @@ RenderWork Session::run_update_for_next_iteration()
     const bool screen_cache = !params.use_auto_tile && !params.use_resolution_divider &&
                               params.pixel_size == 1 && params.device.type != DEVICE_MULTI &&
                               buffer_params_.full_x == 0 && buffer_params_.full_y == 0;
+    scene->dscene.data.integrator.nee_candidates = params.realtime_frame ?
+        std::clamp(params.nee_candidates, 1, 16) : 1;
     scene->light_manager->update_neeat(device.get(), &scene->dscene,
                                      params.realtime_frame && params.use_neeat, params.reset_neeat,
                                      screen_cache ? buffer_params_.width : 0,
                                      screen_cache ? buffer_params_.height : 0);
+    device->const_copy_to("data", &scene->dscene.data, sizeof(scene->dscene.data));
   }
 
   /* Update buffers for new parameters. After scene update which influences the passes used. */

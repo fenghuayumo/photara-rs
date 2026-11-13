@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "device/device.h"
+#include "device/queue.h"
 
 #include "scene/background.h"
 #include "scene/film.h"
@@ -487,6 +488,8 @@ void Light::copy_to_kernel(KernelLight *klight,
 
 /* Light Manager */
 
+LightManager::~LightManager() = default;
+
 LightManager::LightManager()
 {
   update_flags = UPDATE_ALL;
@@ -786,10 +789,52 @@ void LightManager::update_neeat(Device *device,
   const int tiles_x = tile_size ? (screen_width + tile_size - 1) / tile_size : 0;
   const int tiles_y = tile_size ? (screen_height + tile_size - 1) / tile_size : 0;
   const int local_count = tiles_x * tiles_y;
-  const size_t entries = count * (1 + local_count);
+  const size_t entries = (count + 1) * (1 + local_count);
   const bool fresh = reset || dscene->neeat_distribution.size() != entries ||
                      !integrator.neeat_count || integrator.neeat_stride != screen_width ||
                      integrator.neeat_tile_size != tile_size || integrator.neeat_tiles_x != tiles_x;
+  /* Keep the CPU implementation as an explicit reference/fallback. */
+  const bool gpu = (device->info.type == DEVICE_OPTIX || device->info.type == DEVICE_CUDA) &&
+                   !getenv("PHOTARA_NEEAT_CPU");
+  if (gpu) {
+    if (fresh) {
+      dscene->neeat_distribution.alloc(entries);
+      std::fill_n(dscene->neeat_distribution.data(), entries, make_float2(0, 0));
+      /* Register the global array pointer once at allocation, not per frame. */
+      dscene->neeat_distribution.copy_to_device();
+      dscene->neeat_feedback.alloc(entries);
+      dscene->neeat_feedback.zero_to_device();
+    }
+    if (!neeat_queue_ || neeat_device_ != device) {
+      neeat_queue_ = device->gpu_queue_create();
+      neeat_device_ = device;
+    }
+    neeat_queue_->init_execution();
+    const int emitters = int(count), reset_tables = int(fresh);
+    int first = 0, tables = 1;
+    const auto dispatch = [&]() {
+      return neeat_queue_->enqueue(DEVICE_KERNEL_NEEAT_UPDATE, tables,
+          DeviceKernelArguments(&dscene->neeat_distribution.device_pointer,
+                                &dscene->neeat_feedback.device_pointer,
+                                &dscene->light_tree_emitters.device_pointer,
+                                &emitters, &analytic_count, &first, &tables, &reset_tables));
+    };
+    if (!dispatch()) return;
+    first = 1;
+    tables = local_count;
+    if (tables && !dispatch()) return;
+    if (!neeat_queue_->synchronize()) return;
+    ++neeat_gpu_updates;
+    integrator.neeat_count = emitters;
+    integrator.neeat_feedback = dscene->neeat_feedback.device_pointer;
+    integrator.neeat_stride = screen_width;
+    integrator.neeat_tile_size = tile_size;
+    integrator.neeat_tiles_x = tiles_x;
+    integrator.neeat_local_count = local_count;
+    device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
+    return;
+  }
+  if (!fresh) dscene->neeat_distribution.copy_from_device();
   auto *distribution = fresh ? dscene->neeat_distribution.alloc(entries) :
                                dscene->neeat_distribution.data();
   if (fresh) {
@@ -802,14 +847,22 @@ void LightManager::update_neeat(Device *device,
   // Update global first. Empty local tiles inherit its proposal rather than
   // retaining stale local preferences indefinitely after camera movement.
   for (int table = 0; table <= local_count; ++table) {
-    const size_t base = table * count;
-    double total = 0;
+    const size_t base = table * (count + 1);
+    double total = 0, mesh_total = 0;
     for (size_t i = 0; i < count; ++i) {
-      if (dscene->light_tree_emitters[i].light.id < 0) {
-        const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
-        if (std::isfinite(feedback) && feedback > 0) total += feedback;
+      const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
+      if (std::isfinite(feedback) && feedback > 0) {
+        if (dscene->light_tree_emitters[i].light.id < 0) total += feedback;
+        else mesh_total += feedback;
       }
     }
+    const float initial_share = size_t(analytic_count) == count ? 1.0f : 0.0f;
+    const float fallback_share = table ? distribution[count].x : initial_share;
+    const float target_share = total + mesh_total > 0 ?
+        float(total / (total + mesh_total)) : fallback_share;
+    const float share = fresh ? initial_share :
+        0.8f * distribution[base + count].x + 0.2f * target_share;
+    distribution[base + count] = make_float2(share, 0.75f * share);
     double cdf = 0;
     for (size_t i = 0; i < count; ++i) {
       float pdf = 0;
@@ -844,6 +897,7 @@ void LightManager::update_neeat(Device *device,
   }
   dscene->neeat_distribution.copy_to_device();
   dscene->neeat_feedback.zero_to_device();
+  ++neeat_cpu_updates;
   integrator.neeat_count = int(count);
   integrator.neeat_feedback = dscene->neeat_feedback.device_pointer;
   integrator.neeat_stride = screen_width;

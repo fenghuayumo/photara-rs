@@ -3,8 +3,9 @@
 
 CCL_NAMESPACE_BEGIN
 
-/* Table zero is global; subsequent tables correspond to screen tiles. All
- * probabilities remain frozen until the next finite realtime frame job. */
+/* Table zero is global; subsequent tables correspond to screen tiles. Each
+ * table has count emitter entries followed by (analytic share, feedback mix).
+ * All probabilities remain frozen until the next finite realtime frame job. */
 ccl_device_inline int neeat_table(KernelGlobals kg, const uint pixel)
 {
   const int stride = kernel_data.integrator.neeat_stride;
@@ -22,7 +23,18 @@ ccl_device_inline float neeat_pdf(KernelGlobals kg, const int emitter, const int
 {
   const int count = kernel_data.integrator.neeat_count;
   return emitter >= 0 && emitter < count ?
-             kernel_data_fetch(neeat_distribution, table * count + emitter).y : 0.0f;
+             kernel_data_fetch(neeat_distribution, table * (count + 1) + emitter).y : 0.0f;
+}
+
+ccl_device_inline float3 neeat_mixture_weights(KernelGlobals kg, const int table)
+{
+  const int count = kernel_data.integrator.neeat_count;
+  const float mix = kernel_data_fetch(neeat_distribution, table * (count + 1) + count).y;
+  const float tree = 1.0f - mix;
+  // Use the representable selection interval widths for MIS too, including
+  // tiny feedback shares that round away at the tree/global boundary.
+  const float global_end = table ? tree + mix / 3.0f : 1.0f;
+  return make_float3(tree, global_end - tree, 1.0f - global_end);
 }
 
 ccl_device_inline float neeat_mix_pdf(KernelGlobals kg,
@@ -34,8 +46,9 @@ ccl_device_inline float neeat_mix_pdf(KernelGlobals kg,
     return tree_pdf;
   }
   const int table = neeat_table(kg, pixel);
-  return 0.25f * tree_pdf + (table ? 0.25f : 0.75f) * neeat_pdf(kg, emitter) +
-         (table ? 0.5f * neeat_pdf(kg, emitter, table) : 0.0f);
+  const float3 weights = neeat_mixture_weights(kg, table);
+  return weights.x * tree_pdf + weights.y * neeat_pdf(kg, emitter) +
+         (table ? weights.z * neeat_pdf(kg, emitter, table) : 0.0f);
 }
 
 CCL_NAMESPACE_END

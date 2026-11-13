@@ -182,6 +182,7 @@ KERNEL_STRUCT_MEMBER(integrator, int, use_light_mis)
 KERNEL_STRUCT_MEMBER(integrator, int, use_light_tree)
 /* Frozen per-frame feedback proposal, separate from Reference light sampling. */
 KERNEL_STRUCT_MEMBER(integrator, int, neeat_count)
+KERNEL_STRUCT_MEMBER(integrator, int, nee_candidates)
 KERNEL_STRUCT_MEMBER(integrator, uint64_t, neeat_feedback)
 KERNEL_STRUCT_MEMBER(integrator, int, neeat_stride)
 KERNEL_STRUCT_MEMBER(integrator, int, neeat_tile_size)

@@ -1355,6 +1355,11 @@ class Scene:
         """Enable the experimental RealTime global and screen-tile light proposal."""
         self._session.configure_neeat(enabled)
 
+    def configure_nee_candidates(self, count=1):
+        """Set 1–16 surface NEE candidates; Reference retains one candidate."""
+        self._ensure_open()
+        self._session.configure_nee_candidates(count)
+
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select Reference or the experimental frame-scheduled RealTime baseline."""
         self._ensure_open()

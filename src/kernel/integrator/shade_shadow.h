@@ -312,7 +312,7 @@ ccl_device void integrator_shade_shadow(KernelGlobals kg,
             kg, INTEGRATOR_STATE(state, shadow_path, render_pixel_index));
         if (table) {
           atomic_add_and_fetch_float(
-              &feedback[table * kernel_data.integrator.neeat_count + emitter], weight);
+              &feedback[table * (kernel_data.integrator.neeat_count + 1) + emitter], weight);
         }
       }
     }

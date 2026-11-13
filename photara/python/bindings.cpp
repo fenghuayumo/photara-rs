@@ -686,6 +686,12 @@ class Context {
     }
     result["local_tiles"] = tiles;
     result["local_max_pdf"] = local_max_pdf;
+    uint64_t gpu_updates = 0, cpu_updates = 0;
+    if (photara_get_neeat_update_counts(context_, &gpu_updates, &cpu_updates) != 0) {
+      throw_last_error();
+    }
+    result["gpu_updates"] = gpu_updates;
+    result["cpu_updates"] = cpu_updates;
     return result;
   }
 
@@ -706,6 +712,10 @@ class Context {
   void configure_neeat(const bool enabled)
   {
     if (photara_set_neeat(context_, enabled) != 0) { throw_last_error(); }
+  }
+  void configure_nee_candidates(const int count)
+  {
+    if (photara_set_nee_candidates(context_, count) != 0) { throw_last_error(); }
   }
 
   void set_render_mode(const int mode, const int samples_per_frame)
@@ -1250,6 +1260,7 @@ PYBIND11_MODULE(_photara, module)
       .def("omm_stats", &Context::omm_stats)
       .def("neeat_stats", &Context::neeat_stats)
       .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
+      .def("configure_nee_candidates", &Context::configure_nee_candidates, py::arg("count"))
       .def("set_render_mode", &Context::set_render_mode,
            py::arg("mode"), py::arg("samples_per_frame"))
       .def("render_begin", &Context::render_begin)

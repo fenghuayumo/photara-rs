@@ -309,6 +309,7 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
 
   kintegrator->volume_ray_marching = volume_ray_marching;
   kintegrator->volume_max_steps = volume_max_steps;
+  kintegrator->nee_candidates = 1;
 
   kintegrator->caustics_reflective = caustics_reflective;
   kintegrator->caustics_refractive = caustics_refractive;
