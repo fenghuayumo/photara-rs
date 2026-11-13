@@ -24,6 +24,62 @@ def scene_fixture():
 
 
 class NEEATTests(unittest.TestCase):
+    def test_camera_motion_preserves_learned_proposal(self):
+        with scene_fixture() as scene:
+            scene.configure_render_mode("REALTIME", samples_per_frame=8)
+            for _ in range(24):
+                scene.render()
+            self.assertGreater(scene.neeat_stats()["max_pdf"], .6)
+            for i in range(8):
+                scene.camera.location = (.01 * (i + 1), 2, -3)
+                self.assertTrue(np.isfinite(scene.render().rgb).all())
+                self.assertGreater(scene.neeat_stats()["max_pdf"], .6)
+            # Explicit reconfiguration still invalidates the proposal.
+            scene.configure_render_mode("REALTIME", samples_per_frame=8)
+            scene.render()
+            self.assertAlmostEqual(scene.neeat_stats()["max_pdf"], 1 / 8, places=5)
+
+    def test_mesh_dominant_scene_keeps_tree_budget(self):
+        with pr.Scene(64, 64, samples=4096, max_bounces=2,
+                      denoise=False, adaptive_sampling=False) as scene:
+            scene.camera.location = (0, 2.4, -4)
+            scene.camera.target = (0, 0, 1)
+            scene.world.color = (0, 0, 0)
+            matte = scene.materials.new("floor", base_color=(.7, .7, .7), roughness=.8)
+            glow = scene.materials.new("glow", base_color=(0, 0, 0),
+                                       emission_color=(1, 1, 1), emission_strength=80)
+            for name, vertices, material in [
+                ("floor", [(-3, 0, -1), (-3, 0, 5), (3, 0, 5), (3, 0, -1)], matte),
+                ("emitter", [(-.25, 4, .75), (.25, 4, .75),
+                             (.25, 4, 1.25), (-.25, 4, 1.25)], glow),
+            ]:
+                mesh = scene.meshes.new(name, vertices, [(0, 1, 2), (0, 2, 3)],
+                                        material=material)
+                scene.objects.new(name, mesh)
+            weak = scene.lights.new_point("weak", position=(10, 10, 10), strength=.0001)
+            reference = scene.render().rgb.copy()
+            errors, cold_frames = [], []
+            for enabled in (False, True):
+                scene.configure_neeat(enabled)
+                scene.configure_render_mode("REALTIME", samples_per_frame=1)
+                cold_frames.append(scene.render_async().wait(poll_interval=.001).rgb.copy())
+                for _ in range(31):
+                    scene.render_async().wait(poll_interval=.001)
+                frames = np.asarray([scene.render_async().wait(poll_interval=.001).rgb.copy()
+                                     for _ in range(128)])
+                self.assertTrue(np.isfinite(frames).all())
+                self.assertLess(abs(float(frames.mean() / reference.mean()) - 1), .03)
+                errors.append(float(np.mean((frames - reference) ** 2)))
+            self.assertLess(errors[1], 1.3 * errors[0])
+            np.testing.assert_allclose(cold_frames[0], cold_frames[1], rtol=1e-5, atol=1e-6)
+            self.assertEqual(scene.neeat_stats()["active_lights"], 1)
+            # A real lighting change must still reset and learn an analytic
+            # proposal, rather than permanently disabling NEE-AT for all meshes.
+            weak.location = (0, 2, 1)
+            weak.strength = 100
+            for _ in range(16):
+                self.assertTrue(np.isfinite(scene.render().rgb).all())
+
     def test_learning_energy_reset_and_reference_isolation(self):
         with scene_fixture() as scene:
             reference = scene.render().rgb.copy()
