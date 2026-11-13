@@ -36,6 +36,8 @@ struct DenoiseTemporalHistory {
   std::vector<int> geometry;
   /* DLSS retains opaque GPU history in its persistent denoiser. */
   bool reset = true;
+  /* Successful DLSS evaluations, useful for interactive history diagnostics. */
+  uint64_t dlss_frames = 0, dlss_resets = 0, dlss_reuses = 0;
 };
 
 bool use_optix_denoiser(Device *denoiser_device, const DenoiseParams &params);

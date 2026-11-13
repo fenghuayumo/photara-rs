@@ -479,6 +479,9 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
     last_history_ = temporal_history;
     if (temporal_history) {
       temporal_history->reset = false;
+      ++temporal_history->dlss_frames;
+      if (reset) ++temporal_history->dlss_resets;
+      else ++temporal_history->dlss_reuses;
       LOG_INFO << "DLSS animation denoising: " << (reset ? "reset history" : "reuse history");
       LOG_INFO << "DLSS render resolution: " << buffer.width << "x" << buffer.height << " -> "
                << context.denoised_buffer_params.width << "x"

@@ -193,6 +193,12 @@ struct Viewer {
   uint64_t title_updates = 0, rendered_frames_presented = 0;
   bool completed_frame_pending = false;
   bool reset_frame_history = true;
+  bool dlss = false, camera_sweep = false, reset_temporal = true;
+  bool submitted_temporal_reset = true;
+  int camera_cut_frame = -1;
+  float sweep_base_x = 0.0f;
+  std::shared_ptr<DenoiseTemporalHistory> dlss_history;
+  uint64_t submitted_dlss_frames = 0;
   struct PendingFrame {
     int index = 0, samples = 0;
     bool realtime = true;
@@ -259,9 +265,29 @@ struct Viewer {
     original_camera = scene->camera->get_matrix();
     scene->integrator->set_use_adaptive_sampling(false);
     scene->integrator->set_use_denoise(false);
+    if (dlss) {
+      if (!(params.device.denoisers & DENOISER_DLSS)) {
+        throw std::runtime_error("DLSS Ray Reconstruction is unavailable on this device/build");
+      }
+      scene->integrator->set_use_denoise(true);
+      scene->integrator->set_denoiser_type(DENOISER_DLSS);
+      scene->integrator->set_denoiser_passes(
+          DENOISER_PASS_ALBEDO | DENOISER_PASS_SPECULAR_ALBEDO | DENOISER_PASS_NORMAL |
+          DENOISER_PASS_ROUGHNESS | DENOISER_PASS_DEPTH | DENOISER_PASS_BACKWARD_MOTION |
+          DENOISER_PASS_SPECULAR_MOTION);
+      scene->integrator->set_denoise_start_sample(1);
+      scene->integrator->set_denoiser_upscale_factor(1.0f);
+      scene->integrator->set_use_pixel_jitter(true);
+      dlss_history = std::make_shared<DenoiseTemporalHistory>();
+      session->set_denoise_temporal_history(dlss_history);
+      array<Transform> motion;
+      motion.push_back_slow(original_camera);
+      scene->camera->set_motion(motion);
+    }
     auto *pass = scene->create_node<Pass>();
     pass->set_name(ustring("combined"));
     pass->set_type(PASS_COMBINED);
+    if (dlss) pass->set_mode(PassMode::DENOISED);
     buffers.width = buffers.full_width = size;
     buffers.height = buffers.full_height = size;
     frames.configure(spp);
@@ -272,7 +298,7 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses\n";
     }
   }
 
@@ -295,11 +321,12 @@ struct Viewer {
     char text[512];
     std::snprintf(text,
                   sizeof(text),
-                  "Photara Viewer | %s | %d spp/frame | %u history spp | %.1f ms worker+GPU display | %s | "
+                  "Photara Viewer | %s | %d spp/frame | %u %s | %.1f ms worker+GPU display | %s | "
                   "1 RT / 2 Ref | +/- spp | Space pause | WASD/QE move | R reset | F12 BMP",
-                  realtime ? "RealTime baseline" : "Reference",
+                  dlss ? "RealTime DLSS RR" : (realtime ? "RealTime baseline" : "Reference"),
                   realtime ? spp : reference_samples,
                   presenter.history_samples(),
+                  dlss ? "display spp (DLSS owns history)" : "history spp",
                   last_ms,
                   paused ? "Paused" : (!running && !dirty && !realtime ? "Complete" : "Running"));
     SetWindowTextA(window, text);
@@ -355,6 +382,11 @@ struct Viewer {
               << rendered_frames_presented << ',' << submit_ms - frame.observed_ms << ','
               << presenter.history_samples() << ','
               << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentation_clock).count()
+              << ',' << dlss << ',' << submitted_temporal_reset << ',' << camera_offset.x << ','
+              << (camera_sweep && frame.index >= 60 && frame.index < 240 ? "motion" : "static")
+              << ',' << (dlss_history ? dlss_history->dlss_frames : 0)
+              << ',' << (dlss_history ? dlss_history->dlss_resets : 0)
+              << ',' << (dlss_history ? dlss_history->dlss_reuses : 0)
               << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
@@ -383,6 +415,9 @@ struct Viewer {
                                      session->device->error_message());
       }
       if (!dirty && !closing && !session->progress.get_cancel()) {
+        if (dlss_history && dlss_history->dlss_frames <= submitted_dlss_frames) {
+          throw std::runtime_error("Frame completed without a successful DLSS RR evaluation");
+        }
         if (!display->updates) {
           throw std::runtime_error("Render finished without a GPU display update");
         }
@@ -398,17 +433,20 @@ struct Viewer {
                          last_ms,
                          started};
         completed_frame_pending = true;
-        presenter.completed_frame(reset_frame_history, realtime ? spp : reference_samples);
+        // DLSS owns temporal reprojection/rejection; never average its output again.
+        presenter.completed_frame(dlss || reset_frame_history, realtime ? spp : reference_samples);
         present_pending = true;
         ++completed;
         try_present();
         // Optional deterministic stress sequence for mode/resize/ownership tests.
         if (smoke_cycle) {
           if (completed == 8 || completed == 24) {
+            reset_temporal = true;
             realtime = false;
             restart();
           }
           if (completed == 9 || completed == 25) {
+            reset_temporal = true;
             realtime = true;
             restart();
           }
@@ -445,12 +483,33 @@ struct Viewer {
       return;
     }
     auto *scene = session->scene.get();
+    if (camera_sweep) {
+      const float offset = sweep_base_x + ((completed >= 60 && completed < 240) ?
+          0.6f * std::sin(float(completed - 60) * 2.0f * 3.14159265f / 180.0f) : 0.0f);
+      if (camera_offset.x != offset) {
+        camera_offset.x = offset;
+        dirty = true;
+      }
+    }
+    if (completed == camera_cut_frame) {
+      camera_offset.x += 1.0f;
+      sweep_base_x += 1.0f;
+      dirty = true;
+      reset_temporal = true;
+    }
     if (dirty) {
       scene->camera->set_matrix(transform_translate(camera_offset) * original_camera);
       scene->camera->need_flags_update = true;
     }
     SessionParams frame = params;
     reset_frame_history = dirty || !realtime;
+    if (dlss_history) {
+      // Camera-only movement keeps valid history; explicit cuts/mode changes reset it.
+      dlss_history->reset = reset_temporal || !realtime;
+      submitted_dlss_frames = dlss_history->dlss_frames;
+    }
+    submitted_temporal_reset = reset_temporal || !realtime;
+    reset_temporal = false;
     frame.samples = realtime ? frames.sample_period : reference_samples;
     frame.realtime_frame = realtime;
     frame.use_neeat = use_neeat;
@@ -470,6 +529,7 @@ struct Viewer {
     }
     running = true;
     dirty = false;
+    // Keep the submitted reset flag until its frame has been reported.
   }
 };
 
@@ -502,9 +562,11 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
             PostMessage(hwnd, WM_CLOSE, 0, 0);
             return 0;
           case '1':
+            v.reset_temporal = true;
             v.realtime = true;
             break;
           case '2':
+            v.reset_temporal = true;
             v.realtime = false;
             break;
           case VK_SPACE:
@@ -513,10 +575,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
             return 0;
           case VK_OEM_PLUS:
           case VK_ADD:
+            if (v.dlss) return 0;
+            v.reset_temporal = true;
             v.spp = std::min(64, v.spp * 2);
             break;
           case VK_OEM_MINUS:
           case VK_SUBTRACT:
+            if (v.dlss) return 0;
+            v.reset_temporal = true;
             v.spp = std::max(1, v.spp / 2);
             break;
           case 'A':
@@ -538,6 +604,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
             v.camera_offset.y += .1f;
             break;
           case 'R':
+            v.reset_temporal = true;
             v.camera_offset = make_float3(0, 0, 0);
             break;
           case VK_F12:
@@ -615,6 +682,22 @@ int main(int argc, char **argv)
       else if (arg == "--spp") {
         app.spp = std::stoi(value());
       }
+      else if (arg == "--denoiser") {
+        const string denoiser = value();
+        if (denoiser != "NONE" && denoiser != "DLSS") {
+          throw std::runtime_error("Viewer denoiser must be NONE or DLSS");
+        }
+        app.dlss = denoiser == "DLSS";
+      }
+      else if (arg == "--camera-sweep") {
+        app.camera_sweep = true;
+      }
+      else if (arg == "--camera-cut-frame") {
+        app.camera_cut_frame = std::stoi(value());
+      }
+      else if (arg == "--camera-x") {
+        app.camera_offset.x = std::stof(value());
+      }
       else if (arg == "--reference-samples") {
         app.reference_samples = std::stoi(value());
       }
@@ -664,6 +747,9 @@ int main(int argc, char **argv)
         (app.smoke_cycle && (!app.realtime || app.smoke_frames < 26)))
     {
       throw std::runtime_error("Invalid size, sample budget or smoke frame count");
+    }
+    if (app.dlss && app.spp != 1) {
+      throw std::runtime_error("DLSS realtime viewer currently requires --spp 1");
     }
     app.initialize();
     WNDCLASSA wc = {};
