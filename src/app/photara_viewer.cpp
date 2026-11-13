@@ -192,6 +192,7 @@ struct Viewer {
   double last_ms = 0;
   uint64_t title_updates = 0, rendered_frames_presented = 0;
   bool completed_frame_pending = false;
+  bool reset_frame_history = true;
   struct PendingFrame {
     int index = 0, samples = 0;
     bool realtime = true;
@@ -204,6 +205,7 @@ struct Viewer {
   string scene_path = "examples/scene_cornell_box.xml";
   string screenshot = "viewer_capture.bmp";
   std::chrono::steady_clock::time_point started;
+  const std::chrono::steady_clock::time_point presentation_clock = std::chrono::steady_clock::now();
   HWND window = nullptr;
 
   ~Viewer()
@@ -270,7 +272,7 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms\n";
     }
   }
 
@@ -293,10 +295,11 @@ struct Viewer {
     char text[512];
     std::snprintf(text,
                   sizeof(text),
-                  "Photara Viewer | %s | %d spp | %.1f ms worker+GPU display | %s | "
+                  "Photara Viewer | %s | %d spp/frame | %u history spp | %.1f ms worker+GPU display | %s | "
                   "1 RT / 2 Ref | +/- spp | Space pause | WASD/QE move | R reset | F12 BMP",
                   realtime ? "RealTime baseline" : "Reference",
                   realtime ? spp : reference_samples,
+                  presenter.history_samples(),
                   last_ms,
                   paused ? "Paused" : (!running && !dirty && !realtime ? "Complete" : "Running"));
     SetWindowTextA(window, text);
@@ -349,7 +352,10 @@ struct Viewer {
               << frame.samples << ',' << frame.observed_ms << ',' << frame.worker_ms << ",0,"
               << presenter.present_attempts << ',' << presenter.presented_frames << ','
               << presenter.surface_queries << ',' << title_updates << ','
-              << rendered_frames_presented << ',' << submit_ms - frame.observed_ms << '\n';
+              << rendered_frames_presented << ',' << submit_ms - frame.observed_ms << ','
+              << presenter.history_samples() << ','
+              << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentation_clock).count()
+              << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
       }
@@ -392,6 +398,7 @@ struct Viewer {
                          last_ms,
                          started};
         completed_frame_pending = true;
+        presenter.completed_frame(reset_frame_history, realtime ? spp : reference_samples);
         present_pending = true;
         ++completed;
         try_present();
@@ -443,6 +450,7 @@ struct Viewer {
       scene->camera->need_flags_update = true;
     }
     SessionParams frame = params;
+    reset_frame_history = dirty || !realtime;
     frame.samples = realtime ? frames.sample_period : reference_samples;
     frame.realtime_frame = realtime;
     frame.use_neeat = use_neeat;

@@ -1,0 +1,19 @@
+#version 450
+layout(local_size_x=256) in;
+layout(set=0,binding=0,std430) buffer Pixels { uvec2 pixels[]; };
+layout(set=0,binding=1,std430) buffer History { vec4 history[]; };
+layout(push_constant) uniform Parameters { uint size; uint old_samples; uint new_samples; } parameters;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= parameters.size * parameters.size) return;
+  uvec2 bits = pixels[i];
+  vec4 current = vec4(unpackHalf2x16(bits.x), unpackHalf2x16(bits.y));
+  // Branch explicitly: uninitialized history must never participate in frame 1.
+  vec4 result = current;
+  if (parameters.old_samples != 0) {
+    float weight = float(parameters.new_samples) / float(parameters.old_samples + parameters.new_samples);
+    result = mix(history[i], current, weight);
+  }
+  history[i] = result;
+  pixels[i] = uvec2(packHalf2x16(result.xy), packHalf2x16(result.zw));
+}

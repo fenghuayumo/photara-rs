@@ -102,7 +102,7 @@ if(WITH_CYCLES_STANDALONE)
     target_link_libraries(photara_viewer PRIVATE ${LIB} user32 winmm
       "${CMAKE_SOURCE_DIR}/lib/windows_x64/vulkan/lib/vulkan-1.lib")
     find_program(PHOTARA_GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
-    foreach(stage vert frag)
+    foreach(stage vert frag comp)
       set(shader "${CMAKE_CURRENT_BINARY_DIR}/shaders/viewer.${stage}.spv")
       add_custom_command(OUTPUT "${shader}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"

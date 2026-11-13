@@ -55,3 +55,13 @@ redundant device update and sampling-table rebuild. Existing device dirtiness
 Pixel-jitter/DLSS frames keep the original update path so jitter still advances.
 Reference keeps its original subset update behavior. Each submitted job still
 resets its film; the viewer still presents each accepted completed frame.
+
+The Vulkan standalone viewer now adds a separate FP32 GPU radiance history.
+Each completed RealTime frame contributes its sample budget to a running mean
+before tone mapping; `--spp 1` still traces just one new sample per pixel per
+frame. Camera edits, sample-budget edits and mode switches reset history.
+Swapchain redraws do not add samples. CSV metrics expose `history_samples` and
+`present_timestamp_ms` for checking accumulation and actual presentation-submission
+cadence. This is static-view progressive accumulation: camera motion discards
+history; motion-vector reprojection/disocclusion rejection is not implemented.
+The Python API's per-job film behavior is unchanged.

@@ -24,6 +24,12 @@ class ViewerPresenter {
   uint32_t family_ = 0, size_ = 0;
   HWND window_ = nullptr;
   VkBuffer buffer_ = VK_NULL_HANDLE;
+  VkBuffer history_ = VK_NULL_HANDLE;
+  VkDeviceMemory history_memory_ = VK_NULL_HANDLE;
+  VkPipeline accumulation_ = VK_NULL_HANDLE;
+  VkPipelineLayout accumulation_layout_ = VK_NULL_HANDLE;
+  uint32_t history_samples_ = 0, frame_samples_ = 1;
+  bool new_frame_ = false;
   VkDeviceMemory memory_ = VK_NULL_HANDLE;
   VkDeviceSize allocation_ = 0;
   VkSwapchainKHR swap_ = VK_NULL_HANDLE;
@@ -197,6 +203,13 @@ class ViewerPresenter {
   }
 
  public:
+  void completed_frame(bool reset, uint32_t samples)
+  {
+    if (reset) history_samples_ = 0;
+    frame_samples_ = samples;
+    new_frame_ = true;
+  }
+  uint32_t history_samples() const { return history_samples_; }
   void request_resize()
   {
     resized_ = true;
@@ -235,6 +248,14 @@ class ViewerPresenter {
       destroy_swap();
       if (pipeline_)
         vkDestroyPipeline(device_, pipeline_, nullptr);
+      if (accumulation_)
+        vkDestroyPipeline(device_, accumulation_, nullptr);
+      if (accumulation_layout_)
+        vkDestroyPipelineLayout(device_, accumulation_layout_, nullptr);
+      if (history_)
+        vkDestroyBuffer(device_, history_, nullptr);
+      if (history_memory_)
+        vkFreeMemory(device_, history_memory_, nullptr);
       if (layout_)
         vkDestroyPipelineLayout(device_, layout_, nullptr);
       if (descriptors_)
@@ -353,13 +374,25 @@ class ViewerPresenter {
     allocation_ = requirements.size;
     check(vkAllocateMemory(device_, &allocate, nullptr, &memory_));
     check(vkBindBufferMemory(device_, buffer_, memory_, 0));
-    VkDescriptorSetLayoutBinding binding = {
-        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    VkBufferCreateInfo history_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    history_info.size = VkDeviceSize(size) * size * 16;
+    history_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    check(vkCreateBuffer(device_, &history_info, nullptr, &history_));
+    VkMemoryRequirements history_requirements;
+    vkGetBufferMemoryRequirements(device_, history_, &history_requirements);
+    VkMemoryAllocateInfo history_allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    history_allocate.allocationSize = history_requirements.size;
+    history_allocate.memoryTypeIndex = memory_type(history_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    check(vkAllocateMemory(device_, &history_allocate, nullptr, &history_memory_));
+    check(vkBindBufferMemory(device_, history_, history_memory_, 0));
+    VkDescriptorSetLayoutBinding binding[] = {
+        {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
     VkDescriptorSetLayoutCreateInfo set = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    set.bindingCount = 1;
-    set.pBindings = &binding;
+    set.bindingCount = 2;
+    set.pBindings = binding;
     check(vkCreateDescriptorSetLayout(device_, &set, nullptr, &set_layout_));
-    VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+    VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
     VkDescriptorPoolCreateInfo descriptors = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptors.maxSets = 1;
     descriptors.poolSizeCount = 1;
@@ -377,6 +410,27 @@ class ViewerPresenter {
     write.descriptorCount = 1;
     write.pBufferInfo = &buffer_info;
     vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    VkDescriptorBufferInfo history_descriptor = {history_, 0, history_info.size};
+    write.dstBinding = 1;
+    write.pBufferInfo = &history_descriptor;
+    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    VkPushConstantRange accumulation_constants = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 12};
+    VkPipelineLayoutCreateInfo accumulation_layout = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    accumulation_layout.setLayoutCount = 1;
+    accumulation_layout.pSetLayouts = &set_layout_;
+    accumulation_layout.pushConstantRangeCount = 1;
+    accumulation_layout.pPushConstantRanges = &accumulation_constants;
+    check(vkCreatePipelineLayout(device_, &accumulation_layout, nullptr, &accumulation_layout_));
+    VkShaderModule compute_shader = shader("shaders/viewer.comp.spv");
+    VkComputePipelineCreateInfo compute = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    compute.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    compute.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    compute.stage.module = compute_shader;
+    compute.stage.pName = "main";
+    compute.layout = accumulation_layout_;
+    const VkResult compute_result = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &compute, nullptr, &accumulation_);
+    vkDestroyShaderModule(device_, compute_shader, nullptr);
+    check(compute_result);
     check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &count, nullptr));
     std::vector<VkSurfaceFormatKHR> formats(count);
     check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &count, formats.data()));
@@ -516,7 +570,27 @@ class ViewerPresenter {
     if (result != VK_SUBOPTIMAL_KHR)
       check(result);
     begin();
-    ownership(true);
+    ownership(true, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    if (new_frame_) {
+      VkMemoryBarrier history_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      history_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      history_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(command_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &history_barrier, 0, nullptr, 0, nullptr);
+      const uint32_t constants[] = {size_, history_samples_, frame_samples_};
+      vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, accumulation_);
+      vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, accumulation_layout_, 0, 1, &set_, 0, nullptr);
+      vkCmdPushConstants(command_, accumulation_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), constants);
+      vkCmdDispatch(command_, (size_ * size_ + 255) / 256, 1, 1);
+      VkMemoryBarrier display_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      display_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      display_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      vkCmdPipelineBarrier(command_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &display_barrier, 0, nullptr, 0, nullptr);
+      history_samples_ = std::min(history_samples_ + frame_samples_, uint32_t(1 << 24));
+      new_frame_ = false;
+    }
     VkClearValue clear = {};
     clear.color.float32[3] = 1;
     VkRenderPassBeginInfo pass = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -538,7 +612,8 @@ class ViewerPresenter {
     vkCmdPushConstants(command_, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4, &size_);
     vkCmdDraw(command_, 3, 1, 0, 0);
     vkCmdEndRenderPass(command_);
-    ownership(false);
+    ownership(false, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     check(vkEndCommandBuffer(command_));
     check(vkResetFences(device_, 1, &fence_));
     const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
