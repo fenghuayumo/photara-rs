@@ -22,6 +22,7 @@
 #include "device/device.h"
 #include "realtime/frame_scheduler.h"
 #include "scene/camera.h"
+#include "scene/film.h"
 #include "scene/integrator.h"
 #include "scene/pass.h"
 #include "scene/scene.h"
@@ -195,6 +196,7 @@ struct Viewer {
   bool reset_frame_history = true;
   bool dlss = false, camera_sweep = false, reset_temporal = true;
   bool submitted_temporal_reset = true;
+  bool stable_mirror_guide = false;
   int camera_cut_frame = -1;
   float sweep_base_x = 0.0f;
   std::shared_ptr<DenoiseTemporalHistory> dlss_history;
@@ -284,6 +286,9 @@ struct Viewer {
       motion.push_back_slow(original_camera);
       scene->camera->set_motion(motion);
     }
+    if (stable_mirror_guide && !dlss) {
+      throw std::runtime_error("--stable-mirror-guide requires --denoiser DLSS");
+    }
     auto *pass = scene->create_node<Pass>();
     pass->set_name(ustring("combined"));
     pass->set_type(PASS_COMBINED);
@@ -298,7 +303,7 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide\n";
     }
   }
 
@@ -387,6 +392,7 @@ struct Viewer {
               << ',' << (dlss_history ? dlss_history->dlss_frames : 0)
               << ',' << (dlss_history ? dlss_history->dlss_resets : 0)
               << ',' << (dlss_history ? dlss_history->dlss_reuses : 0)
+              << ',' << (stable_mirror_guide && frame.realtime && frame.samples == 1)
               << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
@@ -502,6 +508,7 @@ struct Viewer {
       scene->camera->need_flags_update = true;
     }
     SessionParams frame = params;
+    scene->film->set_denoising_stable_mirror_guide(stable_mirror_guide && realtime && spp == 1);
     reset_frame_history = dirty || !realtime;
     if (dlss_history) {
       // Camera-only movement keeps valid history; explicit cuts/mode changes reset it.
@@ -691,6 +698,9 @@ int main(int argc, char **argv)
       }
       else if (arg == "--camera-sweep") {
         app.camera_sweep = true;
+      }
+      else if (arg == "--stable-mirror-guide") {
+        app.stable_mirror_guide = true;
       }
       else if (arg == "--camera-cut-frame") {
         app.camera_cut_frame = std::stoi(value());

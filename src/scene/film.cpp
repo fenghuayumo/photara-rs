@@ -124,6 +124,7 @@ NODE_DEFINE(Film)
   SOCKET_BOOLEAN(use_sample_count, "Use Sample Count Pass", false);
 
   SOCKET_BOOLEAN(denoising_pass_follow_reflections, "Denoising Pass Reflections", true);
+  SOCKET_BOOLEAN(denoising_stable_mirror_guide, "Stable Mirror Guide", false);
   SOCKET_BOOLEAN(denoising_pass_use_albedo_roughness_weighting,
                  "Denoising Pass Albedo Roughness Weighting",
                  true);
@@ -478,6 +479,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
 
   /* denoiser pass parameters */
   kfilm->denoising_pass_options_flag = 0;
+  if (denoising_stable_mirror_guide) {
+    kfilm->denoising_pass_options_flag |= DENOISING_PASS_STABLE_MIRROR_GUIDE;
+  }
   if (denoising_pass_follow_reflections) {
     kfilm->denoising_pass_options_flag |= DENOISING_PASS_FOLLOW_REFLECTIONS;
   }

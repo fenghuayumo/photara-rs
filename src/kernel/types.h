@@ -306,6 +306,8 @@ enum PathRayFlag : uint32_t {
 
   /* Path has associated wavelength. */
   PATH_RAY_SPECTRAL = (1U << 27U),
+  /* Eligible primary flat, static, pure mirror for the single guide-plane prototype. */
+  PATH_RAY_STABLE_MIRROR_GUIDE = (1U << 28U),
 };
 
 // 8bit enum, just in case we need to move more variables in it
@@ -493,6 +495,7 @@ enum DenoisingPassFlag {
   DENOISING_PASS_FOLLOW_REFLECTIONS = (1 << 0),
   /* Whether to use roughness-based weighting for the albedo or split by the BSDF type. */
   DENOISING_PASS_USE_ALBEDO_ROUGHNESS_WEIGHTING = (1 << 1),
+  DENOISING_PASS_STABLE_MIRROR_GUIDE = (1 << 2),
 };
 
 /* Closure Filter */
