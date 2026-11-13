@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "device/queue.h"
+#include "device/device.h"
 
 #include "integrator/pass_accessor_gpu.h"
 
@@ -13,8 +14,9 @@ CCL_NAMESPACE_BEGIN
 PassAccessorGPU::PassAccessorGPU(DeviceQueue *queue,
                                  const PassAccessInfo &pass_access_info,
                                  const float exposure,
-                                 const int num_samples)
-    : PassAccessor(pass_access_info, exposure, num_samples), queue_(queue)
+                                     const int num_samples,
+                                     const char *timing_stage)
+    : PassAccessor(pass_access_info, exposure, num_samples), queue_(queue), timing_stage_(timing_stage)
 {
 }
 
@@ -42,6 +44,7 @@ void PassAccessorGPU::run_film_convert_kernels(DeviceKernel kernel,
                      buffer_params.window_y * buffer_params.stride * buffer_params.pass_stride;
 
   queue_->init_execution();
+  GPUTimeScope timing(queue_->device, timing_stage_, queue_->native_queue());
   if (destination.d_pixels) {
     DCHECK_EQ(destination.stride, 0) << "Custom stride for float destination is not implemented.";
 
@@ -74,6 +77,7 @@ void PassAccessorGPU::run_film_convert_kernels(DeviceKernel kernel,
     queue_->enqueue(kernel_half_float, work_size, args);
   }
 
+  timing.finish();
   queue_->synchronize();
 }
 

@@ -18,7 +18,8 @@ class PassAccessorGPU : public PassAccessor {
   PassAccessorGPU(DeviceQueue *queue,
                   const PassAccessInfo &pass_access_info,
                   const float exposure,
-                  int num_samples);
+                  int num_samples,
+                  const char *timing_stage = nullptr);
 
  protected:
   void run_film_convert_kernels(DeviceKernel kernel,
@@ -54,6 +55,7 @@ class PassAccessorGPU : public PassAccessor {
 #undef DECLARE_PASS_ACCESSOR
 
   DeviceQueue *queue_;
+  const char *timing_stage_;
 };
 
 CCL_NAMESPACE_END

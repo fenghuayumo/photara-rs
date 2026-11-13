@@ -395,6 +395,7 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
                                       const int samples_num,
                                       const int sample_offset)
 {
+  GPUTimeScope timing(device_, "path_trace", queue_->native_queue());
   /* Limit number of states for the tile and rely on a greedy scheduling of tiles. This allows to
    * add more work (because tiles are smaller, so there is higher chance that more paths will
    * become busy after adding new tiles). This is especially important for the shadow catcher which
@@ -1185,7 +1186,8 @@ void PathTraceWorkGPU::get_render_tile_film_pixels(const PassAccessor::Destinati
                                                     effective_denoised_buffer_params_ :
                                                     effective_buffer_params_;
 
-  const PassAccessorGPU pass_accessor(queue_.get(), pass_access_info, kfilm.exposure, num_samples);
+  const PassAccessorGPU pass_accessor(queue_.get(), pass_access_info, kfilm.exposure, num_samples,
+                                      "film_convert");
 
   pass_accessor.get_render_tile_pixels(buffers_.get(), effective_buffer_params, destination);
 }

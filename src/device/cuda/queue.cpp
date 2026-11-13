@@ -12,6 +12,7 @@
 
 #  include "kernel/device/gpu/block_sizes.h"
 #  include "util/debug.h"
+#  include "util/time.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -72,7 +73,12 @@ void CUDADeviceQueue::init_execution()
    * here to ensure all scene data is copied. */
   CUDAContextScope scope(cuda_device_);
   cuda_device_->load_image_info(nullptr);
+  const double wait_start = device->gpu_timing_enabled ? time_dt() : 0;
   cuda_device_assert(cuda_device_, cuCtxSynchronize());
+  if (device->gpu_timing_enabled) {
+    const thread_scoped_lock lock(cuda_device_->timing_mutex_);
+    device->gpu_queue_wait_host_ms += (time_dt() - wait_start) * 1000.0;
+  }
 
   debug_init_execution();
 }
@@ -160,7 +166,12 @@ bool CUDADeviceQueue::synchronize()
   }
 
   const CUDAContextScope scope(cuda_device_);
+  const double wait_start = device->gpu_timing_enabled ? time_dt() : 0;
   assert_success(cuStreamSynchronize(cuda_stream_), "synchronize");
+  if (device->gpu_timing_enabled) {
+    const thread_scoped_lock lock(cuda_device_->timing_mutex_);
+    device->gpu_queue_wait_host_ms += (time_dt() - wait_start) * 1000.0;
+  }
 
   debug_synchronize();
 

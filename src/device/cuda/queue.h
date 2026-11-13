@@ -43,6 +43,7 @@ class CUDADeviceQueue : public DeviceQueue {
   {
     return cuda_stream_;
   }
+  void *native_queue() override { return cuda_stream_; }
 
   unique_ptr<DeviceGraphicsInterop> graphics_interop_create() override;
 

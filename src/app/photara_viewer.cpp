@@ -188,6 +188,7 @@ struct Viewer {
   bool realtime = true, paused = false, dirty = true, running = false;
   bool closing = false, dragging = false;
   bool smoke_cycle = false;
+  bool gpu_timings = false;
   bool use_neeat = true;
   int texture_lod_override = -1;
   int mouse_x = 0, mouse_y = 0;
@@ -212,6 +213,9 @@ struct Viewer {
     bool realtime = true;
     double observed_ms = 0, worker_ms = 0;
     std::chrono::steady_clock::time_point submitted;
+    std::map<string, double> gpu_ms;
+    double scene_host_ms = 0;
+    double queue_wait_host_ms = 0, display_wait_host_ms = 0;
   } pending_frame;
   std::chrono::steady_clock::time_point last_title;
   std::ofstream metrics;
@@ -257,6 +261,8 @@ struct Viewer {
     scene_params.auto_texture_cache = true;
     scene_params.texture_cache_path = "photara_tx";
     session = make_unique<Session>(params, scene_params);
+    session->device->gpu_timing_enabled = gpu_timings;
+    presenter.gpu_timing_enabled = gpu_timings;
     if (!path_exists(scene_path)) {
       scene_path = path_get(scene_path);
     }
@@ -307,13 +313,14 @@ struct Viewer {
     buffers.height = buffers.full_height = size;
     frames.configure(spp);
     if (!metrics_path.empty()) {
+      path_create_directories(metrics_path);
       metrics.open(metrics_path);
       if (!metrics) {
         throw std::runtime_error("Cannot open metrics output");
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset,gpu_timing_enabled,scene_update_host_ms,neeat_gpu_ms,path_trace_gpu_ms,denoise_total_gpu_ms,dlss_evaluate_gpu_ms,film_convert_gpu_ms,display_gpu_frame,display_gpu_ms,gpu_queue_wait_host_ms,display_reader_wait_host_ms\n";
     }
   }
 
@@ -417,7 +424,22 @@ struct Viewer {
               << ',' << (stable_mirror_guide && frame.realtime && frame.samples == 1)
               << ',' << submitted_neeat_reset
               << ',' << submitted_sample_offset
-              << '\n';
+              << ',' << gpu_timings << ',';
+      if (gpu_timings) metrics << frame.scene_host_ms;
+      for (const char *stage : {"neeat", "path_trace", "denoise_total", "dlss_evaluate", "film_convert"}) {
+        metrics << ',';
+        const auto it = frame.gpu_ms.find(stage);
+        if (it != frame.gpu_ms.end()) metrics << it->second;
+      }
+      metrics << ',';
+      if (gpu_timings && presenter.gpu_display_frame >= 0) metrics << presenter.gpu_display_frame;
+      metrics << ',';
+      if (gpu_timings && presenter.gpu_display_ms >= 0) metrics << presenter.gpu_display_ms;
+      metrics << ',';
+      if (gpu_timings) metrics << frame.queue_wait_host_ms;
+      metrics << ',';
+      if (gpu_timings) metrics << frame.display_wait_host_ms;
+      metrics << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
       }
@@ -462,9 +484,16 @@ struct Viewer {
                          observed_ms,
                          last_ms,
                          started};
+        if (gpu_timings) {
+          pending_frame.gpu_ms = session->device->gpu_timing_read();
+          pending_frame.scene_host_ms = session->device->scene_update_host_ms;
+          pending_frame.queue_wait_host_ms = session->device->gpu_queue_wait_host_ms;
+          pending_frame.display_wait_host_ms = presenter.reader_wait_host_ms;
+        }
         completed_frame_pending = true;
         // DLSS owns temporal reprojection/rejection; never average its output again.
-        presenter.completed_frame(dlss || reset_frame_history, realtime ? spp : reference_samples);
+        presenter.completed_frame(dlss || reset_frame_history, realtime ? spp : reference_samples,
+                                  pending_frame.index);
         present_pending = true;
         ++completed;
         try_present();
@@ -538,6 +567,11 @@ struct Viewer {
       scene->camera->need_flags_update = true;
     }
     SessionParams frame = params;
+    if (gpu_timings) {
+      session->device->gpu_timing_reset();
+      session->device->scene_update_host_ms = 0;
+      presenter.reader_wait_host_ms = 0;
+    }
     scene->film->set_denoising_stable_mirror_guide(stable_mirror_guide && realtime && spp == 1);
     reset_frame_history = dirty || !realtime;
     if (dlss_history) {
@@ -741,6 +775,9 @@ int main(int argc, char **argv)
       else if (arg == "--camera-sweep") {
         app.camera_sweep = true;
       }
+      else if (arg == "--gpu-timings") {
+        app.gpu_timings = true;
+      }
       else if (arg == "--stable-mirror-guide") {
         app.stable_mirror_guide = true;
       }
@@ -802,6 +839,9 @@ int main(int argc, char **argv)
     }
     if (app.dlss && app.spp != 1) {
       throw std::runtime_error("DLSS realtime viewer currently requires --spp 1");
+    }
+    if (app.gpu_timings && app.metrics_path.empty()) {
+      app.metrics_path = "test_outputs/viewer_gpu_timings.csv";
     }
     app.initialize();
     WNDCLASSA wc = {};

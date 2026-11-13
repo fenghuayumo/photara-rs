@@ -47,6 +47,18 @@ class CUDADevice : public GPUDevice {
   CUDADevice(const DeviceInfo &info, Stats &stats, Profiler &profiler, bool headless);
 
   ~CUDADevice() override;
+  struct TimingSpan {
+    string name;
+    CUevent start = nullptr, end = nullptr;
+    CUstream stream = nullptr;
+    bool ended = false;
+  };
+  thread_mutex timing_mutex_;
+  vector<TimingSpan> timing_spans_;
+  size_t gpu_timing_begin(const char *name, void *stream = nullptr) override;
+  void gpu_timing_end(size_t token) override;
+  void gpu_timing_reset() override;
+  std::map<string, double> gpu_timing_read() override;
 
   bool support_device(const uint64_t kernel_features);
 

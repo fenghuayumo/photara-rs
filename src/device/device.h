@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <functional>
+#include <map>
 
 #include "bvh/params.h"
 
@@ -172,6 +173,14 @@ class Device {
   virtual void mem_free_sub_ptr(device_ptr /*ptr*/){};
 
  public:
+  /* Opt-in frame timeline spans, resolved only after render completion. */
+  bool gpu_timing_enabled = false;
+  double scene_update_host_ms = 0.0;
+  double gpu_queue_wait_host_ms = 0.0;
+  virtual size_t gpu_timing_begin(const char *, void * = nullptr) { return 0; }
+  virtual void gpu_timing_end(size_t) {}
+  virtual void gpu_timing_reset() {}
+  virtual std::map<string, double> gpu_timing_read() { return {}; }
   /* noexcept needed to silence TBB warning. */
   virtual ~Device() noexcept(false);
 
@@ -398,6 +407,18 @@ class Device {
 };
 
 /* Device, which is GPU, with some common functionality for GPU back-ends. */
+class GPUTimeScope {
+  Device *device_;
+  size_t token_;
+ public:
+  GPUTimeScope(Device *device, const char *stage, void *stream = nullptr)
+      : device_(device), token_(device->gpu_timing_enabled && stage ? device->gpu_timing_begin(stage, stream) : 0) {}
+  void finish() { if (token_) { device_->gpu_timing_end(token_); token_ = 0; } }
+  ~GPUTimeScope() { finish(); }
+  GPUTimeScope(const GPUTimeScope &) = delete;
+  GPUTimeScope &operator=(const GPUTimeScope &) = delete;
+};
+
 class GPUDevice : public Device {
  protected:
   GPUDevice(const DeviceInfo &info_, Stats &stats_, Profiler &profiler_, bool headless_)

@@ -810,6 +810,7 @@ void LightManager::update_neeat(Device *device,
       neeat_device_ = device;
     }
     neeat_queue_->init_execution();
+    GPUTimeScope timing(device, "neeat", neeat_queue_->native_queue());
     const int emitters = int(count), reset_tables = int(fresh);
     int first = 0, tables = 1;
     const auto dispatch = [&]() {

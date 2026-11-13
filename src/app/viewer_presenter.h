@@ -3,6 +3,7 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "util/path.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -51,6 +52,25 @@ class ViewerPresenter {
   std::vector<VkSemaphore> presented_;
   std::vector<uint8_t> uuid_;
   bool resized_ = true;
+  VkQueryPool timing_pool_ = VK_NULL_HANDLE;
+  double timestamp_period_ = 0;
+  uint32_t timestamp_bits_ = 0;
+  bool timing_pending_ = false;
+  int64_t timing_frame_ = -1;
+  int64_t render_frame_ = -1;
+
+  void collect_gpu_timing()
+  {
+    if (!timing_pending_) return;
+    uint64_t ticks[2] = {};
+    check(vkGetQueryPoolResults(device_, timing_pool_, 0, 2, sizeof(ticks), ticks,
+                               sizeof(uint64_t), VK_QUERY_RESULT_64_BIT));
+    const uint64_t mask = timestamp_bits_ == 64 ? UINT64_MAX :
+        (uint64_t(1) << timestamp_bits_) - 1;
+    gpu_display_ms = double((ticks[1] - ticks[0]) & mask) * timestamp_period_ / 1000000.0;
+    gpu_display_frame = timing_frame_;
+    timing_pending_ = false;
+  }
 
   static void check(VkResult r)
   {
@@ -203,8 +223,13 @@ class ViewerPresenter {
   }
 
  public:
-  void completed_frame(bool reset, uint32_t samples)
+  bool gpu_timing_enabled = false;
+  double gpu_display_ms = -1;
+  int64_t gpu_display_frame = -1;
+  double reader_wait_host_ms = 0;
+  void completed_frame(bool reset, uint32_t samples, int64_t frame = -1)
   {
+    render_frame_ = frame;
     if (reset) history_samples_ = 0;
     frame_samples_ = samples;
     new_frame_ = true;
@@ -226,7 +251,12 @@ class ViewerPresenter {
   }
   void wait_for_reader()
   {
+    const auto start = gpu_timing_enabled ? std::chrono::steady_clock::now() :
+                                           std::chrono::steady_clock::time_point{};
     check(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX));
+    if (gpu_timing_enabled) reader_wait_host_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+    collect_gpu_timing();
   }
   HANDLE export_handle()
   {
@@ -245,6 +275,7 @@ class ViewerPresenter {
   {
     if (device_) {
       vkDeviceWaitIdle(device_);
+      if (timing_pool_) vkDestroyQueryPool(device_, timing_pool_, nullptr);
       destroy_swap();
       if (pipeline_)
         vkDestroyPipeline(device_, pipeline_, nullptr);
@@ -320,6 +351,8 @@ class ViewerPresenter {
         if (supported && (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
           physical_ = physical;
           family_ = i;
+          timestamp_period_ = props.properties.limits.timestampPeriod;
+          timestamp_bits_ = families[i].timestampValidBits;
           uuid_.assign(id.deviceUUID, id.deviceUUID + VK_UUID_SIZE);
           break;
         }
@@ -539,6 +572,13 @@ class ViewerPresenter {
     check(vkCreateFence(device_, &fence, nullptr, &fence_));
     VkSemaphoreCreateInfo semaphore = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     check(vkCreateSemaphore(device_, &semaphore, nullptr, &acquired_));
+    if (gpu_timing_enabled) {
+      if (!timestamp_bits_) throw std::runtime_error("Vulkan queue does not support GPU timestamps");
+      VkQueryPoolCreateInfo query = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+      query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+      query.queryCount = 2;
+      check(vkCreateQueryPool(device_, &query, nullptr, &timing_pool_));
+    }
     resize();
     // Establish external ownership before CUDA's first write.
     begin();
@@ -557,6 +597,7 @@ class ViewerPresenter {
     std::unique_lock<std::mutex> lock(interop_mutex, std::try_to_lock);
     if (!lock.owns_lock() || IsIconic(window) || vkGetFenceStatus(device_, fence_) == VK_NOT_READY)
       return false;
+    collect_gpu_timing();
     if (!resize())
       return false;
     uint32_t index;
@@ -570,6 +611,10 @@ class ViewerPresenter {
     if (result != VK_SUBOPTIMAL_KHR)
       check(result);
     begin();
+    if (timing_pool_) {
+      vkCmdResetQueryPool(command_, timing_pool_, 0, 2);
+      vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool_, 0);
+    }
     ownership(true, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     if (new_frame_) {
@@ -614,6 +659,7 @@ class ViewerPresenter {
     vkCmdEndRenderPass(command_);
     ownership(false, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    if (timing_pool_) vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool_, 1);
     check(vkEndCommandBuffer(command_));
     check(vkResetFences(device_, 1, &fence_));
     const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -626,6 +672,10 @@ class ViewerPresenter {
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &presented_[index];
     check(vkQueueSubmit(queue_, 1, &submit, fence_));
+    if (timing_pool_) {
+      timing_pending_ = true;
+      timing_frame_ = render_frame_;
+    }
     VkPresentInfoKHR info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     info.waitSemaphoreCount = 1;
     info.pWaitSemaphores = &presented_[index];

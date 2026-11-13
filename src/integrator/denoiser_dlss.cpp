@@ -233,6 +233,11 @@ bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
   }
 
   /* Input params (with resolution divider applied). */
+  /* Bind NGX to the same stream as guide/color conversion, as in the SDK's
+   * CUDA DLSSD creation helper. Timing events then bracket actual evaluation
+   * work, rather than only submission on an unrelated default stream. */
+  params->Set(NVSDK_NGX_Parameter_Input1, static_cast<void *>(cuda_device->cuContext));
+  params->Set(NVSDK_NGX_Parameter_Input2, denoiser_queue_->native_queue());
   params->Set(NVSDK_NGX_Parameter_Width, context.buffer_params.width);
   params->Set(NVSDK_NGX_Parameter_Height, context.buffer_params.height);
   /* Output params. */
@@ -469,7 +474,11 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
 
   params->Set(NVSDK_NGX_Parameter_DLSS_Indicator_Invert_Y_Axis, 1);
 
-  const NVSDK_NGX_Result result = NVSDK_NGX_CUDA_EvaluateFeature(handle_, params, nullptr);
+  NVSDK_NGX_Result result;
+  {
+    GPUTimeScope timing(denoiser_device_, "dlss_evaluate", denoiser_queue_->native_queue());
+    result = NVSDK_NGX_CUDA_EvaluateFeature(handle_, params, nullptr);
+  }
 
   NVSDK_NGX_CUDA_DestroyParameters(params);
 

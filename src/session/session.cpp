@@ -385,7 +385,11 @@ RenderWork Session::run_update_for_next_iteration()
   const bool reset_buffers = delayed_reset_buffer_params();
 
   /* Update scene */
+  const double scene_update_start = time_dt();
   const bool reset_scene = update_scene(delayed_reset_.do_reset);
+  if (device->gpu_timing_enabled) {
+    device->scene_update_host_ms += (time_dt() - scene_update_start) * 1000.0;
+  }
   if (reset_buffers) {
     /* Pixel indices match the full screen only for an untiled, unscaled,
      * single-device buffer. Other configurations retain global feedback. */

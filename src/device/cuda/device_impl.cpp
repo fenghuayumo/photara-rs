@@ -144,6 +144,7 @@ CUDADevice::CUDADevice(const DeviceInfo &info, Stats &stats, Profiler &profiler,
 
 CUDADevice::~CUDADevice()
 {
+  gpu_timing_reset();
   image_info.free();
   if (cuModule) {
     cuda_assert(cuModuleUnload(cuModule));
@@ -1168,6 +1169,63 @@ int CUDADevice::get_device_default_attribute(CUdevice_attribute attribute, const
     return default_value;
   }
   return value;
+}
+
+size_t CUDADevice::gpu_timing_begin(const char *name, void *stream)
+{
+  if (!gpu_timing_enabled) return 0;
+  const CUDAContextScope scope(this);
+  const thread_scoped_lock lock(timing_mutex_);
+  TimingSpan span;
+  span.name = name;
+  span.stream = static_cast<CUstream>(stream);
+  cuda_assert(cuEventCreate(&span.start, CU_EVENT_DEFAULT));
+  cuda_assert(cuEventCreate(&span.end, CU_EVENT_DEFAULT));
+  cuda_assert(cuEventRecord(span.start, span.stream));
+  timing_spans_.push_back(span);
+  return timing_spans_.size();
+}
+
+void CUDADevice::gpu_timing_end(size_t token)
+{
+  const CUDAContextScope scope(this);
+  const thread_scoped_lock lock(timing_mutex_);
+  if (!token || token > timing_spans_.size()) return;
+  auto &span = timing_spans_[token - 1];
+  cuda_assert(cuEventRecord(span.end, span.stream));
+  span.ended = true;
+}
+
+void CUDADevice::gpu_timing_reset()
+{
+  const thread_scoped_lock lock(timing_mutex_);
+  gpu_queue_wait_host_ms = 0;
+  if (timing_spans_.empty()) return;
+  const CUDAContextScope scope(this);
+  for (auto &span : timing_spans_) {
+    if (span.start) cuEventDestroy(span.start);
+    if (span.end) cuEventDestroy(span.end);
+  }
+  timing_spans_.clear();
+}
+
+std::map<string, double> CUDADevice::gpu_timing_read()
+{
+  const CUDAContextScope scope(this);
+  const thread_scoped_lock lock(timing_mutex_);
+  std::map<string, double> result;
+  vector<string> incomplete;
+  for (const auto &span : timing_spans_) {
+    if (!span.ended || cuEventQuery(span.end) != CUDA_SUCCESS) {
+      incomplete.push_back(span.name);
+      continue;
+    }
+    float ms = 0;
+    cuda_assert(cuEventElapsedTime(&ms, span.start, span.end));
+    result[span.name] += ms;
+  }
+  for (const auto &name : incomplete) result.erase(name);
+  return result;
 }
 
 CCL_NAMESPACE_END

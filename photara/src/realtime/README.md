@@ -66,6 +66,54 @@ cadence. This is static-view progressive accumulation: camera motion discards
 history; motion-vector reprojection/disocclusion rejection is not implemented.
 The Python API's per-job film behavior is unchanged.
 
+## Viewer stage timing
+
+Add `--gpu-timings --metrics test_outputs/timing.csv` to a viewer command to
+record CUDA/OptiX event spans and Vulkan display timestamps. Without an explicit
+metrics path, timing mode writes `test_outputs/viewer_gpu_timings.csv`. Timing
+is opt-in; disabled frames leave stage columns empty instead of reporting zero.
+No per-kernel synchronization or pixel readback is added by timing mode.
+
+The CSV adds `scene_update_host_ms` (CPU wall time), `neeat_gpu_ms`,
+`path_trace_gpu_ms`, `denoise_total_gpu_ms`, `dlss_evaluate_gpu_ms`, and
+`film_convert_gpu_ms`. CUDA event spans follow each stage's actual stream;
+NGX is explicitly bound to the denoiser's conversion stream, with evaluation
+events recorded on that same stream. These are elapsed timeline spans,
+including host submission gaps, not sums of kernel busy time. DLSS evaluation
+is nested inside denoise total, which also includes guides, conversion and
+postprocessing: do not add these two columns. Unsupported, disabled or
+not-yet-complete stages are empty. Multiple spans in a completed frame are summed.
+
+Vulkan accumulation, tone mapping and drawing are measured together in
+`display_gpu_ms`. Query results are collected at existing fence completion
+points without an additional wait. `display_gpu_frame` identifies the source
+rendered frame; it is normally one frame older than its CSV row. Resize redraws
+retain the source frame ID. This measures GPU display work, not monitor scanout
+or presentation latency. The final frame's query may not appear in the CSV.
+
+`gpu_queue_wait_host_ms` measures explicit CUDA queue initialization/synchronization
+waits on the CPU, while `display_reader_wait_host_ms` measures existing Vulkan
+reader-fence waits before CUDA writes. They overlap GPU work and must not be
+added to GPU spans. Existing `observed_ms`, `worker_to_gpu_display_ms`,
+`present_backpressure_ms` and presentation timestamps remain separate CPU metrics.
+Scene updates can use several streams and include CPU BVH/driver work, so they
+are deliberately reported as host wall time rather than a misleading GPU total.
+
+`python scripts/summarize_gpu_timings.py test_outputs/timing.csv --warmup 32`
+reports sample count, mean, P50 and P95 per stage and mode/motion phase, excluding
+startup and cross-phase presentation intervals. It attributes delayed display
+queries by frame ID and counts a source frame once. Timed and untimed runs should
+be compared to assess instrumentation overhead; these statistics are not a
+general FPS guarantee. `scripts/test_gpu_timings.py` checks opt-in behavior,
+image parity, disabled/CPU-fallback stages and delayed Vulkan query attribution.
+
+For example (with the usual OCIO environment and exported Sponza XML):
+
+```powershell
+install/photara_viewer.exe --size 1080 --spp 1 --denoiser DLSS --gpu-timings --smoke-frames 160 --metrics test_outputs/sponza_timing.csv test_outputs/sponza_viewer/sponza.xml
+python scripts/summarize_gpu_timings.py test_outputs/sponza_timing.csv --warmup 32 --output test_outputs/sponza_timing_summary.json
+```
+
 ## Viewer DLSS Ray Reconstruction
 
 Viewer WASD/QE navigation integrates held-key state at 2 world units/second,

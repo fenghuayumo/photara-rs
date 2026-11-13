@@ -42,6 +42,7 @@ bool DenoiserGPU::denoise_buffer(const BufferParams &buffer_params,
   }
 
   RenderBuffers local_render_buffers(denoiser_device);
+  GPUTimeScope timing(denoiser_device, "denoise_total", denoiser_queue_->native_queue());
   bool local_buffer_used = false;
 
   if (denoiser_device == render_buffers->buffer.device) {
