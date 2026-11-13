@@ -68,6 +68,14 @@ The Python API's per-job film behavior is unchanged.
 
 ## Viewer DLSS Ray Reconstruction
 
+Viewer WASD/QE navigation integrates held-key state at 2 world units/second,
+normalizing diagonal movement. Keyboard and mouse deltas are applied between
+completed frames without cancelling the current render or restarting sample
+subsets. Focus loss releases held keys; pause/minimize time is not accumulated
+into a large movement on return. Explicit mode/budget/reset controls retain
+their render-restart behavior. `scripts/test_viewer_navigation.bat` checks the
+navigation policy at different update rates, repeats, diagonals and pause/release.
+
 `install/photara_viewer.exe --denoiser DLSS --spp 1 --size 1080 scene.xml`
 enables the existing core DLSS RR path at native trace/output resolution. The
 default remains `--denoiser NONE`. DLSS mode requires one new sample per frame

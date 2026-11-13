@@ -21,6 +21,7 @@
 #include "app/viewer_presenter.h"
 #include "device/device.h"
 #include "realtime/frame_scheduler.h"
+#include "realtime/navigation.h"
 #include "scene/camera.h"
 #include "scene/film.h"
 #include "scene/integrator.h"
@@ -178,6 +179,8 @@ struct Viewer {
   photara::realtime::FrameScheduler frames;
   Transform original_camera;
   float3 camera_offset = make_float3(0, 0, 0);
+  float3 pending_camera_delta = make_float3(0, 0, 0);
+  photara::realtime::Navigation navigation;
   std::vector<unsigned char> bgra;
   bool have_image = false;
   ViewerPresenter presenter;
@@ -325,6 +328,14 @@ struct Viewer {
     if (running) {
       session->request_cancel();
     }
+  }
+
+  void sample_navigation()
+  {
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto delta = navigation.advance(now, !paused && !IsIconic(window));
+    pending_camera_delta += make_float3(delta[0], delta[1], delta[2]);
   }
 
   void title(bool force = true)
@@ -498,6 +509,12 @@ struct Viewer {
     if (present_pending) {
       return;
     }
+    sample_navigation();
+    if (pending_camera_delta != make_float3(0, 0, 0)) {
+      camera_offset += pending_camera_delta;
+      pending_camera_delta = make_float3(0, 0, 0);
+      dirty = true;
+    }
     if (paused || IsIconic(window) || (!realtime && !dirty)) {
       return;
     }
@@ -581,7 +598,26 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
       case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
-      case WM_KEYDOWN:
+      case WM_KILLFOCUS:
+        v.sample_navigation();
+        v.navigation.held.fill(false);
+        v.dragging = false;
+        if (GetCapture() == hwnd) ReleaseCapture();
+        return 0;
+      case WM_KEYUP:
+      case WM_KEYDOWN: {
+        const char *keys = "ADWSQE";
+        for (int i = 0; i < 6; ++i) {
+          if (key == WPARAM(keys[i])) {
+            v.sample_navigation();
+            v.navigation.held[i] = message == WM_KEYDOWN;
+            return 0;
+          }
+        }
+        if (message == WM_KEYUP) return 0;
+        // Toggle controls should not repeat when a key is held.
+        if (data & (LPARAM(1) << 30)) return 0;
+      }
         switch (key) {
           case VK_ESCAPE:
             PostMessage(hwnd, WM_CLOSE, 0, 0);
@@ -595,6 +631,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
             v.realtime = false;
             break;
           case VK_SPACE:
+            v.sample_navigation();
             v.paused = !v.paused;
             v.title();
             return 0;
@@ -610,27 +647,10 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
             v.reset_temporal = true;
             v.spp = std::max(1, v.spp / 2);
             break;
-          case 'A':
-            v.camera_offset.x -= .1f;
-            break;
-          case 'D':
-            v.camera_offset.x += .1f;
-            break;
-          case 'W':
-            v.camera_offset.z += .1f;
-            break;
-          case 'S':
-            v.camera_offset.z -= .1f;
-            break;
-          case 'Q':
-            v.camera_offset.y -= .1f;
-            break;
-          case 'E':
-            v.camera_offset.y += .1f;
-            break;
           case 'R':
             v.reset_temporal = true;
             v.camera_offset = make_float3(0, 0, 0);
+            v.pending_camera_delta = make_float3(0, 0, 0);
             break;
           case VK_F12:
             v.save();
@@ -657,11 +677,10 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
       case WM_MOUSEMOVE:
         if (v.dragging) {
           const int x = GET_X_LPARAM(data), y = GET_Y_LPARAM(data);
-          v.camera_offset.x -= float(x - v.mouse_x) * .005f;
-          v.camera_offset.y += float(y - v.mouse_y) * .005f;
+          v.pending_camera_delta.x -= float(x - v.mouse_x) * .005f;
+          v.pending_camera_delta.y += float(y - v.mouse_y) * .005f;
           v.mouse_x = x;
           v.mouse_y = y;
-          v.restart();
         }
         return 0;
       case WM_ERASEBKGND:
@@ -824,7 +843,8 @@ int main(int argc, char **argv)
     const HANDLE completed = app.completion->event();
     app.tick();
     while (!quit) {
-      const DWORD timeout = app.present_pending && !IsIconic(app.window) ? 2 : INFINITE;
+      const DWORD timeout = app.present_pending && !IsIconic(app.window) ? 2 :
+          (!app.running && !app.paused && !IsIconic(app.window) && app.navigation.active() ? 8 : INFINITE);
       const DWORD result = MsgWaitForMultipleObjectsEx(
           1, &completed, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
       if (result == WAIT_FAILED) {
