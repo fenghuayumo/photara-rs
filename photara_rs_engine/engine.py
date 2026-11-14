@@ -124,6 +124,11 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     # Final render
     # ------------------------------------------------------------------
 
+    def draw(self, context, depsgraph):
+        if self._native:
+            from . import native_engine
+            native_engine.draw(self, depsgraph, context.space_data)
+
     def update(self, data, depsgraph):
         if self._native:
             from . import native_backend, native_engine
