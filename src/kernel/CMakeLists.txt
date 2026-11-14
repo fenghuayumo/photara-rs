@@ -184,6 +184,7 @@ set(SRC_KERNEL_FILM_HEADERS
 )
 
 set(SRC_KERNEL_INTEGRATOR_HEADERS
+  integrator/stable_plane_guides.h
   integrator/displacement_shader.h
   integrator/init_from_bake.h
   integrator/init_from_camera.h

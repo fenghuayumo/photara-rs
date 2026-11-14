@@ -855,6 +855,10 @@ uint64_t Film::get_kernel_features(const Scene *scene) const
     }
   }
 
+  if (denoising_stable_mirror_guide && denoising_pass_follow_reflections &&
+      (kernel_features & KERNEL_FEATURE_DENOISING)) {
+    kernel_features |= KERNEL_FEATURE_NODE_RAYTRACE | KERNEL_FEATURE_STABLE_PLANE_GUIDES;
+  }
   return kernel_features;
 }
 

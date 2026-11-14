@@ -759,6 +759,10 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
       group_descs[PG_CALL_SVM_BEVEL].callables.moduleDC = shader_raytrace_module;
       group_descs[PG_CALL_SVM_BEVEL].callables.entryFunctionNameDC =
           "__direct_callable__svm_node_bevel";
+      group_descs[PG_CALL_STABLE_GUIDE].kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;
+      group_descs[PG_CALL_STABLE_GUIDE].callables.moduleCC = shader_raytrace_module;
+      group_descs[PG_CALL_STABLE_GUIDE].callables.entryFunctionNameCC =
+          "__continuation_callable__stable_guide_shader_eval";
     }
   }
 
@@ -881,6 +885,7 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
       pipeline_groups.push_back(groups[PG_RGEN_SHADE_SURFACE_RAYTRACE]);
       pipeline_groups.push_back(groups[PG_CALL_SVM_AO]);
       pipeline_groups.push_back(groups[PG_CALL_SVM_BEVEL]);
+      pipeline_groups.push_back(groups[PG_CALL_STABLE_GUIDE]);
     }
     if (use_mnee) {
       pipeline_groups.push_back(groups[PG_RGEN_INTERSECT_MNEE]);
@@ -904,12 +909,12 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
     const unsigned int css = std::max(stack_size[PG_RGEN_SHADE_SURFACE_RAYTRACE].cssRG,
                                       stack_size[PG_RGEN_INTERSECT_MNEE].cssRG) +
                              link_options.maxTraceDepth * trace_css;
-    const unsigned int dss = std::max(stack_size[PG_CALL_SVM_AO].dssDC,
-                                      stack_size[PG_CALL_SVM_BEVEL].dssDC);
+    const unsigned int dss = std::max(stack_size[PG_CALL_SVM_AO].dssDC, stack_size[PG_CALL_SVM_BEVEL].dssDC);
 
     /* Set stack size depending on pipeline options. */
     optix_assert(optixPipelineSetStackSize(
-        pipelines[PIP_SHADE], 0, dss, css, pipeline_options.usesMotionBlur ? 3 : 2));
+        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_GUIDE].cssCC,
+        pipeline_options.usesMotionBlur ? 3 : 2));
   }
 
   { /* Create intersection-only pipeline. */
@@ -1225,6 +1230,9 @@ bool OptiXDevice::load_osl_kernels()
     if (groups[PG_CALL_SVM_BEVEL] != nullptr) {
       pipeline_groups.push_back(groups[PG_CALL_SVM_BEVEL]);
     }
+    if (groups[PG_CALL_STABLE_GUIDE] != nullptr) {
+      pipeline_groups.push_back(groups[PG_CALL_STABLE_GUIDE]);
+    }
     if (groups[PG_RGEN_INTERSECT_MNEE] != nullptr) {
       pipeline_groups.push_back(groups[PG_RGEN_INTERSECT_MNEE]);
     }
@@ -1283,14 +1291,14 @@ bool OptiXDevice::load_osl_kernels()
     const unsigned int css = std::max(stack_size[PG_RGEN_SHADE_SURFACE_RAYTRACE].cssRG,
                                       stack_size[PG_RGEN_INTERSECT_MNEE].cssRG) +
                              link_options.maxTraceDepth * trace_css;
-    unsigned int dss = std::max(stack_size[PG_CALL_SVM_AO].dssDC,
-                                stack_size[PG_CALL_SVM_BEVEL].dssDC);
+    unsigned int dss = std::max(stack_size[PG_CALL_SVM_AO].dssDC, stack_size[PG_CALL_SVM_BEVEL].dssDC);
     for (unsigned int i = 0; i < osl_stack_size.size(); ++i) {
       dss = std::max(dss, osl_stack_size[i].dssDC);
     }
 
     optix_assert(optixPipelineSetStackSize(
-        pipelines[PIP_SHADE], 0, dss, css, pipeline_options.usesMotionBlur ? 3 : 2));
+        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_GUIDE].cssCC,
+        pipeline_options.usesMotionBlur ? 3 : 2));
   }
 
   /* Copy colorsystem data from OSL to the device. */

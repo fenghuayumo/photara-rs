@@ -173,32 +173,70 @@ moving and cut snapshots alongside 256-SPP references. It requires the XML from
 This benchmark covers static geometry with camera motion; moving geometry and
 animated lighting are not validated by it.
 
-## Experimental single mirror guide plane
+## Experimental deterministic stable-plane guides
 
-`--denoiser DLSS --spp 1 --stable-mirror-guide` opts into a first stable-surface
-guide experiment in the standalone viewer. This is not RTXPT's multi-plane
-radiance decomposition. It does not split or change the sampled radiance paths.
+`--denoiser DLSS --spp 1 --stable-planes` enables deterministic delta-tree
+reconstruction guides in the standalone viewer. `--stable-mirror-guide` remains
+an alias. The internal film socket retains its previous name for compatibility.
+Reference jobs disable the option.
 
-The eligible primary surface must be a flat-shaded, static, unbumped, pure
-zero-roughness reflector. If the next hit is a fully diffuse-feature surface,
-the shader reflects that hit's position and normal into the mirror's virtual
-image and writes a consistent camera-space depth, normal and backward motion
-(including previous-depth delta), plus the target plane's roughness and specular
-albedo. Specular motion retains the existing virtual
-reflection projection. This avoids combining primary-surface backward motion
-with secondary-surface features for this restricted case. The option is disabled
-for Reference jobs, which can accumulate multiple samples in one film.
+The guide trace enumerates reflection and transmission lobes of a pure, flat,
+static, unbumped, zero-roughness GGX/Beckmann mirror or dielectric. It uses physical
+Fresnel lobe weights, including total internal reflection, rather than the
+radiance path's randomly sampled branch. It follows consecutive eligible surfaces
+up to 15 vertices and retains at most three leaves. When the leaf budget is
+exhausted the current surface becomes a guide plane. Normals and target motion
+are transformed back through the accumulated image transform. Reflection uses a
+mirror transform; refraction uses a local rotation approximation, as in RTXPT,
+rather than an exact refractive Jacobian.
 
-Rough or mixed reflectors, glass/refraction, smooth/curved reflectors, moving
-reflectors, multiple reflection bounces and sky hits retain the original guides.
-The flat-shading check assumes a locally planar reflector; it does not prove that
-the entire object is a single plane. Mirror edges still rely on DLSS rejection.
-No separate per-plane history, path-branch identifier, refraction reconnection or
-multi-plane compositing is implemented yet. The option remains off by default
-until scene-specific A/B validation establishes a benefit.
+The dominant leaf supplies depth and backward motion including previous-depth
+delta. Material normals, roughness and albedos are blended by deterministic path
+throughput. All guide passes are committed together after successful exploration;
+subsequent stochastic radiance bounces cannot overwrite them. The primary hit is
+scheduled through the OptiX shader-raytrace kernel because ordinary CUDA shading
+has no traversable OptiX BVH. Enabling the option requests that kernel even in
+scenes without ray-tracing shader nodes.
 
-`scripts/test_stable_mirror_guides.py` generates mirror, glass-slab and rough
-reflector fixtures, compares option-off/on 1-SPP moving-camera DLSS captures
-against corresponding 256-SPP reference views, and records frame times. Glass
-and rough-reflector cases specifically validate fallback behavior; they must not
-be reported as supported stable planes. Set `OCIO` before running the script.
+Rough, mixed, smooth/curved and moving primary reflectors retain legacy guides.
+Volumes, portals, holdouts, dispersion and path-dependent/ray-tracing shaders
+encountered during exploration cause an atomic fallback. Background misses use
+rotation-only motion. Moving target surfaces are supported; moving optical
+interfaces are not unfolded. Nested dielectric priorities, volume absorption,
+exact refraction reconnection and dedicated per-plane radiance/history buffers
+are not implemented. This is a stable-plane **guide** integration, not the full
+RTXPT build/fill/radiance-composition pipeline. Radiance sampling is unchanged,
+so glass Fresnel branch noise itself is still Monte Carlo noise.
+
+The option remains off by default pending wider scene validation. Run
+`scripts/test_stable_mirror_guides.py` with `OCIO` set to generate mirror, glass
+slab and rough-primary fixtures and compare moving-camera 1-SPP DLSS output
+against 256-SPP references. Glass must now change when enabled; rough primary
+reflectors remain fallback tests. MSE and frame timings are recorded in
+`test_outputs/stable_mirror/summary.json`. A changed output alone is not evidence
+of improved reconstruction quality.
+
+Validation on 2026-11-14 (RTX 5090 D v2, 512x512, camera sweep, 256-SPP reference):
+
+| Fixture | Legacy display MSE | Stable guides MSE | Change |
+| --- | ---: | ---: | ---: |
+| Mirror | 115.44 | 116.55 | +1.0% |
+| Two mirrors | 92.75 | 74.89 | -19.3% |
+| Glass slab | 215.24 | 119.17 | -44.6% |
+| Rough primary fallback | 1.61 | 1.61 | Identical output |
+
+These are captured display-space errors in generated fixtures, not a guarantee
+for arbitrary materials. Glass/two-mirror tests require at least 10% improvement;
+the single-mirror case deliberately does not claim an improvement. Guide tracing
+adds work: glass sweep presentation intervals increased from 4.68 to 7.19 ms in
+this run. Capture runs are diagnostic, not isolated performance measurements.
+The new optional OptiX module took about 126 seconds for the first cold frame;
+subsequent fixture startups were about 1.85 seconds with the driver cache. Cold
+compilation remains a limitation. Automated runs hide their window; interactive
+startup paints a loading message, and finite tests report failures on stderr.
+
+Material interpretation executes in an OptiX continuation callable so its raycast
+nodes may trace legally. The callable is retained with `--keep-device-functions`
+and its continuation stack is included in pipeline stack sizing. A no-output
+preflight routes excluded primary materials back to ordinary CUDA shading before
+any passes/radiance are written, preserving their original reconstruction inputs.

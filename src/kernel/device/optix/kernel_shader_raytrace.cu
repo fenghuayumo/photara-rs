@@ -12,6 +12,14 @@
 
 #include "kernel/integrator/shade_surface.h"
 
+extern "C" __device__ void __continuation_callable__stable_guide_shader_eval(
+    KernelGlobals kg, IntegratorState state, ShaderData *sd, float *buffer,
+    PathRayVisibility visibility, uint32_t path_flag)
+{
+  surface_shader_eval<KERNEL_FEATURE_NODE_MASK_SURFACE>(
+      kg, state, sd, buffer, visibility, path_flag);
+}
+
 extern "C" __global__ void __raygen__kernel_optix_integrator_shade_surface_raytrace()
 {
   const int global_index = optixGetLaunchIndex().x;

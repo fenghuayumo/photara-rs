@@ -721,7 +721,18 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
         return 1;
       case WM_PAINT: {
         PAINTSTRUCT paint;
-        BeginPaint(hwnd, &paint);
+        const HDC dc = BeginPaint(hwnd, &paint);
+        if (!v.have_image) {
+          RECT area;
+          GetClientRect(hwnd, &area);
+          const HBRUSH background = CreateSolidBrush(RGB(24, 24, 24));
+          FillRect(dc, &area, background);
+          DeleteObject(background);
+          SetBkMode(dc, TRANSPARENT);
+          SetTextColor(dc, RGB(224, 224, 224));
+          DrawTextW(dc, L"Preparing GPU kernels and first frame...", -1, &area,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
         EndPaint(hwnd, &paint);
         // Vulkan keeps the presented image; painting does not create a new frame.
         return 0;
@@ -729,7 +740,9 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
     }
   }
   catch (const std::exception &error) {
-    MessageBoxA(hwnd, error.what(), "Photara Viewer error", MB_ICONERROR);
+    std::fprintf(stderr, "%s\n", error.what());
+    if (!viewer || !viewer->smoke_frames)
+      MessageBoxA(hwnd, error.what(), "Photara Viewer error", MB_ICONERROR);
     DestroyWindow(hwnd);
     PostQuitMessage(1);
     return 0;
@@ -741,6 +754,10 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM key, LPARAM data)
 int main(int argc, char **argv)
 {
   log_init(nullptr);
+  if (const char *level = std::getenv("PHOTARA_LOG_LEVEL")) {
+    log_level_set(level);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+  }
   path_init();
   TimerResolution timer_resolution;
   Viewer app;
@@ -778,7 +795,7 @@ int main(int argc, char **argv)
       else if (arg == "--gpu-timings") {
         app.gpu_timings = true;
       }
-      else if (arg == "--stable-mirror-guide") {
+      else if (arg == "--stable-planes" || arg == "--stable-mirror-guide") {
         app.stable_mirror_guide = true;
       }
       else if (arg == "--camera-cut-frame") {
@@ -909,7 +926,9 @@ int main(int argc, char **argv)
     return int(message.wParam);
   }
   catch (const std::exception &error) {
-    MessageBoxA(nullptr, error.what(), "Photara Viewer error", MB_ICONERROR);
+    std::fprintf(stderr, "%s\n", error.what());
+    if (!app.smoke_frames)
+      MessageBoxA(nullptr, error.what(), "Photara Viewer error", MB_ICONERROR);
     return 1;
   }
 }

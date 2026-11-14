@@ -1,11 +1,12 @@
-"""A/B the experimental single mirror guide in the 1-SPP DLSS viewer.
+"""A/B deterministic stable-plane guides in the 1-SPP DLSS viewer.
 
-Glass and rough reflectors are exclusion tests, not supported stable planes.
+Glass exercises deterministic reflection/refraction branches; rough primary reflectors test fallback.
 Requires OCIO to be set. Leaves fixtures, frame metrics and captures in output.
 """
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 import statistics
 import subprocess
@@ -44,13 +45,18 @@ def fixture(kind):
         shader = ET.SubElement(root, 'shader', name='color' + str(i))
         ET.SubElement(shader, 'diffuse_bsdf', name='bsdf', color=color, roughness='0')
         ET.SubElement(shader, 'connect', attrib={'from': 'bsdf BSDF', 'to': 'output surface'})
-    mesh(root, 'optic_front', 'optic', [(-2, -.5, 2), (-2, 3.5, 2), (2, 3.5, 2), (2, -.5, 2)])
+    if kind == 'mirror_chain':
+        mesh(root, 'optic_front', 'optic', [(-2, -.5, 0), (-2, 3.5, 0), (2, 3.5, 4), (2, -.5, 4)])
+        mesh(root, 'optic_second', 'optic', [(2, -.5, 4), (2, 3.5, 4), (6, 3.5, 0), (6, -.5, 0)])
+    else:
+        mesh(root, 'optic_front', 'optic', [(-2, -.5, 2), (-2, 3.5, 2), (2, 3.5, 2), (2, -.5, 2)])
     if kind == 'glass':
         mesh(root, 'optic_back', 'optic', [(-2, -.5, 2.15), (2, -.5, 2.15), (2, 3.5, 2.15), (-2, 3.5, 2.15)])
     z = 7 if kind == 'glass' else -7
     for x in range(12):
         for y in range(8):
             a, b = (x - 6) * .7, (y - 2) * .7
+            if kind == 'mirror_chain': a += 4
             mesh(root, f'tile{x}_{y}', 'color' + str((x + y) % 4),
                  [(a, b, z), (a + .69, b, z), (a + .69, b + .69, z), (a, b + .69, z)])
     path = OUT / f'{kind}.xml'
@@ -59,6 +65,11 @@ def fixture(kind):
 
 
 def run(scene, name, frames, stable=False, reference=False):
+    startup = None
+    if os.name == 'nt':
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = subprocess.SW_HIDE
     command = [str(ROOT / 'install/photara_viewer.exe'), '--size', '512', '--spp', '1',
                '--smoke-frames', str(frames), '--metrics', str(OUT / f'{name}.csv'),
                '--screenshot', str(OUT / f'{name}.bmp')]
@@ -66,10 +77,10 @@ def run(scene, name, frames, stable=False, reference=False):
         command += ['--mode', 'REFERENCE', '--reference-samples', '256', '--camera-x', '-0.5196152423']
     else:
         command += ['--denoiser', 'DLSS', '--camera-sweep']
-    if stable: command += ['--stable-mirror-guide']
+    if stable: command += ['--stable-planes']
     with (OUT / f'{name}.log').open('w') as stdout, (OUT / f'{name}.err').open('w') as stderr:
         subprocess.run(command + [str(scene)], cwd=ROOT, stdout=stdout, stderr=stderr,
-                       check=True, timeout=180)
+                       check=True, timeout=600, startupinfo=startup)
     warnings = (OUT / f'{name}.err').read_text().replace(
         'libpng warning: iCCP: known incorrect sRGB profile', '').strip()
     assert not warnings, (name, warnings)
@@ -84,8 +95,8 @@ def run(scene, name, frames, stable=False, reference=False):
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--cases', nargs='+', choices=('mirror', 'glass', 'rough'),
-                    default=['mirror', 'glass', 'rough'])
+parser.add_argument('--cases', nargs='+', choices=('mirror', 'mirror_chain', 'glass', 'rough'),
+                    default=['mirror', 'mirror_chain', 'glass', 'rough'])
 args = parser.parse_args()
 results = json.loads((OUT / 'summary.json').read_text()) if (OUT / 'summary.json').exists() else []
 results = [r for r in results if r['kind'] not in args.cases]
@@ -101,10 +112,13 @@ for kind in args.cases:
                                    motion_ms=statistics.mean(times), fps=1000/statistics.mean(times)))
         images.append(image)
     result['ab_mse'] = float(np.mean((images[0] - images[1])**2))
-    if kind != 'mirror':
+    if kind == 'rough':
         assert result['ab_mse'] < .01, f'{kind}: excluded path changed its output'
     else:
-        assert result['ab_mse'] > .01, 'Mirror prototype did not change reconstructed output'
+        assert result['ab_mse'] > .01, f'{kind}: stable planes did not change reconstructed output'
+    if kind in ('glass', 'mirror_chain'):
+        assert result['runs'][1]['display_mse'] < result['runs'][0]['display_mse'] * .9, (
+            f'{kind}: expected at least 10% lower error against the reference', result)
     results.append(result)
     (OUT / 'summary.json').write_text(json.dumps(results, indent=2))
     print(json.dumps(result), flush=True)

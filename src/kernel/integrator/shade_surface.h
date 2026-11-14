@@ -6,6 +6,7 @@
 
 #include "kernel/integrator/path_state.h"
 #include "kernel/integrator/surface_shader.h"
+#include "kernel/integrator/stable_plane_guides.h"
 
 #include "kernel/film/data_passes.h"
 #include "kernel/film/denoising_passes.h"
@@ -836,8 +837,18 @@ ccl_device int integrate_surface(KernelGlobals kg,
     {
       /* Evaluate shader. */
       PROFILING_EVENT(PROFILING_SHADE_SURFACE_EVAL);
-      surface_shader_eval<node_feature_mask>(
-          kg, state, &sd, render_buffer, path_visibility, path_flag);
+#if defined(__KERNEL_OPTIX__) && defined(__SVM__)
+      if constexpr (node_feature_mask & KERNEL_FEATURE_NODE_RAYTRACE) {
+        /* Keep material interpretation out of the tracing entry's control flow.
+         * AO/bevel can make a further direct call from this interpreter. */
+        optixContinuationCall<void>(2, kg, state, &sd, render_buffer, path_visibility, path_flag);
+      }
+      else
+#endif
+      {
+        surface_shader_eval<node_feature_mask>(
+            kg, state, &sd, render_buffer, path_visibility, path_flag);
+      }
     }
 
     if (sd.runtime_flag & SR_CACHE_MISS) {
@@ -892,7 +903,12 @@ ccl_device int integrate_surface(KernelGlobals kg,
 #endif
 
 #ifdef __DENOISING_FEATURES__
-      film_write_denoising_features_surface(kg, state, &sd, render_buffer);
+      if ((INTEGRATOR_STATE(state, path, flag) & PATH_RAY_DENOISING_FEATURES) &&
+          !(path_flag & PATH_RAY_SHADOW_CATCHER_PASS) &&
+          !film_write_stable_plane_guides<node_feature_mask>(kg, state, &sd, render_buffer))
+      {
+        film_write_denoising_features_surface(kg, state, &sd, render_buffer);
+      }
 #endif
     }
 
@@ -1011,6 +1027,29 @@ ccl_device_forceinline void integrator_shade_surface(KernelGlobals kg,
 ccl_device_forceinline void integrator_shade_surface_raytrace(
     KernelGlobals kg, IntegratorState state, ccl_global float *ccl_restrict render_buffer)
 {
+#if defined(__KERNEL_OPTIX__) && defined(__DENOISING_FEATURES__) && defined(__SVM__)
+  if ((kernel_data.film.denoising_pass_options_flag & DENOISING_PASS_STABLE_MIRROR_GUIDE) &&
+      INTEGRATOR_STATE(state, path, bounce) == 0)
+  {
+    /* The material is only known after SVM evaluation. Route excluded primary
+     * surfaces back to their ordinary CUDA shader before writing any passes or
+     * sampling radiance; even backend rounding differences perturb RR history. */
+    ShaderData probe;
+    integrate_surface_shader_setup(kg, state, &probe);
+    if (!(probe.shader_flag & SD_HAS_RAYTRACE)) {
+      stable_guide_shader_eval<KERNEL_FEATURE_NODE_MASK_SURFACE>(kg, state, &probe,
+          INTEGRATOR_STATE(state, path, visibility));
+      if (!(probe.runtime_flag & SR_CACHE_MISS) &&
+          (!stable_guide_delta(&probe) ||
+           (probe.shader_flag & (SD_HAS_VOLUME | SD_HAS_LIGHT_PATH_NODE))))
+      {
+        integrator_path_next_sorted(kg, state, DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE,
+            DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE, probe.shader & SHADER_MASK);
+        return;
+      }
+    }
+  }
+#endif
   integrator_shade_surface<KERNEL_FEATURE_NODE_MASK_SURFACE,
                            DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE>(
       kg, state, render_buffer);
