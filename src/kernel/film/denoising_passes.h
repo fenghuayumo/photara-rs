@@ -83,7 +83,6 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
   float specular_roughness = 0.0f;
   float sum_weight = 0.0f;
   float sum_nonspecular_weight = 0.0f;
-  float mirror_weight = 0.0f;
 
   for (int i = 0; i < sd->num_closure; i++) {
     const ccl_private ShaderClosure *sc = &sd->closure[i];
@@ -109,13 +108,6 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
     /* bsdf_get_specular_roughness_squared returns GGX alpha squared (alpha_x*alpha_y). Use sqrtf
      * to get GGX alpha. */
     const float roughness = sqrtf(bsdf_get_specular_roughness_squared(sc));
-    if (CLOSURE_IS_BSDF_GLOSSY(sc->type) && !CLOSURE_IS_BSDF_TRANSMISSION(sc->type) &&
-        !CLOSURE_IS_GLASS(sc->type) && roughness <= 1e-8f &&
-        fabsf(dot(sc->N, sd->N)) > 0.99999f)
-    {
-      mirror_weight += closure_weight;
-    }
-
     /* Transition smoothly from specular to diffuse between 0.0 and 0.15 roughness. */
     const float diffuse_weight = (sc->type == CLOSURE_BSDF_HAIR_HUANG_ID) ?
                                      1.0f :
@@ -163,22 +155,6 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
   }
 
   const bool is_first_bounce = INTEGRATOR_STATE(state, path, bounce) == 0;
-  const bool stable_mirror_guides = follow_reflections &&
-      (kernel_data.film.denoising_pass_options_flag & DENOISING_PASS_STABLE_MIRROR_GUIDE);
-  if (is_first_bounce && stable_mirror_guides) {
-    /* Do not repurpose one guide plane for mixed glass/diffuse branches, curved
-     * reflectors, normal maps, moving reflectors or paths through volumes. */
-    const bool eligible = sum_weight > 0.0f && mirror_weight >= total_weight * 0.99999f &&
-        (sd->type & PRIMITIVE_TRIANGLE) &&
-        !(sd->shader & SHADER_SMOOTH_NORMAL) && fabsf(dot(sd->N, sd->Ng)) > 0.99999f &&
-        !(sd->object_flag & (SD_OBJECT_MOTION | SD_OBJECT_HAS_VERTEX_MOTION)) &&
-        INTEGRATOR_STATE(state, path, transparent_bounce) == 0 &&
-        INTEGRATOR_STATE(state, path, volume_bounce) == 0;
-    uint32_t flags = INTEGRATOR_STATE(state, path, flag) & ~PATH_RAY_STABLE_MIRROR_GUIDE;
-    if (eligible) flags |= PATH_RAY_STABLE_MIRROR_GUIDE;
-    INTEGRATOR_STATE_WRITE(state, path, flag) = flags;
-  }
-
   const Spectrum denoising_feature_throughput = INTEGRATOR_STATE(
       state, path, denoising_feature_throughput);
 
@@ -239,50 +215,6 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
                             denoising_specular_motion.x);
       film_write_pass_float(buffer + kernel_data.film.pass_denoising_specular_motion + 1,
                             denoising_specular_motion.y);
-    }
-  }
-
-  /* Single stable guide plane: unfold a pure flat mirror into its virtual image.
-   * Every geometric guide must describe that same virtual surface. Keep legacy
-   * guides for rough/mixed/refractive/multiple-reflection paths and sky misses.
-   * This changes reconstruction guides only, never radiance or BSDF sampling. */
-  if (stable_mirror_guides && (path_flag & PATH_RAY_STABLE_MIRROR_GUIDE) &&
-      (path_flag & PATH_RAY_REFLECT) && (path_flag & PATH_RAY_SINGULAR) &&
-      INTEGRATOR_STATE(state, path, bounce) == 1 && feature_weight == 1.0f &&
-      transparent_weight == 0.0f)
-  {
-    const float3 reflector_P = INTEGRATOR_STATE(state, ray, P);
-    const float3 reflector_N = safe_normalize(INTEGRATOR_STATE(state, path, mis_origin_n));
-    float3 center, previous, next;
-    primitive_motion_data_without_camera(kg, sd, &center, &previous, &next);
-    center = project_reflection(reflector_P, reflector_N, center);
-    previous = project_reflection(reflector_P, reflector_N, previous);
-    next = project_reflection(reflector_P, reflector_N, next);
-    const float4 motion = camera_motion_vector(kg, center, previous, next);
-    const Transform current_camera = kernel_data.cam.worldtocamera;
-    const Transform previous_camera = kernel_data.cam.motion_pass_pre;
-    const float depth = transform_point(&current_camera, center).z;
-    const float previous_depth = transform_point(&previous_camera, previous).z;
-    const float3 virtual_normal = normal - 2.0f * dot(normal, reflector_N) * reflector_N;
-    const float3 guide_normal = transform_direction(&current_camera, virtual_normal);
-    if (depth > 0.0f && isfinite(depth) && isfinite(previous_depth) &&
-        isfinite(motion.x) && isfinite(motion.y))
-    {
-      if (kernel_data.film.pass_denoising_depth != PASS_UNUSED)
-        film_overwrite_pass_float(buffer + kernel_data.film.pass_denoising_depth, depth);
-      if (kernel_data.film.pass_denoising_normal != PASS_UNUSED)
-        film_overwrite_pass_float3(buffer + kernel_data.film.pass_denoising_normal, guide_normal);
-      /* The reconstructed plane is the virtual target, not the mirror BSDF.
-       * Its material guides must agree with its geometry and motion too. */
-      if (kernel_data.film.pass_denoising_roughness != PASS_UNUSED)
-        film_overwrite_pass_float(buffer + kernel_data.film.pass_denoising_roughness,
-                                  specular_roughness);
-      if (kernel_data.film.pass_denoising_specular_albedo != PASS_UNUSED)
-        film_overwrite_pass_float3(buffer + kernel_data.film.pass_denoising_specular_albedo,
-                                  spectrum_to_rgb(specular_albedo * denoising_feature_throughput));
-      if (kernel_data.film.pass_denoising_backward_motion != PASS_UNUSED)
-        film_overwrite_pass_float3(buffer + kernel_data.film.pass_denoising_backward_motion,
-                                  make_float3(motion.x, motion.y, previous_depth - depth));
     }
   }
 

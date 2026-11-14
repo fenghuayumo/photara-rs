@@ -12,7 +12,7 @@
 
 #include "kernel/integrator/shade_surface.h"
 
-extern "C" __device__ void __continuation_callable__stable_guide_shader_eval(
+extern "C" __device__ void __continuation_callable__stable_planes_shader_eval(
     KernelGlobals kg, IntegratorState state, ShaderData *sd, float *buffer,
     PathRayVisibility visibility, uint32_t path_flag)
 {

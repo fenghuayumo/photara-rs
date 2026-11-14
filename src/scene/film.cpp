@@ -124,7 +124,6 @@ NODE_DEFINE(Film)
   SOCKET_BOOLEAN(use_sample_count, "Use Sample Count Pass", false);
 
   SOCKET_BOOLEAN(denoising_pass_follow_reflections, "Denoising Pass Reflections", true);
-  SOCKET_BOOLEAN(denoising_stable_mirror_guide, "Stable Mirror Guide", false);
   SOCKET_BOOLEAN(denoising_pass_use_albedo_roughness_weighting,
                  "Denoising Pass Albedo Roughness Weighting",
                  true);
@@ -211,6 +210,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_denoising_backward_motion = PASS_UNUSED;
   kfilm->pass_denoising_specular_motion = PASS_UNUSED;
   kfilm->pass_stable_planes = PASS_UNUSED;
+  kfilm->pass_stable_radiance = PASS_UNUSED;
   kfilm->pass_sample_count = PASS_UNUSED;
   kfilm->pass_render_time = PASS_UNUSED;
   kfilm->pass_adaptive_aux_buffer = PASS_UNUSED;
@@ -411,6 +411,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
       case PASS_DENOISING_BACKWARD_MOTION:
         kfilm->pass_denoising_backward_motion = kfilm->pass_stride;
         break;
+      case PASS_STABLE_RADIANCE:
+        kfilm->pass_stable_radiance = kfilm->pass_stride;
+        break;
       case PASS_STABLE_PLANES:
         kfilm->pass_stable_planes = kfilm->pass_stride;
         break;
@@ -483,8 +486,8 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
 
   /* denoiser pass parameters */
   kfilm->denoising_pass_options_flag = 0;
-  if (denoising_stable_mirror_guide && !scene->integrator->get_motion_blur()) {
-    kfilm->denoising_pass_options_flag |= DENOISING_PASS_STABLE_MIRROR_GUIDE;
+  if (use_stable_planes(scene)) {
+    kfilm->denoising_pass_options_flag |= DENOISING_PASS_STABLE_PLANES;
   }
   if (denoising_pass_follow_reflections) {
     kfilm->denoising_pass_options_flag |= DENOISING_PASS_FOLLOW_REFLECTIONS;
@@ -546,6 +549,19 @@ bool Film::update_lightgroups(Scene *scene)
   }
 
   return false;
+}
+
+bool Film::use_stable_planes(const Scene *scene) const
+{
+  const Integrator *integrator = scene->integrator;
+  const int samples = integrator->get_use_sample_subset() ?
+      integrator->get_sample_subset_length() : integrator->get_aa_samples();
+  return integrator->get_use_denoise() && integrator->get_denoiser_type() == DENOISER_DLSS &&
+         scene->device->info.type == DEVICE_OPTIX && samples == 1 &&
+         !integrator->get_motion_blur() &&
+         !std::any_of(scene->objects.begin(), scene->objects.end(), [](const Object *object) {
+           return object->get_is_shadow_catcher() && !object->get_geometry()->is_light();
+         });
 }
 
 void Film::update_passes(Scene *scene)
@@ -619,8 +635,13 @@ void Film::update_passes(Scene *scene)
     }
   }
 
-  if (use_denoise && denoising_stable_mirror_guide) {
+  if (use_stable_planes(scene)) {
     add_auto_pass(scene, PASS_STABLE_PLANES);
+    add_auto_pass(scene, PASS_STABLE_RADIANCE);
+    for (const PassType type : {PASS_DENOISING_ALBEDO, PASS_DENOISING_SPECULAR_ALBEDO,
+         PASS_DENOISING_NORMAL, PASS_DENOISING_ROUGHNESS, PASS_DENOISING_DEPTH,
+         PASS_DENOISING_BACKWARD_MOTION, PASS_DENOISING_SPECULAR_MOTION})
+      add_auto_pass(scene, type);
   }
 
   /* Create passes for shadow catcher. */
@@ -696,7 +717,7 @@ void Film::update_passes(Scene *scene)
 
   /* Flush scene updates. */
   const bool have_uv_pass = Pass::contains(scene->passes, PASS_UV);
-  const bool have_motion_pass = denoising_stable_mirror_guide ||
+  const bool have_motion_pass = use_stable_planes(scene) ||
                                 Pass::contains(scene->passes, PASS_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_BACKWARD_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_SPECULAR_MOTION);
@@ -864,9 +885,9 @@ uint64_t Film::get_kernel_features(const Scene *scene) const
     }
   }
 
-  if (denoising_stable_mirror_guide && denoising_pass_follow_reflections &&
+  if (use_stable_planes(scene) &&
       (kernel_features & KERNEL_FEATURE_DENOISING)) {
-    kernel_features |= KERNEL_FEATURE_NODE_RAYTRACE | KERNEL_FEATURE_STABLE_PLANE_GUIDES;
+    kernel_features |= KERNEL_FEATURE_NODE_RAYTRACE | KERNEL_FEATURE_STABLE_PLANES;
   }
   return kernel_features;
 }

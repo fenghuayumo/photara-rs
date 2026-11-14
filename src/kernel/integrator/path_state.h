@@ -116,8 +116,9 @@ ccl_device_inline void path_state_next(KernelGlobals kg,
                                        const int runtime_flag)
 {
   uint branch = INTEGRATOR_STATE(state, path, stable_branch);
-  if (!(branch & 0x80000000u) && !(label & LABEL_TRANSPARENT)) {
-    if ((label & LABEL_SINGULAR) && INTEGRATOR_STATE(state, path, bounce) < 15)
+  if (!(branch & 0x80000000u)) {
+    if ((label & LABEL_SINGULAR) && !(label & (LABEL_TRANSPARENT | LABEL_RAY_PORTAL)) &&
+        INTEGRATOR_STATE(state, path, bounce) < 15)
       branch = (branch << 2) | ((label & LABEL_TRANSMIT) ? 2u : 1u);
     else branch |= 0x80000000u;
     INTEGRATOR_STATE_WRITE(state, path, stable_branch) = branch;
@@ -254,6 +255,7 @@ ccl_device_inline void path_state_next(KernelGlobals kg,
 #ifdef __VOLUME__
 ccl_device_inline bool path_state_volume_next(IntegratorState state)
 {
+  INTEGRATOR_STATE_WRITE(state, path, stable_branch) |= 0x80000000u;
   /* For volume bounding meshes we pass through without counting transparent
    * bounces, only sanity check in case self intersection gets us stuck. */
   const uint32_t volume_bounds_bounce = INTEGRATOR_STATE(state, path, volume_bounds_bounce) + 1;

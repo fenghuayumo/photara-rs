@@ -762,10 +762,10 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
       group_descs[PG_CALL_SVM_BEVEL].callables.moduleDC = shader_raytrace_module;
       group_descs[PG_CALL_SVM_BEVEL].callables.entryFunctionNameDC =
           "__direct_callable__svm_node_bevel";
-      group_descs[PG_CALL_STABLE_GUIDE].kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;
-      group_descs[PG_CALL_STABLE_GUIDE].callables.moduleCC = shader_raytrace_module;
-      group_descs[PG_CALL_STABLE_GUIDE].callables.entryFunctionNameCC =
-          "__continuation_callable__stable_guide_shader_eval";
+      group_descs[PG_CALL_STABLE_PLANES].kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;
+      group_descs[PG_CALL_STABLE_PLANES].callables.moduleCC = shader_raytrace_module;
+      group_descs[PG_CALL_STABLE_PLANES].callables.entryFunctionNameCC =
+          "__continuation_callable__stable_planes_shader_eval";
     }
   }
 
@@ -888,7 +888,7 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
       pipeline_groups.push_back(groups[PG_RGEN_SHADE_SURFACE_RAYTRACE]);
       pipeline_groups.push_back(groups[PG_CALL_SVM_AO]);
       pipeline_groups.push_back(groups[PG_CALL_SVM_BEVEL]);
-      pipeline_groups.push_back(groups[PG_CALL_STABLE_GUIDE]);
+      pipeline_groups.push_back(groups[PG_CALL_STABLE_PLANES]);
     }
     if (use_mnee) {
       pipeline_groups.push_back(groups[PG_RGEN_INTERSECT_MNEE]);
@@ -916,7 +916,7 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
 
     /* Set stack size depending on pipeline options. */
     optix_assert(optixPipelineSetStackSize(
-        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_GUIDE].cssCC,
+        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_PLANES].cssCC,
         pipeline_options.usesMotionBlur ? 3 : 2));
   }
 
@@ -1233,8 +1233,8 @@ bool OptiXDevice::load_osl_kernels()
     if (groups[PG_CALL_SVM_BEVEL] != nullptr) {
       pipeline_groups.push_back(groups[PG_CALL_SVM_BEVEL]);
     }
-    if (groups[PG_CALL_STABLE_GUIDE] != nullptr) {
-      pipeline_groups.push_back(groups[PG_CALL_STABLE_GUIDE]);
+    if (groups[PG_CALL_STABLE_PLANES] != nullptr) {
+      pipeline_groups.push_back(groups[PG_CALL_STABLE_PLANES]);
     }
     if (groups[PG_RGEN_INTERSECT_MNEE] != nullptr) {
       pipeline_groups.push_back(groups[PG_RGEN_INTERSECT_MNEE]);
@@ -1300,7 +1300,7 @@ bool OptiXDevice::load_osl_kernels()
     }
 
     optix_assert(optixPipelineSetStackSize(
-        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_GUIDE].cssCC,
+        pipelines[PIP_SHADE], 0, dss, css + stack_size[PG_CALL_STABLE_PLANES].cssCC,
         pipeline_options.usesMotionBlur ? 3 : 2));
   }
 

@@ -86,7 +86,7 @@ CCL_NAMESPACE_BEGIN
 #define KERNEL_FEATURE_GSPLATS (1ULL << 32ULL)
 
 /* Deterministic delta-tree denoising guides require shader-side traversal. */
-#define KERNEL_FEATURE_STABLE_PLANE_GUIDES (1ULL << 33ULL)
+#define KERNEL_FEATURE_STABLE_PLANES (1ULL << 33ULL)
 
 /* Shader node feature mask, to specialize shader evaluation for kernels. */
 

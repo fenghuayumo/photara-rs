@@ -11,7 +11,22 @@
 #include "kernel/sample/pattern.h"
 #include "util/atomic.h"
 
+#include "kernel/film/stable_planes.h"
+
 CCL_NAMESPACE_BEGIN
+
+/* Emission is deterministic only while Fill is on a branch visited by Build.
+ * At a terminal whose shader could not be evaluated safely, Build leaves the
+ * emission bit clear and Fill evaluates it normally. Non-delta scattering,
+ * transparent/portal events and volume scattering close the stable prefix. */
+ccl_device_inline bool stable_planes_emission_is_built(KernelGlobals kg,
+    ConstIntegratorState state, ccl_global const float *buffer)
+{
+  if (kernel_data.film.pass_stable_planes == PASS_UNUSED) return false;
+  return stable_plane_emission_covered(buffer + kernel_data.film.pass_stable_planes,
+      INTEGRATOR_STATE(state, path, stable_branch));
+}
+
 
 /* --------------------------------------------------------------------
  * BSDF Evaluation
@@ -485,24 +500,16 @@ ccl_device_inline void film_write_emission_or_background_pass(
 #endif /* __PASSES__ */
 }
 
-/* Stable leaves partition contributions by delta-path prefix, never by brightness.
- * Emission before a leaf, unsupported paths and AO stay in the exact residual. */
+/* Fill commits to the deepest base it has reached. A glass junction retains
+ * its own plane for unsplit lobes, with explored children overriding that base. */
 ccl_device_inline void film_write_plane_radiance(KernelGlobals kg, uint branch,
     const Spectrum contribution, ccl_global float *buffer)
 {
   if (kernel_data.film.pass_stable_planes == PASS_UNUSED) return;
-  branch &= 0x7fffffffu;
-  for (int p = 0; p < 3; ++p) {
-    ccl_global float *plane = buffer + kernel_data.film.pass_stable_planes + p * 24;
-    const uint leaf = __float_as_uint(plane[0]);
-    if (!leaf) continue;
-    uint parent = branch;
-    while (parent > leaf) parent >>= 2;
-    if (parent == leaf) {
-      film_write_pass_spectrum(plane + 15, contribution);
-      return;
-    }
-  }
+  const int plane = stable_plane_find(buffer + kernel_data.film.pass_stable_planes, branch);
+  if (plane >= 0)
+    film_write_pass_spectrum(buffer + kernel_data.film.pass_stable_planes +
+                            plane*STABLE_PLANE_STRIDE+STABLE_PLANE_RADIANCE, contribution);
 }
 
 /* Write light contribution to render buffer. */
@@ -665,7 +672,7 @@ ccl_device_inline void film_write_background(KernelGlobals kg,
   if (is_transparent_background_ray) {
     film_write_transparent(kg, path_flag, transparent, buffer);
   }
-  else {
+  else if (!stable_planes_emission_is_built(kg, state, buffer)) {
     const int sample = INTEGRATOR_STATE(state, path, sample);
     film_write_combined_transparent_pass(
         kg, path_visibility, path_flag, sample, contribution, transparent, buffer);
@@ -705,7 +712,8 @@ ccl_device_inline void film_write_surface_emission(KernelGlobals kg,
                                                    const Spectrum L,
                                                    const float mis_weight,
                                                    ccl_global float *ccl_restrict render_buffer,
-                                                   const int lightgroup = LIGHTGROUP_NONE)
+                                                   const int lightgroup = LIGHTGROUP_NONE,
+                                                   const bool stable_surface = true)
 {
   Spectrum contribution = INTEGRATOR_STATE(state, path, throughput) * L * mis_weight;
   film_clamp_light(kg, &contribution, INTEGRATOR_STATE(state, path, bounce) - 1);
@@ -715,8 +723,10 @@ ccl_device_inline void film_write_surface_emission(KernelGlobals kg,
   const uint32_t path_flag = INTEGRATOR_STATE(state, path, flag);
   const int sample = INTEGRATOR_STATE(state, path, sample);
 
-  film_write_combined_pass(kg, path_visibility, path_flag, sample, contribution, buffer);
-  film_write_plane_radiance(kg, INTEGRATOR_STATE(state, path, stable_branch), contribution, buffer);
+  if (!stable_surface || !stable_planes_emission_is_built(kg, state, buffer)) {
+    film_write_combined_pass(kg, path_visibility, path_flag, sample, contribution, buffer);
+    film_write_plane_radiance(kg, INTEGRATOR_STATE(state, path, stable_branch), contribution, buffer);
+  }
   film_write_emission_or_background_pass(
       kg, state, contribution, buffer, kernel_data.film.pass_emission, lightgroup);
 }

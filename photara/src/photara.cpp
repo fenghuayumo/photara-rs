@@ -78,6 +78,7 @@ struct PassSpec {
 
 const PassSpec kPasses[] = {
     {"combined", PASS_COMBINED, 4},
+    {"stable_radiance", PASS_STABLE_RADIANCE, 3},
     {"depth", PASS_DEPTH, 1},
     {"normal", PASS_NORMAL, 3},
     {"albedo", PASS_DIFFUSE_COLOR, 3},
@@ -1190,6 +1191,7 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     {
       const char *pass_filter = std::getenv("PHOTARA_PASSES");
       for (const PassSpec &spec : kPasses) {
+        if (pass_filter == nullptr && spec.type == PASS_STABLE_RADIANCE) continue;
         if (pass_filter != nullptr && std::strstr(pass_filter, spec.name) == nullptr) {
           continue;
         }
@@ -2363,7 +2365,6 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
       }, ctx->history.use_gpu);
     }
     else {
-      ctx->scene->film->set_denoising_stable_mirror_guide(false);
       ctx->session->set_frame_reconstruction({});
       ctx->history.free_gpu();
       ctx->session->set_denoise_temporal_history(nullptr);
@@ -2459,7 +2460,6 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
       const bool plane_history = ctx->history.use_gpu && ctx->job_samples == 1 &&
           ctx->scene->integrator->get_use_denoise() &&
           ctx->scene->integrator->get_denoiser_type() == DENOISER_DLSS;
-      ctx->scene->film->set_denoising_stable_mirror_guide(plane_history);
       if (plane_history) {
         ctx->scene->integrator->set_denoiser_passes(
             DENOISER_PASS_ALBEDO | DENOISER_PASS_NORMAL | DENOISER_PASS_SPECULAR_ALBEDO |

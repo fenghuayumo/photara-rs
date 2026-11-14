@@ -553,9 +553,8 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
       if (!reuse) { realtime_history.clear(); realtime_history.frame_index = 0; }
       realtime_history.limit = history_limit;
       realtime_history.use_gpu = true;
-      // Use first-hit history for all denoisers. Stable-plane decomposition is
-      // separately experimental and not implicitly enabled by choosing DLSS.
-      scene->film->set_denoising_stable_mirror_guide(false);
+      // Film selects the common Stable Planes pipeline for 1-SPP DLSS.
+      // Other configurations retain primary-surface history.
       realtime_last_frame = b_scene->r.cfra;
       realtime_camera = camera_uid;
       realtime_revision = revision;
@@ -582,7 +581,6 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
       else session->set_frame_reconstruction({});
     }
     else {
-      scene->film->set_denoising_stable_mirror_guide(false);
       session->set_frame_reconstruction({});
       realtime_history.free_gpu(); realtime_history_valid = false;
     }

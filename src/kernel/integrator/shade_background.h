@@ -240,7 +240,7 @@ ccl_device_inline ShaderEvalResult integrate_sun_lights(
     /* Write to render buffer. */
     guiding_record_background(kg, state, eval, mis_weight);
     film_write_surface_emission(
-        kg, state, eval, mis_weight, render_buffer, object_lightgroup(kg, klight->object_id));
+        kg, state, eval, mis_weight, render_buffer, object_lightgroup(kg, klight->object_id), false);
   }
 
   return SHADER_EVAL_OK;

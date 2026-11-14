@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #include "util/projection.h"
+#include "kernel/film/stable_planes.h"
 
 CCL_NAMESPACE_BEGIN
 
 struct KernelTemporalPlane {
   float3 color, virtual_position, position, normal, view, throughput;
+  float3 previous_virtual_position, previous_position;
   float roughness;
   uint branch, key;
   bool valid, sky;
@@ -45,8 +47,10 @@ ccl_device void temporal_snapshot(ccl_global const float *film,
   for (int k = 0; k < 3; ++k) {
     KernelTemporalPlane plane = {};
     if (f.planes != PASS_UNUSED) {
-      ccl_global const float *r = src + f.planes + k*24;
+      ccl_global const float *r = src + f.planes + k*STABLE_PLANE_STRIDE;
       plane.branch = __float_as_uint(r[0]); plane.key = __float_as_uint(r[1]);
+      plane.previous_virtual_position = make_float3(r[24], r[25], r[26]);
+      plane.previous_position = make_float3(r[27], r[28], r[29]);
       plane.virtual_position = make_float3(r[2], r[3], r[4]);
       plane.position = make_float3(r[5], r[6], r[7]);
       plane.normal = make_float3(r[8], r[9], r[10]);
@@ -89,18 +93,20 @@ ccl_device void temporal_reproject(ccl_global float *film,
                         double(a.color.z)*p.weight};
       double weights = p.weight;
       uint accepted = 0;
+      float3 proposal_position = a.previous_virtual_position;
+      float3 target_position = a.previous_position;
       for (int age = 1; age <= history; ++age) {
         const int old_slot = (slot + capacity - age) % capacity;
         const KernelTemporalFrame old = frames[old_slot];
         const float3 proposal = a.sky ? old.camera_position +
-            safe_normalize(a.virtual_position-f.camera_position)*1e6f : a.virtual_position;
+            safe_normalize(a.virtual_position-f.camera_position)*1e6f : proposal_position;
         const float3 projected = transform_perspective(&old.worldtoraster, proposal);
         if (!isfinite(projected.x) || !isfinite(projected.y) ||
-            fabsf(projected.x) > 1e6f || fabsf(projected.y) > 1e6f) continue;
+            fabsf(projected.x) > 1e6f || fabsf(projected.y) > 1e6f) break;
         const int x = int(floorf(projected.x + old.lookup_shift.x));
         const int y = int(floorf(projected.y + old.lookup_shift.y));
-        const float depth = transform_point(&old.worldtocamera, a.virtual_position).z;
-        if (!(depth > 0.0f) || !isfinite(depth)) continue;
+        const float depth = transform_point(&old.worldtocamera, proposal).z;
+        if (!(depth > 0.0f) || !isfinite(depth)) break;
         const float footprint = (a.sky ? 1.0f : max(depth, 1e-3f))*2.0f / float(max(f.width, f.height));
         float best = footprint*footprint;
         int match_pixel = -1, match_plane = -1;
@@ -115,7 +121,7 @@ ccl_device void temporal_reproject(ccl_global float *film,
                 !isfinite(len_squared(b.view)) || a.branch != b.branch || a.key != b.key ||
                 !isfinite(len_squared(b.color)) || !isfinite(len_squared(b.normal)) ||
                 dot(a.normal, b.normal) < 0.98f) continue;
-            const float d = len_squared(a.position-b.position);
+            const float d = len_squared(target_position-b.position);
             const float rough = clamp(min(a.roughness, b.roughness), 0.0f, 1.0f);
             if (!isfinite(d) || d >= best ||
                 dot(a.view, b.view) < 1.0f-max(1e-7f, rough*rough*0.002f)) continue;
@@ -124,10 +130,14 @@ ccl_device void temporal_reproject(ccl_global float *film,
         }
         if (match_pixel >= 0) {
           const KernelTemporalPixel q = ring[size_t(old_slot)*size+match_pixel];
-          const float3 color = q.planes[match_plane].color;
+          const KernelTemporalPlane matched = q.planes[match_plane];
+          const float3 color = matched.color;
+          proposal_position = matched.previous_virtual_position;
+          target_position = matched.previous_position;
           sums[0] += double(color.x)*q.weight; sums[1] += double(color.y)*q.weight;
           sums[2] += double(color.z)*q.weight; weights += q.weight; ++accepted;
         }
+        else break; /* Never jump past a disoccluded intermediate frame. */
       }
       if (weights > 0.0) result += make_float3(float(sums[0]/weights),
           float(sums[1]/weights), float(sums[2]/weights)) * a.throughput - a.color * a.throughput;

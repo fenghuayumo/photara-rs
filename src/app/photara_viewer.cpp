@@ -203,7 +203,6 @@ struct Viewer {
   bool submitted_temporal_reset = true;
   bool submitted_neeat_reset = true;
   int submitted_sample_offset = 0;
-  bool stable_mirror_guide = false;
   int stable_plane_history = 0;
   photara::realtime::TemporalHistory plane_history;
   int camera_cut_frame = -1;
@@ -306,11 +305,8 @@ struct Viewer {
       // projection before frame one, then Scene advances it after each frame.
       scene->camera->update_interactive_motion();
     }
-    if (stable_mirror_guide && !dlss) {
-      throw std::runtime_error("--stable-mirror-guide requires --denoiser DLSS");
-    }
     if (stable_plane_history) {
-      if (!stable_mirror_guide || !dlss) throw std::runtime_error("Plane history requires --stable-planes and DLSS");
+      if (!dlss) throw std::runtime_error("Plane history requires DLSS");
       plane_history.limit = stable_plane_history;
       for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS, PASS_OBJECT_ID}) {
         auto *guide = scene->create_node<Pass>(); guide->set_type(type);
@@ -335,7 +331,7 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset,gpu_timing_enabled,scene_update_host_ms,neeat_gpu_ms,path_trace_gpu_ms,denoise_total_gpu_ms,dlss_evaluate_gpu_ms,film_convert_gpu_ms,display_gpu_frame,display_gpu_ms,gpu_queue_wait_host_ms,display_reader_wait_host_ms,plane_reused_pixels,plane_mean_history,active_planes\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_planes,neeat_reset,sample_subset_offset,gpu_timing_enabled,scene_update_host_ms,neeat_gpu_ms,path_trace_gpu_ms,denoise_total_gpu_ms,dlss_evaluate_gpu_ms,film_convert_gpu_ms,display_gpu_frame,display_gpu_ms,gpu_queue_wait_host_ms,display_reader_wait_host_ms,plane_reused_pixels,plane_mean_history,active_planes\n";
     }
   }
 
@@ -436,7 +432,7 @@ struct Viewer {
               << ',' << (dlss_history ? dlss_history->dlss_frames : 0)
               << ',' << (dlss_history ? dlss_history->dlss_resets : 0)
               << ',' << (dlss_history ? dlss_history->dlss_reuses : 0)
-              << ',' << (stable_mirror_guide && frame.realtime && frame.samples == 1)
+              << ',' << session->scene->film->use_stable_planes(session->scene.get())
               << ',' << submitted_neeat_reset
               << ',' << submitted_sample_offset
               << ',' << gpu_timings << ',';
@@ -589,7 +585,6 @@ struct Viewer {
       session->device->scene_update_host_ms = 0;
       presenter.reader_wait_host_ms = 0;
     }
-    scene->film->set_denoising_stable_mirror_guide(stable_mirror_guide && realtime && spp == 1);
     if (stable_plane_history && (reset_temporal || !realtime)) plane_history.clear();
     reset_frame_history = dirty || !realtime;
     if (dlss_history) {
@@ -812,9 +807,6 @@ int main(int argc, char **argv)
       }
       else if (arg == "--gpu-timings") {
         app.gpu_timings = true;
-      }
-      else if (arg == "--stable-planes" || arg == "--stable-mirror-guide") {
-        app.stable_mirror_guide = true;
       }
       else if (arg == "--stable-plane-history") {
         app.stable_plane_history = std::stoi(value());
