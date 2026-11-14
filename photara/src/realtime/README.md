@@ -202,11 +202,10 @@ Rough, mixed, smooth/curved and moving primary reflectors retain legacy guides.
 Volumes, portals, holdouts, dispersion and path-dependent/ray-tracing shaders
 encountered during exploration cause an atomic fallback. Background misses use
 rotation-only motion. Moving target surfaces are supported; moving optical
-interfaces are not unfolded. Nested dielectric priorities, volume absorption,
-exact refraction reconnection and dedicated per-plane radiance/history buffers
-are not implemented. This is a stable-plane **guide** integration, not the full
-RTXPT build/fill/radiance-composition pipeline. Radiance sampling is unchanged,
-so glass Fresnel branch noise itself is still Monte Carlo noise.
+interfaces are not unfolded. Nested dielectric priorities, volume absorption and exact refraction reconnection
+remain unsupported. Per-plane radiance/history extends this guide implementation
+as described below. Radiance sampling remains Monte Carlo; enumerating guide
+branches does not itself provide extra radiance samples.
 
 The option remains off by default pending wider scene validation. Run
 `scripts/test_stable_mirror_guides.py` with `OCIO` set to generate mirror, glass
@@ -240,3 +239,84 @@ nodes may trace legally. The callable is retained with `--keep-device-functions`
 and its continuation stack is included in pipeline stack sizing. A no-output
 preflight routes excluded primary materials back to ordinary CUDA shading before
 any passes/radiance are written, preserving their original reconstruction inputs.
+
+## Per-plane raw radiance history
+
+`--stable-planes --stable-plane-history 4 --denoiser DLSS --spp 1` enables
+bounded GPU history on the deterministic delta-tree leaves. The hidden
+`stable_planes` film pass has three 24-float records. Each record stores a
+branch prefix, optical-object/material key, virtual and actual positions,
+world normal, terminal view direction, roughness, physical prefix throughput,
+and a separate RGB radiance accumulator. Sky records store environment direction.
+
+The ordinary unbiased integrator still samples the BSDF. Direct-light shadow
+paths inherit the branch prefix; surface/volume emission and background writers
+classify each clamped contribution into a disjoint leaf accumulator. A branch
+not sampled in a frame contributes zero, rather than being treated as a missing
+sample. This is stochastic radiance decomposition, not three extra deterministic
+full-path samples per pixel. Contributions before a leaf or outside the supported
+tree remain in a current-frame residual. No contribution is discarded or counted
+twice when the plane histories are recomposed.
+
+The raw GPU ring stores every leaf separately. Prefix throughput is removed
+before temporal averaging and the current frame's throughput is restored during
+composition, so old Fresnel ratios do not become the new frame's glass mixture.
+History searches all old plane slots by branch and optical/material identity;
+slot number is not an identity. Virtual coordinates propose a small neighborhood,
+but actual surface position, normal and terminal view must match before reuse.
+Sky correspondence is rotational and validates environment direction. The finite
+ring contains raw samples, never recursively accumulated images. Cuts clear it.
+DLSS resets its opaque history when the explicit ring is enabled.
+
+Viewer CSV includes `active_planes`, `plane_reused_pixels`, and
+`plane_mean_history`. These are reduced GPU diagnostics; reading them explicitly
+transfers only the small statistics buffer. Normal pixel reconstruction stays on
+GPU. The larger raw ring now includes up to three plane records per pixel; query
+`history_stats()['memory_bytes']` rather than assuming the old 64-byte pixel size.
+
+The Python `history_samples` path selects plane history for GPU, native-resolution,
+1-SPP DLSS jobs. Transmission is accepted only in this configuration. Alpha
+clipping, moving optical interfaces, curved/mixed primary optics, volumes and
+path-dependent shaders still have no stable unfolded history; their unsupported
+radiance stays current-frame-only. Rigid optical motion and exact refractive
+reconnection are not claimed. Candidate search is approximate and conservatively
+rejects failed real-surface correspondence. Geometry/light edits clear the ring.
+
+`src/test/stable_plane_temporal_test.cu` tests the actual GPU kernel using synthetic
+independent layers, slot reorder, current Fresnel weights, identity changes,
+disocclusion and empty history. `scripts/test_stable_plane_history.py` exercises
+mirror/glass fixtures with camera motion and cuts, and asserts actual plane
+population/history reuse rather than just successful DLSS evaluation.
+
+Validation of the plane-history path (2026-11-14): the CUDA kernel's four
+synthetic checks and the ten existing bounded-history tests passed. The public
+Python Principled-glass test exercises reuse, camera motion, clearing history
+and disabling history. A source-line memcheck caught a missing object-motion
+buffer dependency; stable guides now request motion-pass resources even when
+other denoising passes did not request them. Plane-history DLSS jobs request the
+full depth/normal/roughness/albedo/motion guide set. Smooth-flagged API slabs are
+accepted only after all three triangle vertex/corner normals match the face.
+
+Kernel memory checking (`--tool memcheck --report-api-errors no`) reports zero
+errors for the Python glass test. The unfiltered run separately reports
+CUDA texture-descriptor query errors inside `nvngx_dlssd.dll`, one per successful
+NGX evaluation; these are not kernel access errors and are retained in the test
+logs. Empty texture destruction and explicit/opaque history ownership transitions
+were also fixed during validation.
+
+Viewer 90-frame tests verify all three fixtures, zero reconstruction pixel
+readback, explicit DLSS resets and zero accepted history at camera cut frame 40.
+Maximum active/reused counts in the final installed Viewer tests were:
+mirror 42849/42742, two mirrors 53274/53254, glass 126907/42849 (256x256).
+Final installed-binary results are recorded in
+`test_outputs/stable_plane_history/summary.json`; do not interpret these counts
+as a denoising-quality score. The feature remains experimental and opt-in.
+
+A 512x512 moving-camera comparison against the existing 256-SPP fixture captures
+also checks the limitation of the explicit window. Glass display MSE was 119.17
+with guide-only DLSS, 122.27 with four plane-history frames, and 121.45 with 16.
+Two-mirror MSE was 74.89, 77.15 and 77.41 respectively. These windows did not beat
+DLSS's own longer opaque history on these scenes. Raw plane reprojection and
+strict history ownership work, but improved final denoising quality is not
+claimed; the explicit plane window stays opt-in. See
+`test_outputs/stable_plane_history/quality.json` for the measured captures.

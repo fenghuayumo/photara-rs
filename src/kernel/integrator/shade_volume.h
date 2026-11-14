@@ -2568,6 +2568,8 @@ ccl_device_forceinline void integrate_volume_direct_light(
     shadow_flag &= ~PATH_RAY_VOLUME_PRIMARY_TRANSMIT;
   }
 
+  INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, stable_branch) =
+      INTEGRATOR_STATE(state, path, stable_branch);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, render_pixel_index) = INTEGRATOR_STATE(
       state, path, render_pixel_index);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, rng_offset) = INTEGRATOR_STATE(

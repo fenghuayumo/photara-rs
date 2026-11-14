@@ -22,6 +22,7 @@
 #include "device/device.h"
 #include "realtime/frame_scheduler.h"
 #include "realtime/navigation.h"
+#include "realtime/temporal_history.h"
 #include "scene/camera.h"
 #include "scene/film.h"
 #include "scene/integrator.h"
@@ -203,6 +204,8 @@ struct Viewer {
   bool submitted_neeat_reset = true;
   int submitted_sample_offset = 0;
   bool stable_mirror_guide = false;
+  int stable_plane_history = 0;
+  photara::realtime::TemporalHistory plane_history;
   int camera_cut_frame = -1;
   int nee_candidates = 1;
   float sweep_base_x = 0.0f;
@@ -233,6 +236,7 @@ struct Viewer {
       session->wait();
     }
     completion.reset();
+    plane_history.free_gpu();
     session.reset();
   }
 
@@ -305,6 +309,17 @@ struct Viewer {
     if (stable_mirror_guide && !dlss) {
       throw std::runtime_error("--stable-mirror-guide requires --denoiser DLSS");
     }
+    if (stable_plane_history) {
+      if (!stable_mirror_guide || !dlss) throw std::runtime_error("Plane history requires --stable-planes and DLSS");
+      plane_history.limit = stable_plane_history;
+      for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS, PASS_OBJECT_ID}) {
+        auto *guide = scene->create_node<Pass>(); guide->set_type(type);
+      }
+      session->set_frame_reconstruction([this](RenderBuffers *buffers, const int samples) {
+        plane_history.reconstruct_gpu(buffers, samples, *session->scene->camera,
+            session->scene->dscene.data.integrator.pixel_jitter);
+      }, true);
+    }
     auto *pass = scene->create_node<Pass>();
     pass->set_name(ustring("combined"));
     pass->set_type(PASS_COMBINED);
@@ -320,7 +335,7 @@ struct Viewer {
       }
       metrics << "frame,mode,spp,observed_ms,worker_to_gpu_display_ms,cpu_pixel_readback_bytes,"
                  "present_attempts,presented_frames,surface_queries,title_updates,rendered_frames_"
-                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset,gpu_timing_enabled,scene_update_host_ms,neeat_gpu_ms,path_trace_gpu_ms,denoise_total_gpu_ms,dlss_evaluate_gpu_ms,film_convert_gpu_ms,display_gpu_frame,display_gpu_ms,gpu_queue_wait_host_ms,display_reader_wait_host_ms\n";
+                 "presented,present_backpressure_ms,history_samples,present_timestamp_ms,dlss,temporal_reset,camera_x,phase,dlss_frames,dlss_resets,dlss_reuses,stable_mirror_guide,neeat_reset,sample_subset_offset,gpu_timing_enabled,scene_update_host_ms,neeat_gpu_ms,path_trace_gpu_ms,denoise_total_gpu_ms,dlss_evaluate_gpu_ms,film_convert_gpu_ms,display_gpu_frame,display_gpu_ms,gpu_queue_wait_host_ms,display_reader_wait_host_ms,plane_reused_pixels,plane_mean_history,active_planes\n";
     }
   }
 
@@ -439,6 +454,8 @@ struct Viewer {
       if (gpu_timings) metrics << frame.queue_wait_host_ms;
       metrics << ',';
       if (gpu_timings) metrics << frame.display_wait_host_ms;
+      if (stable_plane_history) plane_history.sync_stats();
+      metrics << ',' << plane_history.reused_pixels << ',' << plane_history.mean_history_frames << ',' << plane_history.active_planes;
       metrics << '\n';
       if ((rendered_frames_presented & 63) == 0) {
         metrics.flush();
@@ -573,10 +590,11 @@ struct Viewer {
       presenter.reader_wait_host_ms = 0;
     }
     scene->film->set_denoising_stable_mirror_guide(stable_mirror_guide && realtime && spp == 1);
+    if (stable_plane_history && (reset_temporal || !realtime)) plane_history.clear();
     reset_frame_history = dirty || !realtime;
     if (dlss_history) {
       // Camera-only movement keeps valid history; explicit cuts/mode changes reset it.
-      dlss_history->reset = reset_temporal || !realtime;
+      dlss_history->reset = reset_temporal || !realtime || stable_plane_history > 0;
       submitted_dlss_frames = dlss_history->dlss_frames;
     }
     submitted_temporal_reset = reset_temporal || !realtime;
@@ -797,6 +815,11 @@ int main(int argc, char **argv)
       }
       else if (arg == "--stable-planes" || arg == "--stable-mirror-guide") {
         app.stable_mirror_guide = true;
+      }
+      else if (arg == "--stable-plane-history") {
+        app.stable_plane_history = std::stoi(value());
+        if (app.stable_plane_history < 0 || app.stable_plane_history > 64)
+          throw std::runtime_error("Plane history must be in [0,64]");
       }
       else if (arg == "--camera-cut-frame") {
         app.camera_cut_frame = std::stoi(value());

@@ -79,9 +79,9 @@ no pixel readback/upload during normal frames. Small camera/layout metadata is
 uploaded each frame. Python result/AOV capture and file output still require
 their existing transfers; this is not an end-to-end GPU video encoder.
 
-GPU history occupies about 64 bytes per pixel per slot (about 127 MiB at
-1920x1080), with `history_samples + 1` slots, plus counts and small diagnostic
-buffers. Cost scales with resolution times the history limit (0..64).
+GPU history includes storage for three independent stable-plane records per
+pixel, with `history_samples + 1` slots, plus counts and diagnostic buffers.
+Query `history_stats()["memory_bytes"]` for the actual allocation. Cost scales with resolution times the history limit (0..64).
 `history_stats()` explicitly downloads reduced diagnostics, not color/geometry
 history. It reports backend, GPU update count, reconstruction pixel-readback
 bytes, allocated raw-ring memory, stored frames, accepted-history counts and seed.
@@ -97,11 +97,13 @@ current first-hit world position into each old camera, validates position/depth
 and normals, requires matching object IDs, rejects non-finite positions/roughness,
 and conservatively rejects view-dependent reuse. This uses nearest
 pixel lookup and can soften detail or show artifacts; it is not an unbiased
-estimator for arbitrary camera animation. Only full-resolution perspective,
-opaque non-transmissive triangle-mesh scenes are supported. Background pixels
-do not accumulate. Glass, alpha clipping, splats, volumes, DLSS upscaling and
-queued viewport-camera updates are rejected. Specular/reflection/refraction
-history reconstruction is not implemented. Geometry/light edits clear the whole
+estimator for arbitrary camera animation. The primary-surface path supports full-resolution perspective, opaque triangle
+meshes. Its background pixels do not accumulate; the stable-plane path can
+reproject sky direction separately. Flat static glass/mirror plane history is selected for GPU, 1-SPP, native-resolution
+DLSS jobs. Other transmission configurations, alpha clipping, splats, volumes,
+DLSS upscaling and queued viewport-camera updates are rejected. Unsupported
+optical paths remain current-frame-only. See the realtime README for branch
+radiance decomposition and correspondence checks. Geometry/light edits clear the whole
 ring rather than supplying animated-object reprojection.
 
 With history enabled, each submitted frame uses a deterministic frame-scrambled

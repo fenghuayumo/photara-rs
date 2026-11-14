@@ -210,6 +210,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_denoising_depth = PASS_UNUSED;
   kfilm->pass_denoising_backward_motion = PASS_UNUSED;
   kfilm->pass_denoising_specular_motion = PASS_UNUSED;
+  kfilm->pass_stable_planes = PASS_UNUSED;
   kfilm->pass_sample_count = PASS_UNUSED;
   kfilm->pass_render_time = PASS_UNUSED;
   kfilm->pass_adaptive_aux_buffer = PASS_UNUSED;
@@ -410,6 +411,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
       case PASS_DENOISING_BACKWARD_MOTION:
         kfilm->pass_denoising_backward_motion = kfilm->pass_stride;
         break;
+      case PASS_STABLE_PLANES:
+        kfilm->pass_stable_planes = kfilm->pass_stride;
+        break;
       case PASS_DENOISING_SPECULAR_MOTION:
         kfilm->pass_denoising_specular_motion = kfilm->pass_stride;
         break;
@@ -479,7 +483,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
 
   /* denoiser pass parameters */
   kfilm->denoising_pass_options_flag = 0;
-  if (denoising_stable_mirror_guide) {
+  if (denoising_stable_mirror_guide && !scene->integrator->get_motion_blur()) {
     kfilm->denoising_pass_options_flag |= DENOISING_PASS_STABLE_MIRROR_GUIDE;
   }
   if (denoising_pass_follow_reflections) {
@@ -615,6 +619,10 @@ void Film::update_passes(Scene *scene)
     }
   }
 
+  if (use_denoise && denoising_stable_mirror_guide) {
+    add_auto_pass(scene, PASS_STABLE_PLANES);
+  }
+
   /* Create passes for shadow catcher. */
   if (scene->has_shadow_catcher()) {
     const bool need_background = get_use_approximate_shadow_catcher() &&
@@ -688,7 +696,8 @@ void Film::update_passes(Scene *scene)
 
   /* Flush scene updates. */
   const bool have_uv_pass = Pass::contains(scene->passes, PASS_UV);
-  const bool have_motion_pass = Pass::contains(scene->passes, PASS_MOTION) ||
+  const bool have_motion_pass = denoising_stable_mirror_guide ||
+                                Pass::contains(scene->passes, PASS_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_BACKWARD_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_SPECULAR_MOTION);
   const bool have_ao_pass = Pass::contains(scene->passes, PASS_AO);

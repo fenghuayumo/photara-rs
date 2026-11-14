@@ -397,6 +397,8 @@ ccl_device_forceinline void integrator_state_write_mnee(IntegratorState state,
 
   /* Ray. */
   INTEGRATOR_STATE_ARRAY_WRITE(shadow_state, shadow_isect, 1, prim) = mnee_vertex_count;
+  INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, stable_branch) =
+      INTEGRATOR_STATE(state, path, stable_branch);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, throughput) = mnee_throughput;
   /* The ray direction becomes the original light sample's direction for the shadow ray tracing. */
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_ray, D) = ls->D;

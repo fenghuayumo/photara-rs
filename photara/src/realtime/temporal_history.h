@@ -49,7 +49,7 @@ class TemporalHistory {
   bool stats_valid = false;
   uint64_t gpu_updates = 0, pixel_readback_bytes = 0;
   int limit = 0;
-  uint64_t frame_index = 0, reused_pixels = 0, reused_frames = 0;
+  uint64_t frame_index = 0, reused_pixels = 0, reused_frames = 0, active_planes = 0;
   double mean_history_frames = 0;
   std::deque<Frame> frames;
 
@@ -58,7 +58,7 @@ class TemporalHistory {
     frames.clear();
     gpu_count = gpu_next = 0;
     stats_valid = false;
-    reused_pixels = reused_frames = 0;
+    reused_pixels = reused_frames = active_planes = 0;
     mean_history_frames = 0;
   }
 
@@ -85,10 +85,10 @@ class TemporalHistory {
     if (!use_gpu || !stats_valid) return;
     gpu_stats->copy_from_device();
     uint64_t sum = 0;
-    reused_pixels = reused_frames = 0;
+    reused_pixels = reused_frames = active_planes = 0;
     for (size_t i = 0; i < gpu_stats->size(); ++i) {
       const auto v = gpu_stats->data()[i];
-      sum += v.x; reused_pixels += v.y;
+      sum += v.x; reused_pixels += v.y; active_planes += v.w;
       reused_frames = std::max(reused_frames, uint64_t(v.z));
     }
     mean_history_frames = double(sum) / (double(gpu_width)*gpu_height);
@@ -129,6 +129,7 @@ class TemporalHistory {
     f.normal = p.get_pass_offset(PASS_NORMAL); f.roughness = p.get_pass_offset(PASS_ROUGHNESS);
     f.object_id = p.get_pass_offset(PASS_OBJECT_ID);
     f.count = p.get_pass_offset(PASS_SAMPLE_COUNT);
+    f.planes = p.get_pass_offset(PASS_STABLE_PLANES);
     if (f.combined == PASS_UNUSED || f.position == PASS_UNUSED || f.normal == PASS_UNUSED ||
         f.roughness == PASS_UNUSED || f.object_id == PASS_UNUSED)
       throw std::runtime_error("Temporal guiding passes are missing");
@@ -202,7 +203,7 @@ class TemporalHistory {
       pixel.object_id = src[object_id];
     }
 
-    reused_pixels = reused_frames = 0;
+    reused_pixels = reused_frames = active_planes = 0;
     uint64_t accepted_total = 0;
     for (size_t i = 0; i < current.pixels.size(); ++i) {
       const auto &pixel = current.pixels[i];

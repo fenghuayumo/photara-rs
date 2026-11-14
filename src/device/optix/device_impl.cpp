@@ -411,6 +411,9 @@ bool OptiXDevice::load_kernels(const uint64_t kernel_features)
   }
 
   module_options.boundValues = nullptr;
+  if (getenv("PHOTARA_OPTIX_LINEINFO")) {
+    module_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL;
+  }
   module_options.numBoundValues = 0;
   module_options.payloadTypes = nullptr;
   module_options.numPayloadTypes = 0;

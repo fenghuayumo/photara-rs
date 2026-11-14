@@ -252,6 +252,8 @@ integrate_direct_light_shadow_init_common(KernelGlobals kg,
     INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, bsdf_eval_average) = average(bsdf_spectrum);
   }
 
+  INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, stable_branch) =
+      INTEGRATOR_STATE(state, path, stable_branch);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, render_pixel_index) = INTEGRATOR_STATE(
       state, path, render_pixel_index);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, rng_offset) = INTEGRATOR_STATE(
@@ -785,6 +787,8 @@ ccl_device_forceinline void integrate_surface_ao(KernelGlobals kg,
   const uint32_t shadow_flag = INTEGRATOR_STATE(state, path, flag) | PATH_RAY_SHADOW_FOR_AO;
   const Spectrum throughput = INTEGRATOR_STATE(state, path, throughput) * surface_shader_alpha(sd);
 
+  INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, stable_branch) =
+      INTEGRATOR_STATE(state, path, stable_branch);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, render_pixel_index) = INTEGRATOR_STATE(
       state, path, render_pixel_index);
   INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, rng_offset) = INTEGRATOR_STATE(
@@ -1040,7 +1044,7 @@ ccl_device_forceinline void integrator_shade_surface_raytrace(
       stable_guide_shader_eval<KERNEL_FEATURE_NODE_MASK_SURFACE>(kg, state, &probe,
           INTEGRATOR_STATE(state, path, visibility));
       if (!(probe.runtime_flag & SR_CACHE_MISS) &&
-          (!stable_guide_delta(&probe) ||
+          (!stable_guide_delta(kg, &probe) ||
            (probe.shader_flag & (SD_HAS_VOLUME | SD_HAS_LIGHT_PATH_NODE))))
       {
         integrator_path_next_sorted(kg, state, DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE,

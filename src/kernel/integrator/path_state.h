@@ -46,6 +46,7 @@ ccl_device_inline void path_state_init_integrator(KernelGlobals kg,
                                                   const Spectrum throughput)
 {
   INTEGRATOR_STATE_WRITE(state, path, sample) = sample;
+  INTEGRATOR_STATE_WRITE(state, path, stable_branch) = 1;
   INTEGRATOR_STATE_WRITE(state, path, bounce) = 0;
   INTEGRATOR_STATE_WRITE(state, path, diffuse_bounce) = 0;
   INTEGRATOR_STATE_WRITE(state, path, glossy_bounce) = 0;
@@ -114,6 +115,13 @@ ccl_device_inline void path_state_next(KernelGlobals kg,
                                        const int label,
                                        const int runtime_flag)
 {
+  uint branch = INTEGRATOR_STATE(state, path, stable_branch);
+  if (!(branch & 0x80000000u) && !(label & LABEL_TRANSPARENT)) {
+    if ((label & LABEL_SINGULAR) && INTEGRATOR_STATE(state, path, bounce) < 15)
+      branch = (branch << 2) | ((label & LABEL_TRANSMIT) ? 2u : 1u);
+    else branch |= 0x80000000u;
+    INTEGRATOR_STATE_WRITE(state, path, stable_branch) = branch;
+  }
   PathRayVisibility visibility = INTEGRATOR_STATE(state, path, visibility);
   uint32_t flag = INTEGRATOR_STATE(state, path, flag);
 

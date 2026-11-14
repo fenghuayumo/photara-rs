@@ -4,7 +4,14 @@
 
 CCL_NAMESPACE_BEGIN
 
+struct KernelTemporalPlane {
+  float3 color, virtual_position, position, normal, view, throughput;
+  float roughness;
+  uint branch, key;
+  bool valid, sky;
+};
 struct KernelTemporalPixel {
+  KernelTemporalPlane planes[3];
   float4 color;
   float3 position, normal;
   float roughness, weight, object_id;
@@ -14,7 +21,7 @@ struct KernelTemporalFrame {
   Transform worldtocamera;
   float3 camera_position;
   float2 lookup_shift;
-  int width, height, stride, combined, position, normal, roughness, object_id, count, samples;
+  int width, height, stride, combined, position, normal, roughness, object_id, count, samples, planes;
 };
 
 #ifdef __KERNEL_GPU__
@@ -35,6 +42,23 @@ ccl_device void temporal_snapshot(ccl_global const float *film,
   p.roughness = src[f.roughness] * inv;
   p.object_id = src[f.object_id];
   p.weight = float(n);
+  for (int k = 0; k < 3; ++k) {
+    KernelTemporalPlane plane = {};
+    if (f.planes != PASS_UNUSED) {
+      ccl_global const float *r = src + f.planes + k*24;
+      plane.branch = __float_as_uint(r[0]); plane.key = __float_as_uint(r[1]);
+      plane.virtual_position = make_float3(r[2], r[3], r[4]);
+      plane.position = make_float3(r[5], r[6], r[7]);
+      plane.normal = make_float3(r[8], r[9], r[10]);
+      plane.roughness = r[11]; plane.view = make_float3(r[12], r[13], r[14]);
+      plane.color = make_float3(r[15], r[16], r[17]) * inv;
+      plane.throughput = make_float3(r[18], r[19], r[20]);
+      plane.color = safe_divide(plane.color, plane.throughput);
+      plane.sky = r[21] == 2.0f;
+      plane.valid = reduce_min(plane.throughput) > 1e-6f && r[21] > 0.0f && plane.branch != 0;
+    }
+    p.planes[k] = plane;
+  }
   ring[size_t(slot) * f.width * f.height + i] = p;
 }
 
@@ -49,6 +73,73 @@ ccl_device void temporal_reproject(ccl_global float *film,
   const size_t size = size_t(f.width) * f.height;
   const KernelTemporalPixel p = ring[size_t(slot) * size + i];
   counts[i] = 0;
+  if (f.planes != PASS_UNUSED && p.weight > 0.0f && isfinite(p.weight)) {
+    /* The unclassified residual is current-frame-only. Keep each history layer
+     * independent; never warp a Fresnel mixture using one dominant surface. */
+    float3 result = make_float3(p.color);
+    uint reused = 0, active = 0;
+    for (int k = 0; k < 3; ++k) {
+      const KernelTemporalPlane a = p.planes[k];
+      if (!a.valid || !isfinite(len_squared(a.color)) ||
+          !isfinite(len_squared(a.position)) || !isfinite(len_squared(a.normal)) ||
+          !isfinite(a.roughness) || !isfinite(len_squared(a.view)) ||
+          !isfinite(len_squared(a.throughput))) continue;
+      ++active;
+      double sums[3] = {double(a.color.x)*p.weight, double(a.color.y)*p.weight,
+                        double(a.color.z)*p.weight};
+      double weights = p.weight;
+      uint accepted = 0;
+      for (int age = 1; age <= history; ++age) {
+        const int old_slot = (slot + capacity - age) % capacity;
+        const KernelTemporalFrame old = frames[old_slot];
+        const float3 proposal = a.sky ? old.camera_position +
+            safe_normalize(a.virtual_position-f.camera_position)*1e6f : a.virtual_position;
+        const float3 projected = transform_perspective(&old.worldtoraster, proposal);
+        if (!isfinite(projected.x) || !isfinite(projected.y) ||
+            fabsf(projected.x) > 1e6f || fabsf(projected.y) > 1e6f) continue;
+        const int x = int(floorf(projected.x + old.lookup_shift.x));
+        const int y = int(floorf(projected.y + old.lookup_shift.y));
+        const float depth = transform_point(&old.worldtocamera, a.virtual_position).z;
+        if (!(depth > 0.0f) || !isfinite(depth)) continue;
+        const float footprint = (a.sky ? 1.0f : max(depth, 1e-3f))*2.0f / float(max(f.width, f.height));
+        float best = footprint*footprint;
+        int match_pixel = -1, match_plane = -1;
+        for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+          const int px = x+dx, py = y+dy;
+          if (px < 0 || py < 0 || px >= f.width || py >= f.height) continue;
+          const KernelTemporalPixel q = ring[size_t(old_slot)*size + size_t(py)*f.width+px];
+          if (!(q.weight > 0.0f) || !isfinite(q.weight)) continue;
+          for (int t = 0; t < 3; ++t) {
+            const KernelTemporalPlane b = q.planes[t];
+            if (!b.valid || a.sky != b.sky || !isfinite(b.roughness) ||
+                !isfinite(len_squared(b.view)) || a.branch != b.branch || a.key != b.key ||
+                !isfinite(len_squared(b.color)) || !isfinite(len_squared(b.normal)) ||
+                dot(a.normal, b.normal) < 0.98f) continue;
+            const float d = len_squared(a.position-b.position);
+            const float rough = clamp(min(a.roughness, b.roughness), 0.0f, 1.0f);
+            if (!isfinite(d) || d >= best ||
+                dot(a.view, b.view) < 1.0f-max(1e-7f, rough*rough*0.002f)) continue;
+            best = d; match_pixel = py*f.width+px; match_plane = t;
+          }
+        }
+        if (match_pixel >= 0) {
+          const KernelTemporalPixel q = ring[size_t(old_slot)*size+match_pixel];
+          const float3 color = q.planes[match_plane].color;
+          sums[0] += double(color.x)*q.weight; sums[1] += double(color.y)*q.weight;
+          sums[2] += double(color.z)*q.weight; weights += q.weight; ++accepted;
+        }
+      }
+      if (weights > 0.0) result += make_float3(float(sums[0]/weights),
+          float(sums[1]/weights), float(sums[2]/weights)) * a.throughput - a.color * a.throughput;
+      reused = max(reused, accepted);
+    }
+    ccl_global float *dst = film + size_t(i)*f.stride + f.combined;
+    if (isfinite(len_squared(result))) {
+      dst[0] = result.x*p.weight; dst[1] = result.y*p.weight; dst[2] = result.z*p.weight;
+      counts[i] = reused | (active << 16);
+    }
+    return;
+  }
   if (p.weight <= 0 || !isfinite(p.weight) || !isfinite(p.roughness) ||
       !isfinite(p.object_id) || !isfinite(len_squared(p.position)) ||
       len_squared(p.normal) < 0.5f ||

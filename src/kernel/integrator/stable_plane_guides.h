@@ -3,8 +3,12 @@
 
 #include "kernel/integrator/surface_shader.h"
 #include "kernel/film/denoising_passes.h"
+#include "kernel/geom/triangle.h"
 
 CCL_NAMESPACE_BEGIN
+ccl_device_inline float stable_component(const float3 v, const int c)
+{ return c == 0 ? v.x : (c == 1 ? v.y : v.z); }
+
 
 #ifdef __DENOISING_FEATURES__
 /* Deterministic delta-tree guidance for RR. Radiance still uses the unbiased
@@ -17,16 +21,28 @@ struct StableGuideBranch {
   Spectrum throughput;
   float distance;
   int depth;
+  uint branch_id, key;
   PathRayVisibility visibility;
 };
 
-ccl_device_inline bool stable_guide_delta(const ccl_private ShaderData *sd)
+ccl_device_inline bool stable_guide_delta(KernelGlobals kg, const ccl_private ShaderData *sd)
 {
   if (sd->num_closure != 1 || !(sd->type & PRIMITIVE_TRIANGLE) ||
-      (sd->shader & SHADER_SMOOTH_NORMAL) ||
       (sd->object_flag & (SD_OBJECT_MOTION | SD_OBJECT_HAS_VERTEX_MOTION)) ||
       fabsf(dot(sd->N, sd->Ng)) < 0.99999f)
     return false;
+  if (sd->shader & SHADER_SMOOTH_NORMAL) {
+    /* Python meshes carry smooth flags even on a flat slab. Prove that all
+     * corner/vertex normals coincide with the face, rather than accepting a
+     * single coincident interpolated normal on a curved surface. */
+    float3 positions[3], normals[3];
+    triangle_vertices_and_normals(kg, sd, positions, normals);
+    for (int i=0; i<3; ++i) {
+      if (!(sd->object_flag & SD_OBJECT_TRANSFORM_APPLIED))
+        object_normal_transform(kg, sd, &normals[i]);
+      if (fabsf(dot(safe_normalize(normals[i]), sd->Ng)) < 0.99999f) return false;
+    }
+  }
   const ccl_private ShaderClosure *sc = &sd->closure[0];
   /* Restrict to microfacet closures whose singular eval convention is 1e6.
    * Other closures need their own deterministic lobe enumeration. */
@@ -87,7 +103,7 @@ ccl_device_noinline bool film_write_stable_plane_guides(
       INTEGRATOR_STATE(state, path, bounce) != 0 ||
       INTEGRATOR_STATE(state, path, transparent_bounce) != 0 ||
       INTEGRATOR_STATE(state, path, volume_bounds_bounce) != 0 ||
-      !integrator_state_volume_stack_is_empty(kg, state) || !stable_guide_delta(primary))
+      !integrator_state_volume_stack_is_empty(kg, state) || !stable_guide_delta(kg, primary))
     return false;
 
   StableGuideBranch pending[3];
@@ -100,6 +116,10 @@ ccl_device_noinline bool film_write_stable_plane_guides(
   pending[0].throughput = one_spectrum();
   pending[0].distance = 0.0f;
   pending[0].depth = 0;
+  pending[0].branch_id = 1;
+  pending[0].key = 2166136261u;
+  float records[3][24] = {};
+  int plane_count = 0;
   pending[0].visibility = PATH_RAY_VISIBILITY_CAMERA;
   int count = 1, leaves = 1;
   float3 normal_sum = zero_float3(), diffuse_sum = zero_float3(), specular_sum = zero_float3();
@@ -117,6 +137,17 @@ ccl_device_noinline bool film_write_stable_plane_guides(
       if (!scene_intersect(kg, &branch.ray, visibility, &isect)) {
         const float weight = average(branch.throughput);
         if (!(weight > 0.0f) || !isfinite(weight)) return false;
+        if (plane_count >= 3) return false;
+        float *record = records[plane_count++];
+        record[0] = __uint_as_float(branch.branch_id);
+        record[1] = __uint_as_float(branch.key ^ 0x9e3779b9u);
+        const float3 far_position = camera_origin + camera_direction * 1e6f;
+        for (int c = 0; c < 3; ++c) {
+          record[2+c] = stable_component(far_position, c); record[5+c] = stable_component(branch.ray.D, c);
+          record[8+c] = -stable_component(branch.ray.D, c); record[12+c] = stable_component(branch.ray.D, c);
+          record[18+c] = stable_component(spectrum_to_rgb(branch.throughput), c);
+        }
+        record[11] = 1.0f; record[21] = 2.0f;
         normal_sum -= camera_direction * weight;
         diffuse_sum += make_float3(0.5f, 0.5f, 0.5f) * weight;
         roughness_sum += weight;
@@ -144,7 +175,7 @@ ccl_device_noinline bool film_write_stable_plane_guides(
         (sd.shader_flag & (SD_HAS_LIGHT_PATH_NODE | SD_HAS_RAYTRACE))) return false;
     branch.distance += sd.ray_length;
 
-    if (stable_guide_delta(&sd) && branch.depth < min(15, kernel_data.integrator.max_bounce)) {
+    if (stable_guide_delta(kg, &sd) && branch.depth < min(15, kernel_data.integrator.max_bounce)) {
       float3 directions[2];
       Spectrum weights[2];
       int labels[2], lobes = 0;
@@ -182,6 +213,9 @@ ccl_device_noinline bool film_write_stable_plane_guides(
           child.image = branch.image * local;
           child.throughput *= weights[i];
           child.depth++;
+          child.branch_id = (branch.branch_id << 2) | (transmit ? 2u : 1u);
+          child.key = ((branch.key ^ uint(sd.object + 1)) * 16777619u ^
+                       uint(sd.shader & SHADER_MASK)) * 16777619u;
           child.visibility = transmit ? PATH_RAY_VISIBILITY_TRANSMIT : PATH_RAY_VISIBILITY_GLOSSY;
           child.ray.P = sd.P;
           child.ray.D = directions[i];
@@ -229,6 +263,21 @@ ccl_device_noinline bool film_write_stable_plane_guides(
     const float previous_depth = transform_point(&previous_camera, virtual_previous).z;
     if (!(depth > 0.0f) || !isfinite(depth) || !isfinite(previous_depth) ||
         !isfinite(motion.x) || !isfinite(motion.y)) return false;
+    if (plane_count >= 3) return false;
+    float *record = records[plane_count++];
+    record[0] = __uint_as_float(branch.branch_id);
+    record[1] = __uint_as_float(((branch.key ^ uint(sd.object + 1)) * 16777619u ^
+                                uint(sd.shader & SHADER_MASK)) * 16777619u);
+    const float3 target_normal = safe_normalize(normal);
+    for (int c = 0; c < 3; ++c) {
+      record[2+c] = stable_component(virtual_position, c);
+      record[5+c] = stable_component(sd.P, c);
+      record[8+c] = stable_component(target_normal, c);
+      record[12+c] = stable_component(sd.wi, c);
+      record[18+c] = stable_component(spectrum_to_rgb(branch.throughput), c);
+    }
+    record[11] = roughness / material_weight;
+    record[21] = 1.0f;
     normal_sum += transform_direction(&branch.image, normal / material_weight) * weight;
     diffuse_sum += spectrum_to_rgb(diffuse) * weight;
     specular_sum += spectrum_to_rgb(specular) * weight;
@@ -244,6 +293,13 @@ ccl_device_noinline bool film_write_stable_plane_guides(
   /* Commit together only after all leaves succeeded. No partial virtual depth
    * with primary motion if a branch hits unsupported geometry/volume/sky. */
   ccl_global float *buffer = film_pass_pixel_render_buffer(kg, state, render_buffer);
+  if (kernel_data.film.pass_stable_planes != PASS_UNUSED) {
+    for (int p = 0; p < 3; ++p)
+      for (int c = 0; c < 24; ++c)
+        if (c < 15 || c >= 18)
+          film_overwrite_pass_float(buffer + kernel_data.film.pass_stable_planes + p*24+c,
+                                    records[p][c]);
+  }
   const Transform camera = kernel_data.cam.worldtocamera;
   if (kernel_data.film.pass_denoising_depth != PASS_UNUSED)
     film_write_pass_float(buffer + kernel_data.film.pass_denoising_depth, dominant_depth);

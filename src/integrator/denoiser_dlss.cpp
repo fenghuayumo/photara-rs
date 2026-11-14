@@ -53,12 +53,12 @@ void DLSSDenoiser::CUDATexture::init(Device *device, int width, int height, int 
 }
 void DLSSDenoiser::CUDATexture::destroy()
 {
-  cuSurfObjectDestroy((CUsurfObject)surface_handle);
+  if (surface_handle) cuSurfObjectDestroy((CUsurfObject)surface_handle);
   surface_handle = 0;
-  cuTexObjectDestroy((CUtexObject)texture_handle);
+  if (texture_handle) cuTexObjectDestroy((CUtexObject)texture_handle);
   texture_handle = 0;
 
-  cuArrayDestroy((CUarray)array);
+  if (array) cuArrayDestroy((CUarray)array);
   array = 0;
 }
 
@@ -450,6 +450,7 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
                                      buffer.window_width,
                                      buffer.window_height};
   const bool reset = !history_valid_ || geometry != last_geometry_ ||
+                     last_external_history_ != bool(temporal_history) ||
                      (temporal_history &&
                       (temporal_history->reset || last_history_.lock() != temporal_history));
   params->Set(NVSDK_NGX_Parameter_Reset, int(reset));
@@ -486,6 +487,7 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
   if (history_valid_) {
     last_geometry_ = geometry;
     last_history_ = temporal_history;
+    last_external_history_ = bool(temporal_history);
     if (temporal_history) {
       temporal_history->reset = false;
       ++temporal_history->dlss_frames;

@@ -2363,6 +2363,7 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
       }, ctx->history.use_gpu);
     }
     else {
+      ctx->scene->film->set_denoising_stable_mirror_guide(false);
       ctx->session->set_frame_reconstruction({});
       ctx->history.free_gpu();
       ctx->session->set_denoise_temporal_history(nullptr);
@@ -2455,9 +2456,19 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
       if (ctx->scene->integrator->get_denoiser_upscale_factor() != 1.0f) {
         throw std::runtime_error("history_samples currently requires native-resolution denoising");
       }
+      const bool plane_history = ctx->history.use_gpu && ctx->job_samples == 1 &&
+          ctx->scene->integrator->get_use_denoise() &&
+          ctx->scene->integrator->get_denoiser_type() == DENOISER_DLSS;
+      ctx->scene->film->set_denoising_stable_mirror_guide(plane_history);
+      if (plane_history) {
+        ctx->scene->integrator->set_denoiser_passes(
+            DENOISER_PASS_ALBEDO | DENOISER_PASS_NORMAL | DENOISER_PASS_SPECULAR_ALBEDO |
+            DENOISER_PASS_ROUGHNESS | DENOISER_PASS_DEPTH | DENOISER_PASS_BACKWARD_MOTION |
+            DENOISER_PASS_SPECULAR_MOTION);
+      }
       for (const auto &material : ctx->materials) {
-        if (material.material_desc.transmission > 0 || material.alpha_cutoff >= 0) {
-          throw std::runtime_error("history_samples currently requires opaque non-transmissive materials");
+        if (material.alpha_cutoff >= 0 || (material.material_desc.transmission > 0 && !plane_history)) {
+          throw std::runtime_error("Glass history requires GPU, DLSS, and 1 sample per frame; alpha clipping is unsupported");
         }
       }
       // Local sample zero supplies unfiltered first-hit guides on every frame.

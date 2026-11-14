@@ -437,7 +437,8 @@ Scene::MotionType Scene::need_motion() const
                                                   DENOISER_PASS_SPECULAR_MOTION;
   const bool denoiser_motion = (integrator->get_use_denoise()) &&
                                (integrator->get_denoiser_passes() & denoiser_motion_passes) != 0;
-  if (denoiser_motion || (Pass::contains(passes, PASS_MOTION) ||
+  if (denoiser_motion || film->get_denoising_stable_mirror_guide() ||
+      (Pass::contains(passes, PASS_MOTION) ||
                           Pass::contains(passes, PASS_DENOISING_BACKWARD_MOTION) ||
                           Pass::contains(passes, PASS_DENOISING_SPECULAR_MOTION)))
   {

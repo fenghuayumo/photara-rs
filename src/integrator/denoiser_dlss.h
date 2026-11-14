@@ -40,6 +40,7 @@ class DLSSDenoiser : public DenoiserGPU {
   std::weak_ptr<DenoiseTemporalHistory> last_history_;
   std::vector<int> last_geometry_;
   bool history_valid_ = false;
+  bool last_external_history_ = false;
 
   NVSDK_NGX_Handle *handle_ = nullptr;
   NVSDK_NGX_CUDADevice *ngx_device_ = nullptr;

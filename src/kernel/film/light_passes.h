@@ -485,6 +485,26 @@ ccl_device_inline void film_write_emission_or_background_pass(
 #endif /* __PASSES__ */
 }
 
+/* Stable leaves partition contributions by delta-path prefix, never by brightness.
+ * Emission before a leaf, unsupported paths and AO stay in the exact residual. */
+ccl_device_inline void film_write_plane_radiance(KernelGlobals kg, uint branch,
+    const Spectrum contribution, ccl_global float *buffer)
+{
+  if (kernel_data.film.pass_stable_planes == PASS_UNUSED) return;
+  branch &= 0x7fffffffu;
+  for (int p = 0; p < 3; ++p) {
+    ccl_global float *plane = buffer + kernel_data.film.pass_stable_planes + p * 24;
+    const uint leaf = __float_as_uint(plane[0]);
+    if (!leaf) continue;
+    uint parent = branch;
+    while (parent > leaf) parent >>= 2;
+    if (parent == leaf) {
+      film_write_pass_spectrum(plane + 15, contribution);
+      return;
+    }
+  }
+}
+
 /* Write light contribution to render buffer. */
 ccl_device_inline void film_write_direct_light(KernelGlobals kg,
                                                ConstIntegratorShadowState state,
@@ -517,6 +537,7 @@ ccl_device_inline void film_write_direct_light(KernelGlobals kg,
 
   /* Direct light shadow. */
   film_write_combined_pass(kg, path_visibility, path_flag, sample, contribution, buffer);
+  film_write_plane_radiance(kg, INTEGRATOR_STATE(state, shadow_path, stable_branch), contribution, buffer);
 
 #ifdef __PASSES__
   if (kernel_data.film.light_pass_flag & PASS_ANY) {
@@ -648,6 +669,7 @@ ccl_device_inline void film_write_background(KernelGlobals kg,
     const int sample = INTEGRATOR_STATE(state, path, sample);
     film_write_combined_transparent_pass(
         kg, path_visibility, path_flag, sample, contribution, transparent, buffer);
+    film_write_plane_radiance(kg, INTEGRATOR_STATE(state, path, stable_branch), contribution, buffer);
   }
   film_write_emission_or_background_pass(kg,
                                          state,
@@ -673,6 +695,7 @@ ccl_device_inline void film_write_volume_emission(KernelGlobals kg,
   const int sample = INTEGRATOR_STATE(state, path, sample);
 
   film_write_combined_pass(kg, path_visibility, path_flag, sample, contribution, buffer);
+  film_write_plane_radiance(kg, INTEGRATOR_STATE(state, path, stable_branch), contribution, buffer);
   film_write_emission_or_background_pass(
       kg, state, contribution, buffer, kernel_data.film.pass_emission, lightgroup);
 }
@@ -693,6 +716,7 @@ ccl_device_inline void film_write_surface_emission(KernelGlobals kg,
   const int sample = INTEGRATOR_STATE(state, path, sample);
 
   film_write_combined_pass(kg, path_visibility, path_flag, sample, contribution, buffer);
+  film_write_plane_radiance(kg, INTEGRATOR_STATE(state, path, stable_branch), contribution, buffer);
   film_write_emission_or_background_pass(
       kg, state, contribution, buffer, kernel_data.film.pass_emission, lightgroup);
 }

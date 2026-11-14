@@ -67,12 +67,13 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 {
   const int block = ccl_gpu_global_id_x();
   if (block < (size+255)/256) {
-    uint sum = 0, pixels = 0, maximum = 0;
+    uint sum = 0, pixels = 0, maximum = 0, planes = 0;
     for (int i = block*256; i < min(size, (block+1)*256); ++i) {
-      const uint n = counts[i];
+      const uint n = counts[i] & 0xffffu;
+      planes += counts[i] >> 16;
       sum += n; pixels += n != 0; maximum = max(maximum, n);
     }
-    stats[block] = make_uint4(sum, pixels, maximum, 0);
+    stats[block] = make_uint4(sum, pixels, maximum, planes);
   }
 }
 ccl_gpu_kernel_postfix

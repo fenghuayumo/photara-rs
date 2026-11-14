@@ -5,6 +5,7 @@
 /************************************ Path State *****************************/
 
 KERNEL_STRUCT_BEGIN(path)
+KERNEL_STRUCT_MEMBER(path, uint32_t, stable_branch, KERNEL_FEATURE_PATH_TRACING)
 /* Index of a pixel within the device render buffer where this path will write its result.
  * To get an actual offset within the buffer the value needs to be multiplied by the
  * `kernel_data.film.pass_stride`.
