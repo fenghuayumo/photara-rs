@@ -352,6 +352,16 @@ PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
  * Mesh emitters retain tree sampling. Changing this resets feedback history. */
 PHOTARA_API int photara_set_neeat(PhotaraContext *ctx, int enabled);
 PHOTARA_API int photara_set_nee_candidates(PhotaraContext *ctx, int count);
+/* Experimental denoiser-independent CPU reprojection of the previous 0..64 raw frames.
+ * Zero disables it (default). Does not change the current frame's SPP budget.
+ * Raw host history grows with resolution and count; only full-resolution perspective
+ * static opaque surfaces are reconstructed. Scene edits invalidate history. */
+PHOTARA_API int photara_set_history_samples(PhotaraContext *ctx, int history_samples);
+PHOTARA_API int photara_reset_history(PhotaraContext *ctx);
+PHOTARA_API int photara_get_history_stats(PhotaraContext *ctx, int *stored_frames,
+                                         uint64_t *reused_pixels, uint64_t *max_history_frames,
+                                         double *mean_history_frames, uint64_t *memory_bytes,
+                                         int *sample_seed);
 PHOTARA_API int photara_get_neeat_update_counts(PhotaraContext *ctx, uint64_t *gpu, uint64_t *cpu);
 /* Idle-context diagnostics: active analytic count and largest learned probability. */
 PHOTARA_API int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf);

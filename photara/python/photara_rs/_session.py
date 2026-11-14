@@ -331,6 +331,7 @@ class Session:
         viewport: bool = False,
         render_mode: str = "REFERENCE",
         samples_per_frame: int = 1,
+        history_samples: int = 0,
     ) -> None:
         try:
             factor = {"NONE": 1.0, "QUALITY": 1.5, "BALANCED": 1.0 / 0.58, "PERFORMANCE": 2.0, "ULTRA_PERFORMANCE": 3.0}[denoise_upscale_quality]
@@ -394,6 +395,12 @@ class Session:
             except Exception:
                 self.close()
                 raise
+
+        try:
+            self.history_samples = history_samples
+        except Exception:
+            self.close()
+            raise
 
 
     # ------------------------------------------------------------------
@@ -961,6 +968,27 @@ class Session:
 
     def configure_nee_candidates(self, count=1):
         self._ctx.configure_nee_candidates(int(count))
+
+    @property
+    def history_samples(self):
+        """Maximum previous raw frames used by experimental CPU reprojection (0..64)."""
+        self._ctx
+        return self._history_samples
+
+    @history_samples.setter
+    def history_samples(self, value):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 64:
+            raise ValueError("history_samples must be an integer in [0, 64]")
+        self._ctx.configure_history_samples(value)
+        self._history_samples = value
+
+    def reset_history(self):
+        """Discard raw temporal history after a camera cut or a discontinuity."""
+        self._ctx.reset_history()
+
+    def history_stats(self):
+        """Return idle-only diagnostics for stored and accepted raw history frames."""
+        return dict(self._ctx.history_stats())
 
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select an experimental per-frame baseline; does not enable ReSTIR/GI cache.

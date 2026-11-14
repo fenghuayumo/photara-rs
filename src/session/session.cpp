@@ -164,6 +164,11 @@ void Session::set_denoise_temporal_history(std::shared_ptr<DenoiseTemporalHistor
   path_trace_->denoise_temporal_history = std::move(history);
 }
 
+void Session::set_frame_reconstruction(std::function<void(RenderBuffers *, int)> callback)
+{
+  path_trace_->reconstruct_frame = std::move(callback);
+}
+
 void Session::request_cancel()
 {
   path_trace_->request_cancel();

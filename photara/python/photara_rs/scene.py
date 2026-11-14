@@ -1207,6 +1207,9 @@ class Scene:
         Renderer options fixed for the lifetime of the scene.
     device:
         ``"AUTO"`` or ``"OPTIX"``. Only OptiX is currently available.
+    history_samples:
+        Experimental CPU reprojection of up to 0..64 previous raw frames before
+        denoising. Default 0 preserves independent renders. Does not change samples.
     """
 
     def __init__(
@@ -1228,6 +1231,7 @@ class Scene:
         viewport: bool = False,
         render_mode: str = "REFERENCE",
         samples_per_frame: int = 1,
+        history_samples: int = 0,
     ) -> None:
         self._session = Session(
             width=width,
@@ -1243,6 +1247,7 @@ class Scene:
             denoise_use_gpu=denoise_use_gpu, denoise_upscale_quality=denoise_upscale_quality,
             viewport=viewport, render_mode=render_mode,
             samples_per_frame=samples_per_frame,
+            history_samples=history_samples,
         )
         self._closed = False
         self._samples = int(samples)
@@ -1359,6 +1364,25 @@ class Scene:
         """Set 1–16 surface NEE candidates; Reference retains one candidate."""
         self._ensure_open()
         self._session.configure_nee_candidates(count)
+
+    @property
+    def history_samples(self):
+        """Previous raw frames available to pre-denoise reprojection; zero disables it."""
+        self._ensure_open()
+        return self._session.history_samples
+
+    @history_samples.setter
+    def history_samples(self, value):
+        self._ensure_open()
+        self._session.history_samples = value
+
+    def reset_history(self):
+        self._ensure_open()
+        self._session.reset_history()
+
+    def history_stats(self):
+        self._ensure_open()
+        return self._session.history_stats()
 
     def configure_render_mode(self, mode="REFERENCE", *, samples_per_frame=1):
         """Select Reference or the experimental frame-scheduled RealTime baseline."""

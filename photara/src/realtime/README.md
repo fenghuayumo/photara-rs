@@ -5,6 +5,11 @@ It shares the existing OptiX wavefront tracer, scene, materials and light tree.
 Reference retains its original sampling behavior; shared kernels include the
 opt-in RealTime feedback path.
 
+Python now also exposes opt-in `history_samples` raw-frame CPU reprojection,
+independent of the selected denoiser. Default zero retains per-job film behavior.
+See the Python README for bounds, memory costs, supported scene types and the
+distinction from the GPU-only Viewer and DLSS's opaque history.
+
 ```python
 import photara_rs as pr
 

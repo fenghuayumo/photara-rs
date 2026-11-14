@@ -2,6 +2,7 @@
 
 #include "photara/photara.h"
 #include "realtime/frame_scheduler.h"
+#include "realtime/temporal_history.h"
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -25,6 +26,7 @@
 
 #include "device/denoise.h"
 #include "device/device.h"
+#include "integrator/denoiser.h"
 #include "kernel/types.h"
 #include "scene/attribute.h"
 #include "scene/background.h"
@@ -52,6 +54,7 @@
 #include "util/array.h"
 #include "util/colorspace.h"
 #include "util/log.h"
+#include "util/hash.h"
 #include "util/math.h"
 #include "util/path.h"
 #include "util/system.h"
@@ -645,6 +648,9 @@ struct PhotaraContext {
   int job_samples = 0;
   SessionParams active_frame_params;
   PhotaraRenderMode last_frame_mode = PHOTARA_RENDER_REFERENCE;
+  photara::realtime::TemporalHistory history;
+  int history_seed = 0;
+  std::shared_ptr<DenoiseTemporalHistory> independent_dlss_history;
 
   unique_ptr<Session> session;
   Scene *scene = nullptr;
@@ -693,7 +699,7 @@ void ensure_render_idle(PhotaraContext *ctx)
 }
 
 template<typename Function>
-int guarded(PhotaraContext *ctx, Function &&function)
+int guarded(PhotaraContext *ctx, Function &&function, const bool preserve_history = false)
 {
   if (ctx == nullptr) {
     set_create_error("NULL Photara context");
@@ -703,6 +709,7 @@ int guarded(PhotaraContext *ctx, Function &&function)
   try {
     ensure_render_idle(ctx);
     function();
+    if (!preserve_history) ctx->history.clear();
     return 0;
   }
   catch (const std::exception &exception) {
@@ -748,6 +755,7 @@ int guarded_index(PhotaraContext *ctx, Function &&function)
   try {
     ensure_render_idle(ctx);
     const int result = function();
+    if (result >= 0) ctx->history.clear();
     return result >= 0 ? result : -1;
   }
   catch (const std::exception &exception) {
@@ -1151,6 +1159,7 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     Integrator *integrator = scene->integrator;
     const int max_bounces = std::clamp(options->max_bounces > 0 ? options->max_bounces : 8, 1, 64);
     integrator->set_seed(std::max(options->seed, 0));
+    ctx->history_seed = std::max(options->seed, 0);
     integrator->set_max_bounce(max_bounces);
     integrator->set_max_diffuse_bounce(max_bounces);
     integrator->set_max_glossy_bounce(max_bounces);
@@ -1398,7 +1407,7 @@ int photara_get_omm_stats(PhotaraContext *ctx, int *supported, int *enabled,
       }
     }
 #endif
-  });
+  }, true);
 }
 
 int photara_clear_material_base_color_texture(PhotaraContext *ctx,
@@ -1811,7 +1820,7 @@ int photara_set_camera(PhotaraContext *ctx, const PhotaraCameraDesc *desc)
     camera->need_flags_update = true;
     camera->compute_auto_viewplane();
     /* Camera::device_update computes matrices and clears the dirty flag. */
-  });
+  }, true);
 }
 
 int photara_set_camera_matrix(PhotaraContext *ctx,
@@ -1842,7 +1851,7 @@ int photara_set_camera_matrix(PhotaraContext *ctx,
     camera->need_flags_update = true;
     camera->compute_auto_viewplane();
     /* Camera::device_update computes matrices and clears the dirty flag. */
-  });
+  }, true);
 }
 
 int photara_queue_camera_matrix(PhotaraContext *ctx,
@@ -1853,6 +1862,9 @@ int photara_queue_camera_matrix(PhotaraContext *ctx,
                                 const float far_clip)
 {
   return guarded_read(ctx, [&]() {
+    if (ctx->history.limit) {
+      throw std::runtime_error("With history_samples, update the camera between completed renders");
+    }
     auto &record = ctx->render_job;
     if (ctx->session_params.headless || !record.active || record.id != job ||
         record.cancel_requested || record.state != PHOTARA_RENDER_RUNNING)
@@ -2213,9 +2225,11 @@ int photara_clear_scene(PhotaraContext *ctx)
 int photara_set_seed(PhotaraContext *ctx, const int seed)
 {
   return guarded(ctx, [&]() {
+    if (ctx->history_seed != std::max(seed, 0)) ctx->history.clear();
+    ctx->history_seed = std::max(seed, 0);
     ctx->scene->integrator->set_seed(std::max(seed, 0));
     ctx->session_params.reset_neeat = true;
-  });
+  }, true);
 }
 
 int photara_set_samples(PhotaraContext *ctx, const int samples)
@@ -2225,7 +2239,7 @@ int photara_set_samples(PhotaraContext *ctx, const int samples)
       throw std::runtime_error("Samples must be positive");
     }
     ctx->session_params.samples = samples;
-  });
+  }, true);
 }
 
 int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf)
@@ -2241,7 +2255,7 @@ int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf)
       if (pdf > 0) ++*lights;
       *max_pdf = std::max(*max_pdf, pdf);
     }
-  });
+  }, true);
 }
 
 int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pdf)
@@ -2258,7 +2272,7 @@ int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pd
         *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[table * (count + 1) + i].y);
       }
     }
-  });
+  }, true);
 }
 
 int photara_set_texture_lod(PhotaraContext *ctx, const PhotaraTextureLOD method)
@@ -2279,7 +2293,7 @@ int photara_get_texture_lod(PhotaraContext *ctx, PhotaraTextureLOD *method)
   return guarded(ctx, [&]() {
     if (!method) throw std::runtime_error("NULL texture LOD output");
     *method = static_cast<PhotaraTextureLOD>(ctx->scene->integrator->get_texture_lod_method());
-  });
+  }, true);
 }
 
 int photara_set_nee_candidates(PhotaraContext *ctx, const int count)
@@ -2296,7 +2310,7 @@ int photara_get_neeat_update_counts(PhotaraContext *ctx, uint64_t *gpu, uint64_t
     if (!gpu || !cpu) throw std::runtime_error("NULL NEE-AT update counts output");
     *gpu = ctx->scene->light_manager->neeat_gpu_updates;
     *cpu = ctx->scene->light_manager->neeat_cpu_updates;
-  });
+  }, true);
 }
 
 int photara_set_neeat(PhotaraContext *ctx, const int enabled)
@@ -2321,6 +2335,59 @@ int photara_set_render_mode(PhotaraContext *ctx,
   });
 }
 
+int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
+{
+  return guarded(ctx, [&]() {
+    if (history_samples < 0 || history_samples > 64) {
+      throw std::runtime_error("history_samples must be an integer in [0, 64]");
+    }
+    ctx->history.limit = history_samples;
+    ctx->history.frame_index = 0;
+    ctx->scene->integrator->set_seed(ctx->history_seed);
+    if (history_samples) {
+      for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS}) {
+        bool found = false;
+        for (const auto &pass : ctx->scene->passes) found |= pass->get_type() == type;
+        if (!found) {
+          Pass *pass = ctx->scene->create_node<Pass>();
+          pass->set_type(type);
+        }
+      }
+      ctx->session->set_frame_reconstruction([ctx](RenderBuffers *buffers, const int samples) {
+        ctx->history.reconstruct(buffers, samples, *ctx->scene->camera,
+                                 ctx->scene->dscene.data.integrator.pixel_jitter);
+      });
+    }
+    else {
+      ctx->session->set_frame_reconstruction({});
+      ctx->session->set_denoise_temporal_history(nullptr);
+      ctx->independent_dlss_history.reset();
+    }
+  });
+}
+
+int photara_reset_history(PhotaraContext *ctx)
+{
+  return guarded(ctx, [&]() { ctx->history.frame_index = 0; });
+}
+
+int photara_get_history_stats(PhotaraContext *ctx, int *stored_frames,
+                             uint64_t *reused_pixels, uint64_t *max_history_frames,
+                             double *mean_history_frames, uint64_t *memory_bytes, int *sample_seed)
+{
+  return guarded(ctx, [&]() {
+    if (!stored_frames || !reused_pixels || !max_history_frames ||
+        !mean_history_frames || !memory_bytes || !sample_seed)
+      throw std::runtime_error("NULL history stats output");
+    *stored_frames = int(ctx->history.frames.size());
+    *reused_pixels = ctx->history.reused_pixels;
+    *max_history_frames = ctx->history.reused_frames;
+    *mean_history_frames = ctx->history.mean_history_frames;
+    *memory_bytes = ctx->history.memory_bytes();
+    *sample_seed = ctx->scene->integrator->get_seed();
+  }, true);
+}
+
 int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
 {
   if (ctx == nullptr) {
@@ -2338,6 +2405,7 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
       throw std::runtime_error("A render is already running");
     }
 
+    if (ctx->history.limit && !ctx->rendered) ctx->history.clear();
     ctx->last_error.clear();
     ctx->rendered = false;
     if (ctx->capture != nullptr) {
@@ -2358,6 +2426,40 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
       frame_params.sample_subset_length = ctx->realtime.samples();
       frame_params.time_limit = 0.0;
       ctx->job_samples = ctx->realtime.samples();
+    }
+    if (ctx->history.limit) {
+      if (!ctx->scene->geometry.empty()) {
+        for (const auto &geometry : ctx->scene->geometry) {
+          if (geometry->geometry_type != Geometry::MESH && !geometry->is_light()) {
+            throw std::runtime_error("history_samples currently supports triangle meshes only");
+          }
+        }
+      }
+      if (ctx->scene->integrator->get_denoiser_upscale_factor() != 1.0f) {
+        throw std::runtime_error("history_samples currently requires native-resolution denoising");
+      }
+      for (const auto &material : ctx->materials) {
+        if (material.material_desc.transmission > 0 || material.alpha_cutoff >= 0) {
+          throw std::runtime_error("history_samples currently requires opaque non-transmissive materials");
+        }
+      }
+      // Local sample zero supplies unfiltered first-hit guides on every frame.
+      // Scramble the seed instead of skipping this first local sample with a subset.
+      frame_params.samples = ctx->job_samples;
+      frame_params.use_sample_subset = false;
+      const uint index = uint(ctx->history.frame_index++);
+      ctx->scene->integrator->set_seed(index == 0 ? ctx->history_seed :
+          int(hash_uint2(uint(ctx->history_seed), index) & 0x7fffffffu));
+      ctx->scene->integrator->set_aa_samples(frame_params.samples);
+      // The explicit ring owns all cross-frame color influence. Do not also
+      // accumulate unbounded opaque DLSS history behind history_samples.
+      if (ctx->scene->integrator->get_denoiser_type() == DENOISER_DLSS) {
+        ctx->independent_dlss_history = std::make_shared<DenoiseTemporalHistory>();
+        ctx->session->set_denoise_temporal_history(ctx->independent_dlss_history);
+      }
+      else {
+        ctx->session->set_denoise_temporal_history(nullptr);
+      }
     }
     // Session::update_scene only increases AA samples unless reset_samples is
     // set. Explicitly restore the sequence length when leaving RealTime.

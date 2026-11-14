@@ -237,6 +237,32 @@ void PathTrace::render_pipeline(RenderWork render_work)
     return;
   }
 
+  if (reconstruct_frame && render_work.tile.write && !progress_->get_cancel()) {
+    if (path_trace_works_.size() != 1) {
+      device_->set_error("Temporal reconstruction requires a single render device");
+      return;
+    }
+    auto &work = path_trace_works_.front();
+    if (!work->copy_render_buffers_from_device()) {
+      device_->set_error("Could not read temporal reconstruction inputs");
+      return;
+    }
+    try {
+      reconstruct_frame(work->get_render_buffers(), get_num_samples_in_buffer());
+    }
+    catch (const std::exception &error) {
+      device_->set_error(error.what());
+      return;
+    }
+    if (!work->copy_render_buffers_to_device()) {
+      device_->set_error("Could not upload temporal reconstruction output");
+      return;
+    }
+    /* A previous progressive denoise must not be used for the reconstructed film. */
+    render_work.tile.denoise = bool(denoiser_);
+    render_state_.has_denoised_result = false;
+  }
+
   denoise(render_work);
   if (render_cancel_.is_requested) {
     return;

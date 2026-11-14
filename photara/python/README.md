@@ -43,6 +43,62 @@ frame.save_png("frame_0000.png")   # requires Pillow
 
 ## Scene graph
 
+### Experimental raw-frame history for stills and camera animation
+
+`Scene(..., samples=4, history_samples=8)` retains up to eight **previous frames**
+for geometric reprojection before the selected denoiser. `samples` keeps its
+existing meaning: the current Reference output frame's SPP budget. History is
+optional and defaults to zero. It also works with denoising disabled, OptiX,
+OpenImageDenoise, or native-resolution DLSS; it is not a DLSS history setting.
+
+```python
+with pr.Scene(1280, 720, samples=4, history_samples=8,
+              denoiser="OPTIX", adaptive_sampling=False) as scene:
+    # Populate scene geometry, materials and lights here.
+    for i, matrix in enumerate(camera_matrices):
+        scene.camera.matrix_world = matrix
+        frame = scene.render()
+        frame.save_png(f"frame_{i:06d}.png")
+    print(scene.history_stats())
+```
+
+For a single still, keep the camera fixed and call `render()` repeatedly, then
+save only the last result. A first call has no history: this setting does not
+generate warm-up frames automatically. `history_samples=8` permits up to eight
+previous raw frames plus the current frame; it does not promise eight accepted
+frames at every pixel. `scene.history_samples = 4` changes the limit and clears
+history. Call `scene.reset_history()` explicitly at a cut. Resizing, changing
+the seed, and scene/material/light edits invalidate history automatically.
+Changing `scene.samples` alone retains history and weights accepted contributions
+by their actual per-pixel sample counts. Keep one Scene alive across the video.
+
+This is an **experimental CPU implementation**, not a zero-readback GPU video
+pipeline or an established speedup. It reads and uploads the film once per final
+frame, and stores about 64 bytes per pixel per retained frame (about 127 MiB at
+1920x1080, or 1 GiB for eight frames), plus one working frame. Cost scales with
+resolution times the history limit (0..64). `history_stats()` reports memory,
+stored frames, accepted-history counts, reused pixels, and the last sample seed.
+
+The ring stores raw linear colors, never denoised or recursively accumulated
+colors, so expired frames cannot leak through later entries. It projects the
+current first-hit world position into each old camera, validates position/depth
+and normals, and conservatively rejects view-dependent reuse. This uses nearest
+pixel lookup and can soften detail or show artifacts; it is not an unbiased
+estimator for arbitrary camera animation. Only full-resolution perspective,
+opaque non-transmissive triangle-mesh scenes are supported. Background pixels
+do not accumulate. Glass, alpha clipping, splats, volumes, DLSS upscaling and
+queued viewport-camera updates are rejected. Specular/reflection/refraction
+history reconstruction is not implemented. Geometry/light edits clear the whole
+ring rather than supplying animated-object reprojection.
+
+With history enabled, each submitted frame uses a deterministic frame-scrambled
+seed and local sample indices so its first-hit guides are populated, including
+after the first frame. With history disabled the original Reference sequence
+is unchanged. Existing RealTime `samples_per_frame` budgeting remains unchanged;
+use the default Reference mode above to control output-frame SPP via `samples`.
+DLSS's opaque history is reset per output frame when this explicit ring is used,
+so it cannot silently bypass the requested cross-frame limit.
+
 - `scene.materials.new(name, **parameters)` creates a Principled BSDF material.
   Changing `material.base_color`, `.roughness`, `.metallic`, etc. updates the
   renderer immediately. `material.update(**kwargs)` sets several fields with one

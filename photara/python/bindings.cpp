@@ -718,6 +718,34 @@ class Context {
     if (photara_set_nee_candidates(context_, count) != 0) { throw_last_error(); }
   }
 
+  void configure_history_samples(const int count)
+  {
+    if (photara_set_history_samples(context_, count) != 0) { throw_last_error(); }
+  }
+
+  void reset_history()
+  {
+    if (photara_reset_history(context_) != 0) { throw_last_error(); }
+  }
+
+  py::dict history_stats()
+  {
+    int frames, seed;
+    uint64_t pixels, maximum, bytes;
+    double mean;
+    if (photara_get_history_stats(context_, &frames, &pixels, &maximum, &mean, &bytes, &seed) != 0) {
+      throw_last_error();
+    }
+    py::dict stats;
+    stats["stored_frames"] = frames;
+    stats["reused_pixels"] = pixels;
+    stats["max_history_frames"] = maximum;
+    stats["mean_history_frames"] = mean;
+    stats["memory_bytes"] = bytes;
+    stats["sample_seed"] = seed;
+    return stats;
+  }
+
   void set_render_mode(const int mode, const int samples_per_frame)
   {
     if (photara_set_render_mode(context_, static_cast<PhotaraRenderMode>(mode),
@@ -1261,6 +1289,9 @@ PYBIND11_MODULE(_photara, module)
       .def("neeat_stats", &Context::neeat_stats)
       .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
       .def("configure_nee_candidates", &Context::configure_nee_candidates, py::arg("count"))
+      .def("configure_history_samples", &Context::configure_history_samples, py::arg("count"))
+      .def("reset_history", &Context::reset_history)
+      .def("history_stats", &Context::history_stats)
       .def("set_render_mode", &Context::set_render_mode,
            py::arg("mode"), py::arg("samples_per_frame"))
       .def("render_begin", &Context::render_begin)

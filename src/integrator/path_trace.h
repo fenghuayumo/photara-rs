@@ -96,6 +96,9 @@ class PathTrace {
    * Use this to configure the denoiser before rendering any samples. */
   void set_denoiser_params(const DenoiseParams &params);
 
+  /* Optional full-frame linear-color reconstruction, before final denoising. */
+  std::function<void(RenderBuffers *, int)> reconstruct_frame;
+
   /* Set parameters used for adaptive sampling.
    * Use this to configure the adaptive sampler before rendering any samples. */
   void set_adaptive_sampling(const AdaptiveSampling &adaptive_sampling);
