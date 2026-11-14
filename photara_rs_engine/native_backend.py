@@ -69,6 +69,12 @@ def _configure(scene):
     scene = original if original is not None else scene
     native = scene.photara_native
     settings = scene.photara_rs
+    realtime = settings.render_mode == 'REALTIME'
+    if realtime:
+        if not hasattr(_module, 'realtime_stats'):
+            raise RuntimeError('RealTime output requires a rebuilt _photara_native module')
+        # Blender otherwise destroys the renderer and its GPU context per frame.
+        scene.render.use_persistent_data = True
     if not native.get('_photara_initialized', False):
         # Preserve the complete scene-level schema, including controls not yet
         # exposed in Photara's compact panels. Material/object/world properties
@@ -81,12 +87,15 @@ def _configure(scene):
                 setattr(native, name, getattr(scene.cycles, name))
         native['_photara_initialized'] = True
     values = dict(
-        device='GPU', use_pixel_jitter=True, samples=max(settings.samples,
-                                   settings.denoise_min_samples if settings.denoise else 0),
+        photara_realtime=realtime, photara_history_samples=settings.history_samples,
+        photara_warmup_frames=settings.realtime_warmup_frames,
+        photara_neeat=settings.realtime_neeat, photara_history_revision=settings.history_revision,
+        device='GPU', use_pixel_jitter=True, samples=(settings.samples if realtime else max(settings.samples,
+                                   settings.denoise_min_samples if settings.denoise else 0)),
         preview_samples=settings.viewport_samples, seed=settings.seed,
         max_bounces=settings.max_bounces, diffuse_bounces=settings.max_bounces,
         glossy_bounces=settings.max_bounces, transmission_bounces=settings.max_bounces,
-        use_adaptive_sampling=settings.adaptive_sampling and
+        use_adaptive_sampling=not realtime and settings.adaptive_sampling and
                               not (settings.denoise and settings.denoise_min_samples),
         use_preview_adaptive_sampling=settings.viewport_adaptive_sampling,
         adaptive_threshold=settings.adaptive_threshold,
@@ -122,6 +131,21 @@ def _configure(scene):
         if getattr(native, name) != value:
             setattr(native, name, value)
     _last_configuration[key] = signature
+
+
+def configure_frame(depsgraph):
+    """Conservatively invalidate history for edits beyond camera animation."""
+    scene = depsgraph.scene_eval.original
+    camera = scene.camera
+    for update in depsgraph.updates:
+        data = update.id.original
+        if data == camera or (camera and data == camera.data):
+            continue
+        if data.bl_rna.identifier in {'Scene', 'Collection', 'Action'}:
+            continue
+        scene.photara_rs.history_revision += 1
+        break
+    configure(scene)
 
 
 def view_update(engine, context, depsgraph):

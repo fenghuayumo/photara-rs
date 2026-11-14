@@ -5,6 +5,13 @@ from bpy.app.handlers import persistent
 
 
 @persistent
+def begin_render_history(_scene=None):
+    for scene in bpy.data.scenes:
+        if scene.render.engine == 'PHOTARA_RS' and scene.photara_rs.render_mode == 'REALTIME':
+            scene.photara_rs.history_revision += 1
+
+
+@persistent
 def migrate_legacy_settings(_unused=None):
     """Copy saved renderer settings without claiming another add-on's property."""
     names = PhotaraSceneSettings.__annotations__
@@ -38,6 +45,21 @@ QUALITIES = [('HIGH', 'High', 'Best quality'), ('BALANCED', 'Balanced', 'Balance
 
 
 class PhotaraSceneSettings(bpy.types.PropertyGroup):
+    render_mode: bpy.props.EnumProperty(
+        name="Render Mode", items=[('REFERENCE', 'Reference', 'Independent path-traced output frames'),
+                                   ('REALTIME', 'RealTime', 'Low-SPP output with GPU temporal reconstruction')],
+        default='REFERENCE',
+    )
+    history_samples: bpy.props.IntProperty(
+        name="History Frames", default=8, min=0, max=64,
+        description="Maximum previous raw frames used by GPU reprojection; does not change Samples",
+    )
+    realtime_warmup_frames: bpy.props.IntProperty(
+        name="Warm-up Frames", default=8, min=0, max=256,
+        description="Additional internal frames before a still or the first animation frame; only the last is saved",
+    )
+    realtime_neeat: bpy.props.BoolProperty(name="NEE-AT", default=True)
+    history_revision: bpy.props.IntProperty(default=0, options={'HIDDEN', 'SKIP_SAVE'})
     device: bpy.props.EnumProperty(
         name="Device",
         items=[('OPTIX', "GPU Compute", "Render on NVIDIA GPU with OptiX")],

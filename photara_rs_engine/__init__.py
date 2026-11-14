@@ -103,12 +103,15 @@ def register():
     # Blender restricts bpy.data during add-on registration.
     bpy.app.timers.register(properties.migrate_legacy_settings, first_interval=0.0)
     bpy.app.handlers.load_post.append(properties.migrate_legacy_settings)
+    bpy.app.handlers.render_init.append(properties.begin_render_history)
     bpy.types.RENDER_PT_context.append(ui.draw_device)
     ui.register_color_management()
     bpy.types.TOPBAR_MT_file_import.append(gsplat_import.menu_import)
 
 
 def unregister():
+    if properties.begin_render_history in bpy.app.handlers.render_init:
+        bpy.app.handlers.render_init.remove(properties.begin_render_history)
     bpy.types.TOPBAR_MT_file_import.remove(gsplat_import.menu_import)
     ui.unregister_color_management()
     bpy.types.RENDER_PT_context.remove(ui.draw_device)

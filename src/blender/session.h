@@ -11,6 +11,9 @@
 
 #include "util/unique_ptr.h"
 #include "util/vector.h"
+#ifdef WITH_PHOTARA_REALTIME
+#  include "integrator/photara_temporal_history.h"
+#endif
 
 namespace blender {
 struct bScreen;
@@ -89,6 +92,13 @@ class BlenderSession {
   bool background;
   bool view_paused = false;
   unique_ptr<Session> session;
+#ifdef WITH_PHOTARA_REALTIME
+  photara::realtime::TemporalHistory realtime_history;
+  int realtime_last_frame = -1, realtime_revision = -1;
+  unsigned int realtime_camera = 0;
+  string realtime_layer, realtime_view;
+  bool realtime_history_valid = false;
+#endif
   Scene *scene;
   unique_ptr<BlenderSync> sync;
   double last_redraw_time;

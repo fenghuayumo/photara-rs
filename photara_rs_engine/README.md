@@ -1,5 +1,61 @@
 # Native synchronization in 0.2
 
+## RealTime final images and animation
+
+Requires the rebuilt custom Blender with `_photara_native.realtime_stats` and
+matching staged CUDA/OptiX kernels. An ordinary Blender using the compatibility
+Python converter reports an error for RealTime final output instead of silently
+using an independent-frame fallback. Reference and the existing viewport remain available.
+
+In **Render Properties → Sampling → Render**, select **RealTime**:
+
+- **Samples** is the new SPP per output frame; history does not increase this budget.
+- **History Frames** bounds the previous raw frames available to GPU reprojection (0 disables it).
+- **Warm-up Frames** adds internal frames before a still or whenever animation history
+  resets. Only the final image for that timeline frame is saved.
+- **NEE-AT** enables RealTime's adaptive light selection.
+- **Reset History** discards history before the next output frame.
+
+Use **F12** for a still and **Ctrl+F12** for animation. Set the camera animation,
+frame range, resolution, frame rate and output path in Blender as usual. Select
+PNG/OpenEXR for a frame sequence, or Video/MPEG-4/H.264 for a video (older Blender
+versions use the FFmpeg file-format selector). Color management and encoding
+are handled by Blender. RealTime does not promise realtime encoding or a fixed FPS.
+
+```python
+scene.render.engine = 'PHOTARA_RS'
+p = scene.photara_rs
+p.render_mode = 'REALTIME'
+p.samples = 4
+p.history_samples = 8
+p.realtime_warmup_frames = 8
+p.denoiser = 'OPTIX'  # OPENIMAGEDENOISE and DLSS also supported
+scene.render.filepath = '//frames/camera_'
+bpy.ops.render.render(animation=True)
+```
+
+Persistent Data is enabled automatically and remains enabled when switching back
+to Reference; it retains the renderer/GPU context between animation frames.
+Each render job starts fresh. Consecutive camera-only frames preserve history;
+frame jumps, camera-object cuts, scene edits, a manual reset, or a history-limit
+change invalidate it. Non-camera dependency-graph updates conservatively clear
+history; animated geometry/materials/lights can therefore trigger more warm-up work.
+Multiple layers use separate resets rather than sharing radiance across layers.
+
+Reprojection runs on GPU before denoising, using the shared bounded raw-frame
+implementation. There is no reconstruction pixel readback; Blender's final result
+transfer and video encoding still have their usual costs. Native-resolution
+OptiX, OIDN, DLSS and output without denoising are supported. Experimental
+stable-plane decomposition is not implicitly enabled by selecting DLSS. This is temporal
+reconstruction, with the core's reflection/transmission and visibility limitations.
+Perspective, single-view output is currently required; motion blur, render border
+and DLSS upscaling report errors. Adaptive stopping and time limits are disabled
+for RealTime final frames so Samples remains the fixed per-frame budget.
+
+Validation: `scripts/test_blender_realtime_output.py` exercises a still, three-frame
+PNG sequence, H.264 video, all three denoisers, and return to Reference. GPU history
+diagnostics are read explicitly by the test, outside normal frame output.
+
 The matching custom Blender build now provides `_photara_native`, compiled
 from Photara's renderer and the complete Blender/Cycles scene synchronization
 layer. This path supports complete SVM material node graphs, textures and

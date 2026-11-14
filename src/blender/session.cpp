@@ -282,6 +282,10 @@ void BlenderSession::free_session()
   }
 
   sync.reset();
+#ifdef WITH_PHOTARA_REALTIME
+  realtime_history.free_gpu();
+  realtime_history_valid = false;
+#endif
   session.reset();
 
   display_driver_ = nullptr;
@@ -394,7 +398,25 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
   /* Compute render passes and film settings. */
   sync->sync_render_passes(*b_rlay, b_view_layer);
 
+#ifdef WITH_PHOTARA_REALTIME
+  blender::PointerRNA realtime_scene = RNA_id_pointer_create(DEG_get_original_id(&b_scene->id));
+  blender::PointerRNA realtime_settings = RNA_pointer_get(&realtime_scene, "photara_native");
+  const bool realtime = get_boolean(realtime_settings, "photara_realtime");
+  const int history_limit = get_int(realtime_settings, "photara_history_samples");
+  const int warmup = get_int(realtime_settings, "photara_warmup_frames");
+  const int revision = get_int(realtime_settings, "photara_history_revision");
+#endif
+
   const int num_views = b_rr->views.count();
+
+#ifdef WITH_PHOTARA_REALTIME
+  if (realtime && ((b_scene->r.mode & (blender::R_MBLUR | blender::R_BORDER)) || num_views != 1)) {
+    session->progress.set_error("RealTime output requires motion blur and render border disabled, and a single view");
+    RE_engine_end_result(&b_engine, b_rr, false, false, false);
+    check_and_report_session_error();
+    return;
+  }
+#endif
 
   for (const auto [view_index, b_view] : b_rr->views.enumerate()) {
     b_rview_name = b_view.name;
@@ -430,6 +452,9 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
     }
     std::shared_ptr<DenoiseTemporalHistory> temporal_history;
     if (denoise_params.use &&
+#ifdef WITH_PHOTARA_REALTIME
+        !realtime &&
+#endif
         (BlenderSync::use_optix_temporal_denoising(b_engine, *b_scene) || use_dlss))
     {
       blender::ID *scene_id = DEG_get_original_id(&b_scene->id);
@@ -509,6 +534,68 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
       effective_session_params.samples = samples;
     }
 
+#ifdef WITH_PHOTARA_REALTIME
+    bool reuse = false;
+    int iterations = 1;
+    const int base_seed = scene->integrator->get_seed();
+    if (realtime) {
+      if (scene->camera->get_camera_type() != CAMERA_PERSPECTIVE || denoise_params.upscale_factor != 1.0f) {
+        session->progress.set_error("RealTime output currently requires a perspective camera and native resolution");
+        check_and_report_session_error();
+        break;
+      }
+      const auto *camera = b_engine.re ? RE_GetCamera(b_engine.re) : b_scene->camera;
+      const unsigned int camera_uid = camera ? DEG_get_original_id(&camera->id)->session_uid : 0;
+      reuse = realtime_history_valid && (b_engine.flag & blender::RE_ENGINE_ANIMATION) &&
+              realtime_last_frame + 1 == b_scene->r.cfra && realtime_camera == camera_uid &&
+              realtime_revision == revision && realtime_history.limit == history_limit &&
+              realtime_layer == b_rlay_name && realtime_view == b_rview_name;
+      if (!reuse) { realtime_history.clear(); realtime_history.frame_index = 0; }
+      realtime_history.limit = history_limit;
+      realtime_history.use_gpu = true;
+      // Use first-hit history for all denoisers. Stable-plane decomposition is
+      // separately experimental and not implicitly enabled by choosing DLSS.
+      scene->film->set_denoising_stable_mirror_guide(false);
+      realtime_last_frame = b_scene->r.cfra;
+      realtime_camera = camera_uid;
+      realtime_revision = revision;
+      realtime_layer = b_rlay_name; realtime_view = b_rview_name;
+      effective_session_params.realtime_frame = true;
+      effective_session_params.use_neeat = get_boolean(realtime_settings, "photara_neeat");
+      effective_session_params.reset_neeat = !reuse;
+      effective_session_params.use_auto_tile = false;
+      effective_session_params.use_sample_subset = false;
+      effective_session_params.time_limit = 0;
+      // A still and the first animation frame warm history without saving extra files.
+      iterations = !reuse ? warmup + 1 : 1;
+      for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS, PASS_OBJECT_ID}) {
+        if (!Pass::contains(scene->passes, type)) {
+          Pass *pass = scene->create_node<Pass>(); pass->set_type(type);
+        }
+      }
+      if (history_limit) {
+        session->set_frame_reconstruction([this](RenderBuffers *buffers, int spp) {
+          realtime_history.reconstruct(buffers, spp, *scene->camera,
+                                        scene->dscene.data.integrator.pixel_jitter);
+        }, true);
+      }
+      else session->set_frame_reconstruction({});
+    }
+    else {
+      scene->film->set_denoising_stable_mirror_guide(false);
+      session->set_frame_reconstruction({});
+      realtime_history.free_gpu(); realtime_history_valid = false;
+    }
+    for (int iteration = 0; iteration < iterations; ++iteration) {
+      if (realtime) {
+        const uint index = uint(realtime_history.frame_index++);
+        scene->integrator->set_seed(index ? int(hash_uint2(uint(base_seed), index) & 0x7fffffff) : base_seed);
+        scene->integrator->set_aa_samples(effective_session_params.samples);
+        // The explicit bounded ring owns cross-output history, independent of denoiser.
+        session->set_denoise_temporal_history(use_dlss ? std::make_shared<DenoiseTemporalHistory>() : nullptr);
+      }
+#endif
+
     /* Update session itself. */
     session->reset(effective_session_params, buffer_params);
 
@@ -519,6 +606,19 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
 
     session->start();
     session->wait();
+
+#ifdef WITH_PHOTARA_REALTIME
+      if (session->progress.get_cancel() || session->progress.get_error()) {
+        realtime_history.clear(); realtime_history_valid = false; break;
+      }
+      if (realtime) {
+        realtime_history_valid = true;
+        effective_session_params.reset_neeat = false;
+        LOG_INFO << "Photara RealTime: frame=" << realtime_last_frame << " iteration=" << iteration
+                 << " spp=" << effective_session_params.samples << " history=" << realtime_history.stored_frames();
+      }
+    }
+#endif
 
     if (temporal_history && (session->progress.get_cancel() || session->progress.get_error())) {
       *temporal_history = DenoiseTemporalHistory();

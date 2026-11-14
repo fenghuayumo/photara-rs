@@ -127,7 +127,7 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
     def update(self, data, depsgraph):
         if self._native:
             from . import native_backend, native_engine
-            native_backend.configure(depsgraph.scene_eval)
+            native_backend.configure_frame(depsgraph)
             if not self.session:
                 native_engine.create(self, data)
             native_engine.reset(self, data, depsgraph)
@@ -144,6 +144,9 @@ class PhotaraRenderEngine(bpy.types.RenderEngine):
             return
         blender_scene = depsgraph.scene_eval
         settings = blender_scene.photara_rs
+        if settings.render_mode == 'REALTIME':
+            self.report({'ERROR'}, "RealTime final rendering requires a Blender build with _photara_native")
+            return
         render = blender_scene.render
         scale = render.resolution_percentage / 100.0
         width = max(1, int(render.resolution_x * scale))

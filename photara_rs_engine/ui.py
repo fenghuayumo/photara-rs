@@ -73,7 +73,27 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.photara_rs
-        draw_sampling(layout, settings)
+        layout.prop(settings, 'render_mode')
+        if settings.render_mode == 'REALTIME':
+            layout.prop(settings, 'history_samples')
+            layout.prop(settings, 'realtime_warmup_frames')
+            layout.prop(settings, 'realtime_neeat')
+            layout.label(text='Samples are per output frame; history is separate')
+            layout.label(text='Persistent Data is enabled for GPU history')
+            layout.prop(settings, 'samples')
+            layout.operator('photara_rs.reset_history')
+        else:
+            draw_sampling(layout, settings)
+
+
+class PHOTARA_OT_reset_history(bpy.types.Operator):
+    bl_idname = 'photara_rs.reset_history'
+    bl_label = 'Reset History'
+    bl_description = 'Discard temporal history before the next output frame'
+
+    def execute(self, context):
+        context.scene.photara_rs.history_revision += 1
+        return {'FINISHED'}
 
 
 class PhotaraDenoisePanel:
@@ -101,16 +121,9 @@ class PhotaraDenoisePanel:
         if denoiser == 'AUTO':
             import photara_rs
             denoiser = photara_rs.auto_denoiser()
-        if not viewport and denoiser == 'OPTIX':
-            row = col.row()
-            row.enabled = False
-            row.prop(settings, 'temporal_denoising_unavailable', text='Temporal Denoising')
-            col.label(text='Animation history is not yet supported', icon='INFO')
+        if not viewport and settings.render_mode == 'REALTIME':
+            col.label(text='GPU history is applied before denoising')
         if denoiser == 'DLSS':
-            if not viewport:
-                row = col.row()
-                row.enabled = False
-                row.prop(settings, 'animation_history_unavailable', text='Keep Animation History')
             col.prop(settings, prefix + 'denoise_upscale_quality',
                      text='Upscale Mode' if viewport else 'Upscaling')
             if not viewport:
@@ -119,7 +132,6 @@ class PhotaraDenoisePanel:
                     col.label(text='Disable extra render passes for upscaling', icon='INFO')
                     col.label(text='Shadow catchers / 3DGS: native resolution')
                 col.label(text='Only the combined image is reconstructed')
-                col.label(text='Animation history is not yet supported', icon='INFO')
                 if context.scene.render.use_motion_blur:
                     col.label(text='Disable motion blur for DLSS final rendering', icon='ERROR')
             return
@@ -239,6 +251,7 @@ def unregister_color_management():
 
 
 classes = (
+    PHOTARA_OT_reset_history,
     RENDER_PT_photara_sampling,
     RENDER_PT_photara_viewport,
     RENDER_PT_photara_viewport_denoise,

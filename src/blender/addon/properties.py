@@ -426,6 +426,11 @@ def set_transform_preview_pause(self, value, current_value, is_set):
 
 
 class CyclesRenderSettings(bpy.types.PropertyGroup):
+    photara_realtime: BoolProperty(default=False)
+    photara_history_samples: IntProperty(default=8, min=0, max=64)
+    photara_warmup_frames: IntProperty(default=8, min=0, max=256)
+    photara_neeat: BoolProperty(default=True)
+    photara_history_revision: IntProperty(default=0)
     __slots__ = ()
 
     device: EnumProperty(
