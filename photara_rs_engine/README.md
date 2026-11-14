@@ -7,7 +7,9 @@ matching staged CUDA/OptiX kernels. An ordinary Blender using the compatibility
 Python converter reports an error for RealTime final output instead of silently
 using an independent-frame fallback. Reference and the existing viewport remain available.
 
-In **Render Properties → Sampling → Render**, select **RealTime**:
+In **Render Properties → Sampling**, select **RealTime** using **Render Mode**
+above the **Viewport** and **Render** subpanels. Final-output controls remain
+under **Render**:
 
 - **Samples** is the new SPP per output frame; history does not increase this budget.
 - **History Frames** bounds the previous raw frames available to GPU reprojection (0 disables it).

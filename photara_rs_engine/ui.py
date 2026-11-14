@@ -28,7 +28,10 @@ class RENDER_PT_photara_sampling(PhotaraButtonsPanel, bpy.types.Panel):
     bl_order = -20
 
     def draw(self, context):
-        pass
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(context.scene.photara_rs, 'render_mode')
 
 
 def draw_sampling(layout, settings, viewport=False):
@@ -73,7 +76,6 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.photara_rs
-        layout.prop(settings, 'render_mode')
         if settings.render_mode == 'REALTIME':
             layout.prop(settings, 'history_samples')
             layout.prop(settings, 'realtime_warmup_frames')

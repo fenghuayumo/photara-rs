@@ -1034,6 +1034,10 @@ CCL_NAMESPACE_END
 
 void *blender::CCL_python_module_init()
 {
+  /* The embedded renderer owns its callbacks independently of the host Cycles
+   * instance. Initialize before any session can import shared mesh attributes. */
+  CCL_implicit_sharing_init();
+
   PyObject *mod = PyModule_Create(&ccl::module);
 
 #ifdef WITH_OSL
