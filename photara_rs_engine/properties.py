@@ -4,10 +4,18 @@ import bpy
 from bpy.app.handlers import persistent
 
 
+def update_render_mode(self, context):
+    scene = self.id_data
+    if self.render_mode == 'REALTIME' and not scene.render.use_persistent_data:
+        scene.render.use_persistent_data = True
+
+
 @persistent
 def begin_render_history(_scene=None):
     for scene in bpy.data.scenes:
         if scene.render.engine == 'PHOTARA_RS' and scene.photara_rs.render_mode == 'REALTIME':
+            if not scene.render.use_persistent_data:
+                scene.render.use_persistent_data = True
             scene.photara_rs.history_revision += 1
 
 
@@ -49,6 +57,7 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         name="Render Mode", items=[('REFERENCE', 'Reference', 'Independent path-traced output frames'),
                                    ('REALTIME', 'RealTime', 'Low-SPP output with GPU temporal reconstruction')],
         default='REFERENCE',
+        update=update_render_mode,
     )
     history_samples: bpy.props.IntProperty(
         name="History Frames", default=8, min=0, max=64,

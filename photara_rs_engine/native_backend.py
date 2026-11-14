@@ -73,8 +73,6 @@ def _configure(scene):
     if realtime:
         if not hasattr(_module, 'realtime_stats'):
             raise RuntimeError('RealTime output requires a rebuilt _photara_native module')
-        # Blender otherwise destroys the renderer and its GPU context per frame.
-        scene.render.use_persistent_data = True
     if not native.get('_photara_initialized', False):
         # Preserve the complete scene-level schema, including controls not yet
         # exposed in Photara's compact panels. Material/object/world properties
@@ -160,8 +158,10 @@ def view_update(engine, context, depsgraph):
 
 def view_draw(engine, context, depsgraph):
     from . import native_engine
-    configure(context.scene)
     if not engine.session:
-        view_update(engine, context, depsgraph)
+        # Draw callbacks cannot write IDs. Ask Blender for a writable update
+        # instead of configuring properties or creating/resetting sessions here.
+        engine.tag_update()
+        return
     native_engine.view_draw(engine, depsgraph, context.region, context.space_data,
                             context.region_data)
