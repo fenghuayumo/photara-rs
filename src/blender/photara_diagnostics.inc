@@ -43,8 +43,10 @@ static PyObject *photara_session_stats_func(PyObject *, PyObject *handle)
     }
   }
   const auto &params = owner->session->params;
-  return Py_BuildValue("{sO,si,si,si,sK,sK,sK,sK}",
+  return Py_BuildValue("{sO,sO,si,si,si,sK,sK,sK,sK}",
                        "use_resolution_divider", params.use_resolution_divider ? Py_True : Py_False,
+                       "stable_planes", scene->dscene.data.film.pass_stable_planes != PASS_UNUSED ?
+                                            Py_True : Py_False,
                        "pixel_size", params.pixel_size,
                        "trace_width", int(scene->dscene.data.cam.width),
                        "trace_height", int(scene->dscene.data.cam.height),
