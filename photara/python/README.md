@@ -99,7 +99,9 @@ and conservatively rejects view-dependent reuse. This uses nearest
 pixel lookup and can soften detail or show artifacts; it is not an unbiased
 estimator for arbitrary camera animation. The primary-surface path supports full-resolution perspective, opaque triangle
 meshes. Its background pixels do not accumulate; the stable-plane path can
-reproject sky direction separately. Flat static glass/mirror plane history is selected for GPU, 1-SPP, native-resolution
+reproject sky direction separately. Stable Planes is automatic for OptiX, 1-SPP DLSS jobs, including jobs without
+`history_samples`. Its Build / Fill tree separates stable emission from noisy
+base/child-plane radiance. Explicit plane history is available for GPU, 1-SPP, native-resolution
 DLSS jobs. Other transmission configurations, alpha clipping, splats, volumes,
 DLSS upscaling and queued viewport-camera updates are rejected. Unsupported
 optical paths remain current-frame-only. See the realtime README for branch

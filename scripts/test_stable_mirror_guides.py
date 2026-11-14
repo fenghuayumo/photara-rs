@@ -1,4 +1,4 @@
-"""A/B deterministic stable-plane guides in the 1-SPP DLSS viewer.
+"""Validate automatic Stable Planes in the 1-SPP DLSS viewer.
 
 Glass exercises deterministic reflection/refraction branches; rough primary reflectors test fallback.
 Requires OCIO to be set. Leaves fixtures, frame metrics and captures in output.
@@ -64,7 +64,7 @@ def fixture(kind):
     return path
 
 
-def run(scene, name, frames, stable=False, reference=False):
+def run(scene, name, frames, reference=False):
     startup = None
     if os.name == 'nt':
         startup = subprocess.STARTUPINFO()
@@ -77,7 +77,6 @@ def run(scene, name, frames, stable=False, reference=False):
         command += ['--mode', 'REFERENCE', '--reference-samples', '256', '--camera-x', '-0.5196152423']
     else:
         command += ['--denoiser', 'DLSS', '--camera-sweep']
-    if stable: command += ['--stable-planes']
     with (OUT / f'{name}.log').open('w') as stdout, (OUT / f'{name}.err').open('w') as stderr:
         subprocess.run(command + [str(scene)], cwd=ROOT, stdout=stdout, stderr=stderr,
                        check=True, timeout=600, startupinfo=startup)
@@ -90,7 +89,7 @@ def run(scene, name, frames, stable=False, reference=False):
         assert all(int(r['spp']) == 1 and int(r['dlss_frames']) == i + 1 for i, r in enumerate(rows))
         assert int(rows[-1]['dlss_resets']) == 1
         assert all(int(r['cpu_pixel_readback_bytes']) == 0 for r in rows)
-        assert all(int(r['stable_mirror_guide']) == int(stable) for r in rows)
+        assert all(int(r['stable_planes']) == 1 for r in rows)
     return np.array(Image.open(OUT / f'{name}.bmp'), dtype=np.float32)[..., :3], rows
 
 
@@ -103,22 +102,12 @@ results = [r for r in results if r['kind'] not in args.cases]
 for kind in args.cases:
     scene = fixture(kind)
     reference, _ = run(scene, f'{kind}_reference', 1, reference=True)
-    images = []
-    result = dict(kind=kind, runs=[])
-    for stable in (False, True):
-        image, rows = run(scene, f'{kind}_{"stable" if stable else "legacy"}', 181, stable=stable)
-        times = [float(rows[i]['present_timestamp_ms']) - float(rows[i - 1]['present_timestamp_ms']) for i in range(61, 181)]
-        result['runs'].append(dict(stable=stable, display_mse=float(np.mean((image-reference)**2)),
-                                   motion_ms=statistics.mean(times), fps=1000/statistics.mean(times)))
-        images.append(image)
-    result['ab_mse'] = float(np.mean((images[0] - images[1])**2))
-    if kind == 'rough':
-        assert result['ab_mse'] < .01, f'{kind}: excluded path changed its output'
-    else:
-        assert result['ab_mse'] > .01, f'{kind}: stable planes did not change reconstructed output'
-    if kind in ('glass', 'mirror_chain'):
-        assert result['runs'][1]['display_mse'] < result['runs'][0]['display_mse'] * .9, (
-            f'{kind}: expected at least 10% lower error against the reference', result)
+    image, rows = run(scene, f'{kind}_stable', 181)
+    times = [float(rows[i]['present_timestamp_ms']) - float(rows[i-1]['present_timestamp_ms'])
+             for i in range(61,181)]
+    result = dict(kind=kind, display_mse=float(np.mean((image-reference)**2)),
+                  motion_ms=statistics.mean(times), fps=1000/statistics.mean(times))
+    assert np.isfinite(image).all() and image.std() > 10
     results.append(result)
-    (OUT / 'summary.json').write_text(json.dumps(results, indent=2))
+    (OUT / 'unified_summary.json').write_text(json.dumps(results, indent=2))
     print(json.dumps(result), flush=True)
