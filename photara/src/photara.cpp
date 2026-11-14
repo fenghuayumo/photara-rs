@@ -680,6 +680,8 @@ struct PhotaraContext {
     {
       session->cancel(true);
     }
+    if (session) session->wait();
+    history.free_gpu();
     session.reset();
   }
 };
@@ -2341,11 +2343,13 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
     if (history_samples < 0 || history_samples > 64) {
       throw std::runtime_error("history_samples must be an integer in [0, 64]");
     }
+    ctx->history.free_gpu();
     ctx->history.limit = history_samples;
+    ctx->history.use_gpu = std::getenv("PHOTARA_HISTORY_CPU") == nullptr;
     ctx->history.frame_index = 0;
     ctx->scene->integrator->set_seed(ctx->history_seed);
     if (history_samples) {
-      for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS}) {
+      for (const PassType type : {PASS_POSITION, PASS_NORMAL, PASS_ROUGHNESS, PASS_OBJECT_ID}) {
         bool found = false;
         for (const auto &pass : ctx->scene->passes) found |= pass->get_type() == type;
         if (!found) {
@@ -2356,14 +2360,26 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
       ctx->session->set_frame_reconstruction([ctx](RenderBuffers *buffers, const int samples) {
         ctx->history.reconstruct(buffers, samples, *ctx->scene->camera,
                                  ctx->scene->dscene.data.integrator.pixel_jitter);
-      });
+      }, ctx->history.use_gpu);
     }
     else {
       ctx->session->set_frame_reconstruction({});
+      ctx->history.free_gpu();
       ctx->session->set_denoise_temporal_history(nullptr);
       ctx->independent_dlss_history.reset();
     }
   });
+}
+
+int photara_get_history_backend(PhotaraContext *ctx, int *gpu, uint64_t *updates,
+                                uint64_t *pixel_readback_bytes)
+{
+  return guarded(ctx, [&]() {
+    if (!gpu || !updates || !pixel_readback_bytes) throw std::runtime_error("NULL history backend output");
+    *gpu = int(ctx->history.use_gpu);
+    *updates = ctx->history.gpu_updates;
+    *pixel_readback_bytes = ctx->history.pixel_readback_bytes;
+  }, true);
 }
 
 int photara_reset_history(PhotaraContext *ctx)
@@ -2379,7 +2395,8 @@ int photara_get_history_stats(PhotaraContext *ctx, int *stored_frames,
     if (!stored_frames || !reused_pixels || !max_history_frames ||
         !mean_history_frames || !memory_bytes || !sample_seed)
       throw std::runtime_error("NULL history stats output");
-    *stored_frames = int(ctx->history.frames.size());
+    ctx->history.sync_stats();
+    *stored_frames = ctx->history.stored_frames();
     *reused_pixels = ctx->history.reused_pixels;
     *max_history_frames = ctx->history.reused_frames;
     *mean_history_frames = ctx->history.mean_history_frames;

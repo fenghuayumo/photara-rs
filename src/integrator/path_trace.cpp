@@ -243,7 +243,7 @@ void PathTrace::render_pipeline(RenderWork render_work)
       return;
     }
     auto &work = path_trace_works_.front();
-    if (!work->copy_render_buffers_from_device()) {
+    if (!reconstruct_on_device && !work->copy_render_buffers_from_device()) {
       device_->set_error("Could not read temporal reconstruction inputs");
       return;
     }
@@ -254,7 +254,7 @@ void PathTrace::render_pipeline(RenderWork render_work)
       device_->set_error(error.what());
       return;
     }
-    if (!work->copy_render_buffers_to_device()) {
+    if (!reconstruct_on_device && !work->copy_render_buffers_to_device()) {
       device_->set_error("Could not upload temporal reconstruction output");
       return;
     }

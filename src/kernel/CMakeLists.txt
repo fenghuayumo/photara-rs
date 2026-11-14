@@ -179,6 +179,7 @@ set(SRC_KERNEL_FILM_HEADERS
   film/cryptomatte_passes.h
   film/light_passes.h
   film/read.h
+  film/temporal_history.h
   film/write.h
 )
 

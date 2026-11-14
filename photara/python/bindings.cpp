@@ -743,6 +743,12 @@ class Context {
     stats["mean_history_frames"] = mean;
     stats["memory_bytes"] = bytes;
     stats["sample_seed"] = seed;
+    int gpu;
+    uint64_t updates, readback;
+    if (photara_get_history_backend(context_, &gpu, &updates, &readback) != 0) throw_last_error();
+    stats["backend"] = gpu ? "GPU" : "CPU";
+    stats["gpu_updates"] = updates;
+    stats["reconstruction_pixel_readback_bytes"] = readback;
     return stats;
   }
 

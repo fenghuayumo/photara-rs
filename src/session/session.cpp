@@ -164,9 +164,11 @@ void Session::set_denoise_temporal_history(std::shared_ptr<DenoiseTemporalHistor
   path_trace_->denoise_temporal_history = std::move(history);
 }
 
-void Session::set_frame_reconstruction(std::function<void(RenderBuffers *, int)> callback)
+void Session::set_frame_reconstruction(std::function<void(RenderBuffers *, int)> callback,
+                                       const bool on_device)
 {
   path_trace_->reconstruct_frame = std::move(callback);
+  path_trace_->reconstruct_on_device = on_device;
 }
 
 void Session::request_cancel()

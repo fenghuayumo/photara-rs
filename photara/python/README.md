@@ -72,17 +72,30 @@ the seed, and scene/material/light edits invalidate history automatically.
 Changing `scene.samples` alone retains history and weights accepted contributions
 by their actual per-pixel sample counts. Keep one Scene alive across the video.
 
-This is an **experimental CPU implementation**, not a zero-readback GPU video
-pipeline or an established speedup. It reads and uploads the film once per final
-frame, and stores about 64 bytes per pixel per retained frame (about 127 MiB at
-1920x1080, or 1 GiB for eight frames), plus one working frame. Cost scales with
-resolution times the history limit (0..64). `history_stats()` reports memory,
-stored frames, accepted-history counts, reused pixels, and the last sample seed.
+The default is **GPU reconstruction** on OptiX/CUDA. Three GPU kernels capture
+raw inputs, reproject/accumulate history, and reduce diagnostics. The raw ring,
+per-pixel counts, and reconstructed film stay on-device: reconstruction performs
+no pixel readback/upload during normal frames. Small camera/layout metadata is
+uploaded each frame. Python result/AOV capture and file output still require
+their existing transfers; this is not an end-to-end GPU video encoder.
+
+GPU history occupies about 64 bytes per pixel per slot (about 127 MiB at
+1920x1080), with `history_samples + 1` slots, plus counts and small diagnostic
+buffers. Cost scales with resolution times the history limit (0..64).
+`history_stats()` explicitly downloads reduced diagnostics, not color/geometry
+history. It reports backend, GPU update count, reconstruction pixel-readback
+bytes, allocated raw-ring memory, stored frames, accepted-history counts and seed.
+These reconstruction byte counters exclude explicit diagnostic and output reads.
+
+Set `PHOTARA_HISTORY_CPU=1` before setting `history_samples` to select the CPU
+reference implementation for parity checks. GPU allocation/dispatch failure is
+reported explicitly; it does not silently fall back to CPU.
 
 The ring stores raw linear colors, never denoised or recursively accumulated
 colors, so expired frames cannot leak through later entries. It projects the
 current first-hit world position into each old camera, validates position/depth
-and normals, and conservatively rejects view-dependent reuse. This uses nearest
+and normals, requires matching object IDs, rejects non-finite positions/roughness,
+and conservatively rejects view-dependent reuse. This uses nearest
 pixel lookup and can soften detail or show artifacts; it is not an unbiased
 estimator for arbitrary camera animation. Only full-resolution perspective,
 opaque non-transmissive triangle-mesh scenes are supported. Background pixels

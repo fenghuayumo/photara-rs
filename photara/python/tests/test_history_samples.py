@@ -1,5 +1,7 @@
 """Actual GPU renders exercising the denoiser-independent bounded raw-frame history."""
 import unittest
+import os
+from unittest.mock import patch
 
 import numpy as np
 import photara_rs as pr
@@ -20,6 +22,27 @@ def plane_scene(**kwargs):
 
 
 class HistorySamplesTests(unittest.TestCase):
+    def test_gpu_cpu_parity_and_no_reconstruction_readback(self):
+        results = []
+        for cpu in (False, True):
+            env = dict(os.environ)
+            if cpu: env["PHOTARA_HISTORY_CPU"] = "1"
+            else: env.pop("PHOTARA_HISTORY_CPU", None)
+            with patch.dict(os.environ, env, clear=True), plane_scene(history_samples=2) as scene:
+                images = []
+                for i in range(6):
+                    scene.camera.location = (0.015*i, 0, -4)
+                    images.append(scene.render().beauty.copy())
+                    stats = scene.history_stats()
+                    self.assertLessEqual(stats["max_history_frames"], 2)
+                self.assertEqual(stats["backend"], "CPU" if cpu else "GPU")
+                if not cpu:
+                    self.assertEqual(stats["gpu_updates"], 6)
+                    self.assertEqual(stats["reconstruction_pixel_readback_bytes"], 0)
+                else: self.assertGreater(stats["reconstruction_pixel_readback_bytes"], 0)
+                results.append(images)
+        np.testing.assert_allclose(results[0], results[1], rtol=3e-5, atol=3e-6)
+
     def test_default_adaptive_and_realtime_entry_points(self):
         for settings in ({"adaptive_sampling": True},
                          {"render_mode": "REALTIME", "samples_per_frame": 4}):
@@ -140,6 +163,34 @@ class HistorySamplesTests(unittest.TestCase):
             np.testing.assert_allclose(scene.render(seed=17).beauty, reference,
                                        rtol=1e-6, atol=1e-7)
 
+    def test_nearly_coplanar_object_boundary_rejects_history(self):
+        # Depth/normal tests alone cannot distinguish these two surfaces within
+        # a pixel footprint. Reprojected neighboring pixels must match object ID.
+        for cpu in (False, True):
+            env = dict(os.environ)
+            if cpu: env['PHOTARA_HISTORY_CPU'] = '1'
+            else: env.pop('PHOTARA_HISTORY_CPU', None)
+            with patch.dict(os.environ, env, clear=True), plane_scene(history_samples=2) as scene:
+                mat = scene.materials.new('edge', base_color=(0.02, 0.9, 0.02), roughness=1)
+                mesh = scene.meshes.new('edge', np.array([
+                    (-0.4, -1, -0.0001), (-0.4, 1, -0.0001),
+                    (0.4, 1, -0.0001), (0.4, -1, -0.0001)], np.float32),
+                    np.array([(0, 1, 2), (0, 2, 3)], np.int32), material=mat)
+                scene.objects.new('edge', mesh, object_id=2)
+                previous = scene.render()
+                scene.camera.location = (0.04, 0, -4)
+                scene.camera.target = (0.04, 0, 0)
+                current = scene.render()
+                stats = scene.history_stats()
+                focal = 48 / (2 * np.tan(np.deg2rad(scene.camera.fov) / 2))
+                old_x = np.floor(np.arange(64) + 0.5 + focal * 0.04 / 4).astype(int)
+                old_ids = previous.object_id[:, np.clip(old_x, 0, 63)]
+                crossed = (current.object_id == 1) & (old_ids == 2) & (old_x < 64)[None, :]
+                self.assertGreater(crossed.sum(), 0)
+                scene.history_samples = 0
+                raw = scene.render(seed=stats['sample_seed'])
+                np.testing.assert_allclose(current.beauty[crossed], raw.beauty[crossed],
+                                           rtol=2e-5, atol=2e-6)
     def test_running_job_rejects_history_mutations(self):
         with plane_scene(history_samples=2) as scene:
             scene.samples = 100000

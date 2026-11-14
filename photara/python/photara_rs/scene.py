@@ -1208,7 +1208,7 @@ class Scene:
     device:
         ``"AUTO"`` or ``"OPTIX"``. Only OptiX is currently available.
     history_samples:
-        Experimental CPU reprojection of up to 0..64 previous raw frames before
+        Experimental GPU reprojection of up to 0..64 previous raw frames before
         denoising. Default 0 preserves independent renders. Does not change samples.
     """
 

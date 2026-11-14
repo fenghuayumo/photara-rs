@@ -10,6 +10,7 @@
 
 #include "kernel/sample/lcg.h"
 #include "kernel/light/neeat_update.h"
+#include "kernel/film/temporal_history.h"
 
 /* Include constant tables before entering Metal's context class scope (context_begin.h) */
 #include "kernel/tables.h"
@@ -34,6 +35,44 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
   if (index < tables) {
     ccl_gpu_kernel_call(neeat_update_table(distribution, feedback, emitters, count,
                                           analytic_count, first_table + index, fresh != 0));
+  }
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_snapshot, ccl_global const float *film,
+        ccl_global KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
+        const int slot, const int size)
+{
+  const int i = ccl_gpu_global_id_x();
+  if (i < size) ccl_gpu_kernel_call(temporal_snapshot(film, ring, frames, slot, i));
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_reproject, ccl_global float *film,
+        ccl_global const KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
+        ccl_global uint *counts, const int slot, const int capacity,
+        const int history, const int size)
+{
+  const int i = ccl_gpu_global_id_x();
+  if (i < size) ccl_gpu_kernel_call(temporal_reproject(film, ring, frames, counts,
+                                                     slot, capacity, history, i));
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_stats, ccl_global const uint *counts,
+                            ccl_global uint4 *stats, const int size)
+{
+  const int block = ccl_gpu_global_id_x();
+  if (block < (size+255)/256) {
+    uint sum = 0, pixels = 0, maximum = 0;
+    for (int i = block*256; i < min(size, (block+1)*256); ++i) {
+      const uint n = counts[i];
+      sum += n; pixels += n != 0; maximum = max(maximum, n);
+    }
+    stats[block] = make_uint4(sum, pixels, maximum, 0);
   }
 }
 ccl_gpu_kernel_postfix

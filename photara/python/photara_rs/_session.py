@@ -971,7 +971,7 @@ class Session:
 
     @property
     def history_samples(self):
-        """Maximum previous raw frames used by experimental CPU reprojection (0..64)."""
+        """Maximum previous raw frames used by experimental GPU reprojection (0..64)."""
         self._ctx
         return self._history_samples
 

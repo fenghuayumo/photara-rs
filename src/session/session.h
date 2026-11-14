@@ -149,7 +149,8 @@ class Session {
   /* Non-blocking cancellation after the first completed viewport sample. */
   void request_cancel();
   void set_denoise_temporal_history(std::shared_ptr<DenoiseTemporalHistory> history);
-  void set_frame_reconstruction(std::function<void(RenderBuffers *, int)> callback);
+  void set_frame_reconstruction(std::function<void(RenderBuffers *, int)> callback,
+                                bool on_device = false);
 
   /* Coalesce camera-only viewport updates and apply them on the render thread.
    * The callback runs with the scene mutex held, between render iterations. */

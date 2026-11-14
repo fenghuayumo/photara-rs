@@ -98,6 +98,7 @@ class PathTrace {
 
   /* Optional full-frame linear-color reconstruction, before final denoising. */
   std::function<void(RenderBuffers *, int)> reconstruct_frame;
+  bool reconstruct_on_device = false;
 
   /* Set parameters used for adaptive sampling.
    * Use this to configure the adaptive sampler before rendering any samples. */

@@ -193,6 +193,9 @@ const char *device_kernel_as_string(DeviceKernel kernel)
 
     case DEVICE_KERNEL_NEEAT_UPDATE:
       return "neeat_update";
+    case DEVICE_KERNEL_TEMPORAL_SNAPSHOT: return "temporal_snapshot";
+    case DEVICE_KERNEL_TEMPORAL_REPROJECT: return "temporal_reproject";
+    case DEVICE_KERNEL_TEMPORAL_STATS: return "temporal_stats";
     case DEVICE_KERNEL_NUM:
       break;
   };
