@@ -305,8 +305,14 @@ ccl_device void integrator_shade_shadow(KernelGlobals kg,
       const Spectrum contribution = INTEGRATOR_STATE(state, shadow_path, throughput);
       const float weight = average(contribution);
       if (weight > 0.0f && isfinite_safe(weight)) {
+#ifdef __KERNEL_METAL__
+        /* Metal device pointers are host-side resource handles. Use the
+         * argument buffer's GPU address rather than casting that handle. */
+        ccl_global float *feedback = kernel_data_array(neeat_feedback);
+#else
         ccl_global float *feedback = reinterpret_cast<ccl_global float *>(
             kernel_data.integrator.neeat_feedback);
+#endif
         atomic_add_and_fetch_float(&feedback[emitter], weight);
         const int table = neeat_table(
             kg, INTEGRATOR_STATE(state, shadow_path, render_pixel_index));

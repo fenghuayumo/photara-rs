@@ -36,7 +36,7 @@ try:
 except ImportError as exc:  # pragma: no cover - depends on the built artifact.
     raise ImportError(
         "Could not load the photara_rs native module. The package must contain "
-        "a matching _photara*.pyd under photara_rs/, and the runtime DLLs must "
+        "a matching _photara native extension under photara_rs/, and runtime libraries must "
         "be under photara_rs/bin/. Reinstall the matching wheel or rebuild the "
         "extension for this Python version. Original error: "
         f"{exc}"
@@ -44,11 +44,12 @@ except ImportError as exc:  # pragma: no cover - depends on the built artifact.
 
 
 def resource_dir() -> str:
-    """Directory containing the OptiX/CUDA kernel blobs."""
+    """Directory containing kernel binaries or Metal runtime sources."""
     override = os.environ.get("PHOTARA_RESOURCE_DIR")
     if override:
         return override
-    if _IS_DEV_TREE and os.path.isdir(os.path.join(_DEV_INSTALL_DIR, "lib")):
+    if _IS_DEV_TREE and any(os.path.isdir(os.path.join(_DEV_INSTALL_DIR, name))
+                             for name in ("lib", "source")):
         return _DEV_INSTALL_DIR
     return _PACKAGE_DIR
 

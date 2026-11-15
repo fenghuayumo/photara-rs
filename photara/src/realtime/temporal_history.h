@@ -100,8 +100,9 @@ class TemporalHistory {
     using namespace ccl;
     const auto &p = buffers->params;
     Device *device = buffers->buffer.device;
-    if (device->info.type != DEVICE_OPTIX && device->info.type != DEVICE_CUDA)
-      throw std::runtime_error("GPU temporal reconstruction requires OptiX or CUDA");
+    if (device->info.type != DEVICE_OPTIX && device->info.type != DEVICE_CUDA &&
+        device->info.type != DEVICE_METAL)
+      throw std::runtime_error("GPU temporal reconstruction requires OptiX, CUDA or Metal");
     if (p.width != p.full_width || p.height != p.full_height || p.full_x || p.full_y ||
         p.window_x || p.window_y)
       throw std::runtime_error("history_samples requires an untiled full-resolution frame");

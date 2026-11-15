@@ -180,12 +180,12 @@ set(SRC_KERNEL_FILM_HEADERS
   film/light_passes.h
   film/read.h
   film/temporal_history.h
+  film/stable_planes.h
   film/write.h
 )
 
 set(SRC_KERNEL_INTEGRATOR_HEADERS
   integrator/stable_planes.h
-  film/stable_planes.h
   integrator/displacement_shader.h
   integrator/init_from_bake.h
   integrator/init_from_camera.h
@@ -296,6 +296,8 @@ set(SRC_UTIL_HEADERS
   ../util/half.h
   ../util/hash.h
   ../util/math.h
+  ../util/math_gsplat.h
+  ../util/neeat_types.h
   ../util/math_base.h
   ../util/math_fast.h
   ../util/math_intersect.h
@@ -443,6 +445,7 @@ endif()
 add_subdirectory(device/cpu)
 add_subdirectory(device/cuda)
 add_subdirectory(device/optix)
+add_subdirectory(device/metal)
 
 target_link_libraries(cycles_kernel
   INTERFACE cycles_kernel_cpu

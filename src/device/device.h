@@ -402,6 +402,7 @@ class Device {
   static thread_mutex device_mutex;
   static vector<DeviceInfo> &cuda_devices();
   static vector<DeviceInfo> &optix_devices();
+  static vector<DeviceInfo> &metal_devices();
   static vector<DeviceInfo> &cpu_devices();
   static uint devices_initialized_mask;
 };

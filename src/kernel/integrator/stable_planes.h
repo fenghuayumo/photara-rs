@@ -10,8 +10,12 @@
 CCL_NAMESPACE_BEGIN
 
 #ifdef __DENOISING_FEATURES__
+/* Metal includes these functions as class members, which can refer to later
+ * definitions without a forward declaration. */
+#ifndef __KERNEL_METAL__
 ccl_device_forceinline float3 integrate_surface_ray_offset(KernelGlobals kg,
     const ccl_private ShaderData *sd, const float3 ray_P, const float3 ray_D);
+#endif
 
 struct StablePlaneBranch {
   Ray ray;

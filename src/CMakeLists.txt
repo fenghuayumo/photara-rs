@@ -240,6 +240,10 @@ if(WITH_CYCLES_DEVICE_CUDA OR WITH_CYCLES_DEVICE_OPTIX)
   endif()
 endif()
 
+if(WITH_CYCLES_DEVICE_METAL)
+  add_definitions(-DWITH_METAL)
+endif()
+
 if(WITH_CYCLES_DEVICE_OPTIX)
   find_package(OptiX 8.0.0)
 

@@ -851,9 +851,11 @@ void LightManager::update_neeat(Device *device,
     std::fill_n(dscene->neeat_distribution.data(), entries, make_float2(0, 0));
     dscene->neeat_distribution.copy_to_device();
     dscene->neeat_feedback.alloc(entries);
-    dscene->neeat_feedback.zero_to_device();
+    std::fill_n(dscene->neeat_feedback.data(), entries, 0.0f);
+    dscene->neeat_feedback.copy_to_device();
   }
-  const bool gpu = (device->info.type == DEVICE_OPTIX || device->info.type == DEVICE_CUDA) &&
+  const bool gpu = (device->info.type == DEVICE_OPTIX || device->info.type == DEVICE_CUDA ||
+                    device->info.type == DEVICE_METAL) &&
                    !getenv("PHOTARA_NEEAT_CPU");
   if (gpu) {
     if (!neeat_queue_ || neeat_device_ != device) {

@@ -72,6 +72,7 @@ KERNEL_DATA_ARRAY(float2, light_background_conditional_cdf)
 
 /* light tree */
 KERNEL_DATA_ARRAY(float2, neeat_distribution)
+KERNEL_DATA_ARRAY_WRITABLE(float, neeat_feedback)
 KERNEL_DATA_ARRAY(KernelNEEATLight, neeat_lights)
 KERNEL_DATA_ARRAY(KernelNEEATCluster, neeat_clusters)
 KERNEL_DATA_ARRAY(KernelNEEATLookup, neeat_lookup)

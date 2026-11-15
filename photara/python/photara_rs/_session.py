@@ -296,7 +296,7 @@ class RenderJob:
 
 
 class Session:
-    """A low-level handle-based OptiX render session.
+    """A low-level handle-based OptiX or Metal render session.
 
     A session owns one scene and one GPU context. Geometry and lights are
     referred to by integer handles. The session can be rendered repeatedly and

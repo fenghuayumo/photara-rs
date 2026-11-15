@@ -23,61 +23,6 @@
 
 #include "kernel/device/gpu/work_stealing.h"
 
-ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
-    ccl_gpu_kernel_signature(neeat_update,
-                             ccl_global float2 *distribution,
-                             ccl_global float *feedback,
-                             ccl_global const KernelNEEATCluster *clusters,
-                             const int count,
-                             const int first_table, const int tables, const int fresh)
-{
-  const int index = ccl_gpu_global_id_x();
-  if (index < tables) {
-    ccl_gpu_kernel_call(neeat_update_table(distribution, feedback, clusters, count,
-                                          first_table + index, fresh != 0));
-  }
-}
-ccl_gpu_kernel_postfix
-
-ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
-    ccl_gpu_kernel_signature(temporal_snapshot, ccl_global const float *film,
-        ccl_global KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
-        const int slot, const int size)
-{
-  const int i = ccl_gpu_global_id_x();
-  if (i < size) ccl_gpu_kernel_call(temporal_snapshot(film, ring, frames, slot, i));
-}
-ccl_gpu_kernel_postfix
-
-ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
-    ccl_gpu_kernel_signature(temporal_reproject, ccl_global float *film,
-        ccl_global const KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
-        ccl_global uint *counts, const int slot, const int capacity,
-        const int history, const int size)
-{
-  const int i = ccl_gpu_global_id_x();
-  if (i < size) ccl_gpu_kernel_call(temporal_reproject(film, ring, frames, counts,
-                                                     slot, capacity, history, i));
-}
-ccl_gpu_kernel_postfix
-
-ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
-    ccl_gpu_kernel_signature(temporal_stats, ccl_global const uint *counts,
-                            ccl_global uint4 *stats, const int size)
-{
-  const int block = ccl_gpu_global_id_x();
-  if (block < (size+255)/256) {
-    uint sum = 0, pixels = 0, maximum = 0, planes = 0;
-    for (int i = block*256; i < min(size, (block+1)*256); ++i) {
-      const uint n = counts[i] & 0xffffu;
-      planes += counts[i] >> 16;
-      sum += n; pixels += n != 0; maximum = max(maximum, n);
-    }
-    stats[block] = make_uint4(sum, pixels, maximum, planes);
-  }
-}
-ccl_gpu_kernel_postfix
-
 #include "kernel/integrator/state.h"
 #include "kernel/integrator/state_flow.h"
 #include "kernel/integrator/state_util.h"
@@ -109,6 +54,63 @@ ccl_gpu_kernel_postfix
 #endif
 
 #include "kernel/film/read.h"
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(neeat_update,
+                             ccl_global float2 *distribution,
+                             ccl_global float *feedback,
+                             ccl_global const KernelNEEATCluster *clusters,
+                             const int count,
+                             const int first_table, const int tables, const int fresh)
+{
+  const int index = ccl_gpu_global_id_x();
+  if (index < tables) {
+    neeat_update_table(distribution, feedback, clusters, count,
+                                          first_table + index, fresh != 0);
+  }
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_snapshot, ccl_global const float *film,
+        ccl_global KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
+        const int slot, const int size)
+{
+  const int i = ccl_gpu_global_id_x();
+  if (i < size) temporal_snapshot(film, ring, frames, slot, i);
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_reproject, ccl_global float *film,
+        ccl_global const KernelTemporalPixel *ring, ccl_global const KernelTemporalFrame *frames,
+        ccl_global uint *counts, const int slot, const int capacity,
+        const int history, const int size)
+{
+  const int i = ccl_gpu_global_id_x();
+  if (i < size) temporal_reproject(film, ring, frames, counts,
+                                                     slot, capacity, history, i);
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(temporal_stats, ccl_global const uint *counts,
+                            ccl_global uint4 *stats, const int size)
+{
+  const int block = ccl_gpu_global_id_x();
+  if (block < (size+255)/256) {
+    uint sum = 0, pixels = 0, maximum = 0, planes = 0;
+    for (int i = block*256; i < min(size, (block+1)*256); ++i) {
+      const uint n = counts[i] & 0xffffu;
+      planes += counts[i] >> 16;
+      sum += n; pixels += n != 0; maximum = max(maximum, n);
+    }
+    stats[block] = make_uint4(sum, pixels, maximum, planes);
+  }
+}
+ccl_gpu_kernel_postfix
+
+
 
 /* --------------------------------------------------------------------
  * Integrator.

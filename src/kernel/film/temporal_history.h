@@ -73,6 +73,11 @@ ccl_device void temporal_reproject(ccl_global float *film,
                                    const int slot, const int capacity, const int history,
                                    const int i)
 {
+#ifdef __KERNEL_METAL__
+  using Accumulator = float;
+#else
+  using Accumulator = double;
+#endif
   const KernelTemporalFrame f = frames[slot];
   const size_t size = size_t(f.width) * f.height;
   const KernelTemporalPixel p = ring[size_t(slot) * size + i];
@@ -89,9 +94,9 @@ ccl_device void temporal_reproject(ccl_global float *film,
           !isfinite(a.roughness) || !isfinite(len_squared(a.view)) ||
           !isfinite(len_squared(a.throughput))) continue;
       ++active;
-      double sums[3] = {double(a.color.x)*p.weight, double(a.color.y)*p.weight,
-                        double(a.color.z)*p.weight};
-      double weights = p.weight;
+      Accumulator sums[3] = {Accumulator(a.color.x)*p.weight, Accumulator(a.color.y)*p.weight,
+                             Accumulator(a.color.z)*p.weight};
+      Accumulator weights = p.weight;
       uint accepted = 0;
       float3 proposal_position = a.previous_virtual_position;
       float3 target_position = a.previous_position;
@@ -134,8 +139,8 @@ ccl_device void temporal_reproject(ccl_global float *film,
           const float3 color = matched.color;
           proposal_position = matched.previous_virtual_position;
           target_position = matched.previous_position;
-          sums[0] += double(color.x)*q.weight; sums[1] += double(color.y)*q.weight;
-          sums[2] += double(color.z)*q.weight; weights += q.weight; ++accepted;
+          sums[0] += Accumulator(color.x)*q.weight; sums[1] += Accumulator(color.y)*q.weight;
+          sums[2] += Accumulator(color.z)*q.weight; weights += q.weight; ++accepted;
         }
         else break; /* Never jump past a disoccluded intermediate frame. */
       }
@@ -155,9 +160,9 @@ ccl_device void temporal_reproject(ccl_global float *film,
       len_squared(p.normal) < 0.5f ||
       !isfinite(len_squared(p.normal)) || !isfinite(p.color.x) || !isfinite(p.color.y) ||
       !isfinite(p.color.z) || !isfinite(p.color.w) || fabsf(p.color.w) > 0.001f) return;
-  double sum[4] = {double(p.color.x)*p.weight, double(p.color.y)*p.weight,
-                   double(p.color.z)*p.weight, double(p.color.w)*p.weight};
-  double weight = p.weight;
+  Accumulator sum[4] = {Accumulator(p.color.x)*p.weight, Accumulator(p.color.y)*p.weight,
+                   Accumulator(p.color.z)*p.weight, Accumulator(p.color.w)*p.weight};
+  Accumulator weight = p.weight;
   uint accepted = 0;
   for (int age = history; age > 0; --age) {
     const int old_slot = (slot + capacity - age) % capacity;
@@ -184,8 +189,8 @@ ccl_device void temporal_reproject(ccl_global float *film,
     if (dot(view, old_view) < 1.0f-max(1e-7f, rough*rough*0.002f)) continue;
     if (!isfinite(q.color.x) || !isfinite(q.color.y) || !isfinite(q.color.z) ||
         !isfinite(q.color.w)) continue;
-    sum[0] += double(q.color.x)*q.weight; sum[1] += double(q.color.y)*q.weight;
-    sum[2] += double(q.color.z)*q.weight; sum[3] += double(q.color.w)*q.weight;
+    sum[0] += Accumulator(q.color.x)*q.weight; sum[1] += Accumulator(q.color.y)*q.weight;
+    sum[2] += Accumulator(q.color.z)*q.weight; sum[3] += Accumulator(q.color.w)*q.weight;
     weight += q.weight;
     ++accepted;
   }

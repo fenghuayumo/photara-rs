@@ -470,20 +470,51 @@ void assign_single_shader(Light *light, Shader *shader)
 
 bool find_device(const PhotaraDevice requested, DeviceInfo &device, std::string &error)
 {
-  if (requested != PHOTARA_DEVICE_AUTO && requested != PHOTARA_DEVICE_OPTIX) {
-    error = "Only OptiX is supported";
-    return false;
+  uint mask;
+  switch (requested) {
+    case PHOTARA_DEVICE_AUTO:
+      mask = DEVICE_MASK_OPTIX | DEVICE_MASK_METAL;
+      break;
+    case PHOTARA_DEVICE_OPTIX:
+      mask = DEVICE_MASK_OPTIX;
+      break;
+    case PHOTARA_DEVICE_METAL:
+      mask = DEVICE_MASK_METAL;
+      break;
+    default:
+      error = "Unsupported render device (expected AUTO, OPTIX or METAL)";
+      return false;
   }
 
-  for (const DeviceInfo &info : Device::available_devices(DEVICE_MASK_OPTIX)) {
+  for (const DeviceInfo &info : Device::available_devices(mask)) {
     if (info.meets_driver_requirement) {
       device = info;
       return true;
     }
   }
 
-  error = "OptiX device is not available (requires an NVIDIA GPU, a current driver and a build with OptiX support)";
+  error = requested == PHOTARA_DEVICE_METAL ?
+              "Metal device is not available (requires a supported Apple GPU and a Metal-enabled macOS build)" :
+          requested == PHOTARA_DEVICE_OPTIX ?
+              "OptiX device is not available (requires an NVIDIA GPU, a current driver and a build with OptiX support)" :
+              "No supported render device is available (OptiX or Metal)";
   return false;
+}
+
+/* Prefer GPU OIDN, then OptiX, then the CPU OIDN fallback on Metal. */
+DenoiserType automatic_denoiser(const DeviceInfo &device)
+{
+  if (device.denoisers & DENOISER_OPENIMAGEDENOISE) {
+    return DENOISER_OPENIMAGEDENOISE;
+  }
+  if (device.denoisers & DENOISER_OPTIX) {
+    return DENOISER_OPTIX;
+  }
+#ifdef WITH_OPENIMAGEDENOISE
+  return DENOISER_OPENIMAGEDENOISE;
+#else
+  return DENOISER_NONE;
+#endif
 }
 
 /* Copies the completed full-frame passes out of the renderer. */
@@ -1170,8 +1201,10 @@ static PhotaraContext *photara_create_impl(const PhotaraOptions *options, bool v
     integrator->set_use_adaptive_sampling(options->use_adaptive_sampling != 0);
 
     if (options->use_denoise) {
-      const DenoiserType denoiser = (device.denoisers & DENOISER_OPENIMAGEDENOISE) ?
-                                        DENOISER_OPENIMAGEDENOISE : DENOISER_OPTIX;
+      const DenoiserType denoiser = automatic_denoiser(device);
+      if (denoiser == DENOISER_NONE) {
+        throw std::runtime_error("Denoising is unavailable in this build; disable denoising or enable OpenImageDenoise");
+      }
       integrator->set_use_denoise(true);
       integrator->set_denoiser_type(denoiser);
       integrator->set_denoiser_passes(DENOISER_PASS_ALBEDO | DENOISER_PASS_NORMAL);
@@ -2905,11 +2938,10 @@ int photara_auto_denoiser(void)
 {
   DeviceInfo device;
   std::string error;
-  if (!find_device(PHOTARA_DEVICE_OPTIX, device, error)) {
+  if (!find_device(PHOTARA_DEVICE_AUTO, device, error)) {
     return 0;
   }
-  return (device.denoisers & DENOISER_OPENIMAGEDENOISE) ? DENOISER_OPENIMAGEDENOISE :
-                                                       DENOISER_OPTIX;
+  return automatic_denoiser(device);
 }
 
 int photara_configure_denoiser(PhotaraContext *ctx, int type, int passes,

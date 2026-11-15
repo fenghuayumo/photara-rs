@@ -45,6 +45,7 @@ typedef struct PhotaraContext PhotaraContext;
 typedef enum PhotaraDevice {
   PHOTARA_DEVICE_AUTO = 0,
   PHOTARA_DEVICE_OPTIX = 1,
+  PHOTARA_DEVICE_METAL = 2,
 } PhotaraDevice;
 
 /* REALTIME is currently a frame-scheduled OptiX baseline. ReSTIR/cache
@@ -66,7 +67,7 @@ typedef struct PhotaraOptions {
   int use_adaptive_sampling;
   PhotaraDevice device;
   /*
-   * Directory that contains the renderer's `lib/kernel_*.zst` binaries. When
+   * Directory that contains `lib/kernel_*.zst` binaries or Metal `source/`. When
    * using the Python package this is set automatically by the wrapper. May be
    * NULL, in which case the process working directory is used.
    */

@@ -20,7 +20,7 @@ def draw_device(self, context):
         layout.use_property_split = True
         layout.use_property_decorate = False
         layout.prop(context.scene.photara_rs, 'device')
-        layout.label(text='NVIDIA OptiX')
+        layout.label(text='Apple Metal' if context.scene.photara_rs.device == 'METAL' else 'NVIDIA OptiX')
 
 
 class RENDER_PT_photara_sampling(PhotaraButtonsPanel, bpy.types.Panel):

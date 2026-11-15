@@ -1,4 +1,4 @@
-"""Photara: an OptiX-first path tracer for Python and sim2real pipelines.
+"""Photara: an OptiX and Metal path tracer for Python and sim2real pipelines.
 
 The public API is a small Blender-style scene graph::
 
@@ -84,7 +84,7 @@ __all__ = [
 
 
 def auto_denoiser():
-    """Return the effective automatic denoiser for the selected OptiX device."""
+    """Return the effective automatic denoiser for the automatically selected render device."""
     from ._backend import _core
     return {4: "OPENIMAGEDENOISE", 2: "OPTIX", 0: "NONE"}[_core.auto_denoiser()]
 

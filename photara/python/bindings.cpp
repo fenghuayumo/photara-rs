@@ -58,7 +58,10 @@ PhotaraDevice parse_device(const std::string &device)
   if (upper == "OPTIX") {
     return PHOTARA_DEVICE_OPTIX;
   }
-  throw std::runtime_error("Unknown device '" + device + "' (expected AUTO or OPTIX)");
+  if (upper == "METAL") {
+    return PHOTARA_DEVICE_METAL;
+  }
+  throw std::runtime_error("Unknown device '" + device + "' (expected AUTO, OPTIX or METAL)");
 }
 
 class Context {

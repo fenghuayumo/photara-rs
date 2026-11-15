@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import bpy
+import sys
 from bpy.app.handlers import persistent
 
 
@@ -77,8 +78,9 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
     history_revision: bpy.props.IntProperty(default=0, options={'HIDDEN', 'SKIP_SAVE'})
     device: bpy.props.EnumProperty(
         name="Device",
-        items=[('OPTIX', "GPU Compute", "Render on NVIDIA GPU with OptiX")],
-        default='OPTIX',
+        items=[('OPTIX', "NVIDIA OptiX", "Render on NVIDIA GPU with OptiX"),
+               ('METAL', "Apple Metal", "Render on Apple Silicon GPU with Metal")],
+        default='METAL' if sys.platform == 'darwin' else 'OPTIX',
     )
 
     viewport_denoise: bpy.props.BoolProperty(

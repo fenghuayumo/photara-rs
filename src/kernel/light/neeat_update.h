@@ -11,17 +11,24 @@ ccl_device void neeat_update_table(ccl_global float2 *distribution,
                                   const int count, const int table, const bool fresh)
 {
   const int base = table * (count + 1);
-  double total = 0.0;
+  /* Metal has no FP64 support. Tables are bounded, so FP32 accumulation is
+   * sufficient there; retain FP64 normalization on CPU and CUDA. */
+#ifdef __KERNEL_METAL__
+  using Accumulator = float;
+#else
+  using Accumulator = double;
+#endif
+  Accumulator total = 0.0f;
   for (int i = 0; i < count; ++i) {
     const float f = fresh ? 0.0f : feedback[base + i];
     if (isfinite_safe(f) && f > 0.0f) total += f;
   }
-  double cdf = 0.0;
+  Accumulator cdf = 0.0f;
   for (int i = 0; i < count; ++i) {
     const float prior = clusters[i].prior;
     const float f = fresh ? 0.0f : feedback[base + i];
     const float fallback = table ? distribution[i].y : prior;
-    const float target = total > 0.0 && isfinite_safe(f) ?
+    const float target = total > 0.0f && isfinite_safe(f) ?
                              float(fmaxf(0.0f, f) / total) : fallback;
     const float learned = fresh ? prior : 0.8f * distribution[base + i].y + 0.2f * target;
     const float pdf = 0.95f * learned + 0.05f * prior;
@@ -29,7 +36,7 @@ ccl_device void neeat_update_table(ccl_global float2 *distribution,
     distribution[base + i] = make_float2(float(cdf), pdf);
     feedback[base + i] = 0.0f;
   }
-  double prefix = 0.0;
+  Accumulator prefix = 0.0f;
   float previous = 0.0f;
   for (int i = 0; i < count; ++i) {
     prefix += distribution[base + i].y;

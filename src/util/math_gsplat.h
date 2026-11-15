@@ -10,13 +10,13 @@
 
 CCL_NAMESPACE_BEGIN
 
-constexpr int GSPLAT_RASTER_TILE_SIZE = 16;
-constexpr float GSPLAT_RASTER_EXTENT = 8.0f;
-constexpr float GSPLAT_RASTER_ALPHA_MIN = 1.0f / 255.0f;
+ccl_static_constexpr int GSPLAT_RASTER_TILE_SIZE = 16;
+ccl_static_constexpr float GSPLAT_RASTER_EXTENT = 8.0f;
+ccl_static_constexpr float GSPLAT_RASTER_ALPHA_MIN = 1.0f / 255.0f;
 /* Bit 7 is outside PATH_RAY_VISIBILITY_ALL. Use it to trace the mesh layer
  * without visiting the BVHs of rasterized point clouds. */
-constexpr uint GSPLAT_RASTER_MESH_MASK = 128;
-constexpr uint GSPLAT_RASTER_SHADOW = (1u << 14);
+ccl_static_constexpr uint GSPLAT_RASTER_MESH_MASK = 128;
+ccl_static_constexpr uint GSPLAT_RASTER_SHADOW = (1u << 14);
 
 ccl_device_inline int2 gsplat_shadow_receiver_grid(const int width, const int height)
 {

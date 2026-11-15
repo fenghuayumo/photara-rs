@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 import sysconfig
 
 from setuptools import Distribution, setup
@@ -8,6 +9,21 @@ _PACKAGE_DIR = Path(__file__).parent / "photara_rs"
 
 def _check_native_payload() -> None:
     missing = []
+    if sys.platform == "darwin":
+        expected = "_photara" + sysconfig.get_config_var("EXT_SUFFIX")
+        modules = sorted(_PACKAGE_DIR.glob("_photara*.so"))
+        if [module.name for module in modules] != [expected]:
+            raise SystemExit(f"Build and stage only the matching native extension: {expected}")
+        for resource in ("source/kernel/device/metal/kernel.metal",
+                         "source/kernel/device/metal/compat.h",
+                         "source/kernel/device/gpu/kernel.h",
+                         "source/util/types.h"):
+            if not (_PACKAGE_DIR / resource).is_file():
+                missing.append(resource)
+        if missing:
+            raise SystemExit("Metal runtime sources missing; run scripts/stage_python_macos.py: "
+                             + ", ".join(missing))
+        return
     if not list(_PACKAGE_DIR.glob("_photara*.pyd")):
         missing.append("_photara*.pyd")
     else:

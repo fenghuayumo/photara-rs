@@ -34,6 +34,10 @@ if(WITH_CYCLES_DEVICE_OPTIX AND OPTIX_INCLUDE_DIR)
   add_definitions(-DWITH_OPTIX)
 endif()
 
+if(WITH_CYCLES_DEVICE_METAL)
+  add_definitions(-DWITH_METAL)
+endif()
+
 set(PHOTARA_LIB
   cycles_device
   cycles_kernel

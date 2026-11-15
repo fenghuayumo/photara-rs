@@ -15,6 +15,9 @@
 #include "device/cuda/device.h"
 #include "device/dummy/device.h"
 #include "device/optix/device.h"
+#ifdef WITH_METAL
+#  include "device/metal/device.h"
+#endif
 
 #include "util/log.h"
 #include "util/math.h"
@@ -39,6 +42,12 @@ vector<DeviceInfo> &Device::cuda_devices()
 }
 
 vector<DeviceInfo> &Device::optix_devices()
+{
+  static vector<DeviceInfo> devices_;
+  return devices_;
+}
+
+vector<DeviceInfo> &Device::metal_devices()
 {
   static vector<DeviceInfo> devices_;
   return devices_;
@@ -95,6 +104,13 @@ unique_ptr<Device> Device::create(const DeviceInfo &info,
       }
       break;
 #endif
+#ifdef WITH_METAL
+    case DEVICE_METAL:
+      if (device_metal_init()) {
+        device = device_metal_create(info, stats, profiler, headless);
+      }
+      break;
+#endif
     default:
       break;
   }
@@ -111,6 +127,9 @@ DeviceType Device::type_from_string(const char *name)
   if (strcmp(name, "OPTIX") == 0) {
     return DEVICE_OPTIX;
   }
+  if (strcmp(name, "METAL") == 0) {
+    return DEVICE_METAL;
+  }
   return DEVICE_NONE;
 }
 
@@ -118,6 +137,9 @@ string Device::string_from_type(DeviceType type)
 {
   if (type == DEVICE_OPTIX) {
     return "OPTIX";
+  }
+  if (type == DEVICE_METAL) {
+    return "METAL";
   }
   return "";
 }
@@ -128,13 +150,15 @@ vector<DeviceType> Device::available_types()
 #ifdef WITH_OPTIX
   types.push_back(DEVICE_OPTIX);
 #endif
+#ifdef WITH_METAL
+  types.push_back(DEVICE_METAL);
+#endif
   return types;
 }
 
 vector<DeviceInfo> Device::available_devices(const uint mask)
 {
-  /* Only OptiX is exposed as a render backend. CUDA device information is
-   * initialized internally because OptiX enumeration derives from it. */
+  /* CUDA device information is initialized internally for OptiX enumeration. */
   const thread_scoped_lock lock(device_mutex);
   vector<DeviceInfo> devices;
 
@@ -168,6 +192,20 @@ vector<DeviceInfo> Device::available_devices(const uint mask)
   }
 #endif
 
+#ifdef WITH_METAL
+  if (mask & DEVICE_MASK_METAL) {
+    if (!(devices_initialized_mask & DEVICE_MASK_METAL)) {
+      if (device_metal_init()) {
+        device_metal_info(metal_devices());
+      }
+      devices_initialized_mask |= DEVICE_MASK_METAL;
+    }
+    for (const DeviceInfo &info : metal_devices()) {
+      devices.push_back(info);
+    }
+  }
+#endif
+
   return devices;
 }
 
@@ -179,8 +217,14 @@ DeviceInfo Device::dummy_device(const string &error_msg)
   return info;
 }
 
-string Device::device_capabilities(const uint /*mask*/)
+string Device::device_capabilities(const uint mask)
 {
+#ifdef WITH_METAL
+  if (mask & DEVICE_MASK_METAL) {
+    return device_metal_capabilities();
+  }
+#endif
+  (void)mask;
   return "";
 }
 
@@ -194,6 +238,7 @@ void Device::free_memory()
   devices_initialized_mask = 0;
   cuda_devices().free_memory();
   optix_devices().free_memory();
+  metal_devices().free_memory();
   cpu_devices().free_memory();
 }
 

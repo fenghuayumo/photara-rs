@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "photara-rs"
 version = "0.1.0"
-description = "OptiX-first physically based renderer derived from Cycles"
+description = "OptiX and Metal physically based renderer derived from Cycles"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.11,<3.14"
@@ -18,6 +18,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: Microsoft :: Windows :: Windows 10",
     "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.13",
@@ -36,4 +37,4 @@ packages = ["photara_rs", "photara_rs.importers"]
 zip-safe = false
 
 [tool.setuptools.package-data]
-photara_rs = ["*.pyd", "bin/*.dll", "lib/*.zst", "py.typed"]
+photara_rs = ["*.pyd", "*.so", "bin/*.dll", "lib/*.zst", "lib/*.dylib*", "source/**/*.h", "source/**/*.metal", "py.typed"]

@@ -60,6 +60,23 @@ set(SRC_DUMMY
   dummy/device.h
 )
 
+set(SRC_METAL
+  metal/bvh.h
+  metal/bvh.mm
+  metal/device.h
+  metal/device.mm
+  metal/device_impl.h
+  metal/device_impl.mm
+  metal/graphics_interop.h
+  metal/graphics_interop.mm
+  metal/kernel.h
+  metal/kernel.mm
+  metal/queue.h
+  metal/queue.mm
+  metal/util.h
+  metal/util.mm
+)
+
 set(SRC_OPTIX
   optix/device.cpp
   optix/device.h
@@ -108,6 +125,11 @@ if(WITH_CYCLES_DEVICE_OPTIX OR WITH_CYCLES_DEVICE_CUDA)
   endif()
 endif()
 
+if(WITH_CYCLES_DEVICE_METAL)
+  list(APPEND SRC ${SRC_METAL})
+  list(APPEND LIB PRIVATE ${METAL_LIBRARY})
+endif()
+
 include_directories(${INC})
 include_directories(SYSTEM ${INC_SYS})
 
@@ -116,6 +138,7 @@ cycles_add_library(cycles_device "${LIB}" ${SRC})
 source_group("cpu" FILES ${SRC_CPU})
 source_group("cuda" FILES ${SRC_CUDA})
 source_group("dummy" FILES ${SRC_DUMMY})
+source_group("metal" FILES ${SRC_METAL})
 source_group("optix" FILES ${SRC_OPTIX})
 source_group("common" FILES ${SRC_BASE} ${SRC_HEADERS})
 

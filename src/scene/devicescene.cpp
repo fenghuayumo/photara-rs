@@ -53,7 +53,7 @@ DeviceScene::DeviceScene(Device *device)
       neeat_lights(device, "neeat_lights", MEM_GLOBAL),
       neeat_clusters(device, "neeat_clusters", MEM_GLOBAL),
       neeat_lookup(device, "neeat_lookup", MEM_GLOBAL),
-      neeat_feedback(device, "neeat_feedback", MEM_READ_WRITE),
+      neeat_feedback(device, "neeat_feedback", MEM_GLOBAL),
       light_tree_nodes(device, "light_tree_nodes", MEM_GLOBAL),
       light_tree_emitters(device, "light_tree_emitters", MEM_GLOBAL),
       light_to_tree(device, "light_to_tree", MEM_GLOBAL),

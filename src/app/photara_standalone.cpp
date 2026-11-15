@@ -403,7 +403,11 @@ static void options_parse(const int argc, const char **argv)
 
   /* device names */
   string device_names;
+#ifdef WITH_METAL
+  string devicename = "METAL";
+#else
   string devicename = "OPTIX";
+#endif
   bool list = false;
 
   /* List devices for which support is compiled in. */

@@ -323,3 +323,10 @@ For native progressive output, create `Scene(..., viewport=True)` and start one
 `job.preview_update(last_revision)` to obtain `(new_revision, frame)` when the
 native renderer publishes new combined/depth pixels; it returns `None` otherwise.
 The job keeps accumulating samples and is not restarted for each preview update.
+
+## macOS / Metal
+
+Apple Silicon Macs can use `device="METAL"` or `device="AUTO"`. Build the
+extension and stage Metal runtime sources with the [macOS instructions](../../BUILDING.md#macos-apple-silicon).
+Automatic denoising uses OpenImageDenoise, with a CPU fallback when the installed
+OIDN library has no Metal device. DLSS requires NVIDIA and is unavailable on Mac.

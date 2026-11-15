@@ -71,6 +71,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile commands for c
 
 project(photara_rs)
 
+if(APPLE)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
+
 # Ninja's MSVC header scanner must use the same locale as /showIncludes.
 # Existing build trees may cache a localized prefix from compiler detection;
 # vcvars and build scripts can subsequently select English. Make both the
@@ -188,6 +194,13 @@ When set, this path will be used at runtime to compile OptiX kernels."
   mark_as_advanced(WITH_CUDA_DYNLOAD)
   mark_as_advanced(OPTIX_ROOT_DIR)
   mark_as_advanced(CYCLES_RUNTIME_OPTIX_ROOT_DIR)
+endif()
+
+# Apple Metal (runtime-compiled kernels; CUDA and OptiX are not required).
+if(APPLE)
+  option(WITH_CYCLES_DEVICE_METAL "Enable Photara Apple Metal compute support" ON)
+elseif(WITH_CYCLES_DEVICE_METAL)
+  message(FATAL_ERROR "The Metal backend requires macOS")
 endif()
 
 # Hydra Render Delegate

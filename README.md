@@ -1,6 +1,6 @@
 # Photara Renderer (`photara_rs`)
 
-Photara is an OptiX-first physically based renderer written in C++ and CUDA,
+Photara is a physically based renderer with NVIDIA OptiX and Apple Metal backends,
 with a small C ABI and a Python package named `photara_rs`. It targets
 production-quality path tracing and Python workflows such as sim2real synthetic
 data generation.
@@ -28,15 +28,15 @@ data generation.
   renders can run asynchronously with progress/cancel and a scene can render
   many frames without being rebuilt. A low-level handle-based `Session` remains
   available.
-- Supported device: **OptiX**. The HIP, HIPRT, Metal, oneAPI and multi-device
-  backends and the user-facing CPU/CUDA selection have been removed. CUDA host
-  code and non-ray-tracing kernel binaries remain as OptiX dependencies, and a
-  small internal CPU host device remains for denoising and buffer transfers.
+- Supported render devices: **OptiX** on NVIDIA GPUs and **Metal** on Apple
+  Silicon Macs. Metal includes MetalRT acceleration and runtime kernel compilation.
+  CUDA host code and kernel binaries remain as OptiX dependencies; a small internal
+  CPU device handles denoising and buffer transfers.
 - Blender add-on: a `PHOTARA_RS` render engine driven by the `photara_rs`
   package, with F12 final renders (Combined + Depth passes) and a rendered
   viewport via asynchronous jobs. See `photara_rs_engine/README.md`.
 
-## Requirements
+## Requirements (Windows)
 
 - Windows 10/11 x64
 - NVIDIA RTX GPU with a recent driver (OptiX runtime)
@@ -44,6 +44,24 @@ data generation.
 - CUDA Toolkit 12.8
 - OptiX SDK 9.1
 - Prebuilt dependencies in `lib/windows_x64`
+
+## macOS (Apple Silicon)
+
+Requires macOS 13 or newer, Xcode and the Metal toolchain. On supported systems,
+MetalRT acceleration uses macOS 14 or newer. See [macOS build instructions](BUILDING.md#macos-apple-silicon)
+for dependencies, Python wheels and validation.
+
+```sh
+scripts/configure_macos.sh
+scripts/build_macos.sh
+install/photara_rs --list-devices
+install/photara_rs --background --device METAL --samples 64 \
+  --output image.png examples/scene_cornell_box.xml
+```
+
+Python selects Metal automatically on supported Macs, or accepts
+`pr.Scene(width=640, height=480, device="METAL")` explicitly. First render
+compilation can take several minutes; compiled pipelines are cached locally.
 
 ## Build the standalone renderer
 

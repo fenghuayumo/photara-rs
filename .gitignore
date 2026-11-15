@@ -33,6 +33,10 @@ install*/
 /dist/
 /test_outputs/
 /lib/windows_x64/
+/lib/macos_arm64/
+/lib/macos_x64/
+/photara/python/photara_rs/*.so
+/photara/python/photara_rs/source/
 /photara/python/photara_rs/*.pyd
 /photara/python/photara_rs/*.pdb
 /photara/python/photara_rs/bin/
