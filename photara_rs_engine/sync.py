@@ -376,7 +376,7 @@ def sync_light(state, blender_light, matrix_world, key=None):
         scene = state.scene
         if light_type == 'AREA':
             size_x = float(blender_light.size)
-            if blender_light.shape == 'RECT':
+            if blender_light.shape in {'RECT', 'RECTANGLE'}:
                 size_y = float(blender_light.size_y)
             else:
                 size_y = float(blender_light.size)
@@ -426,7 +426,7 @@ def sync_light(state, blender_light, matrix_world, key=None):
     light.strength = energy
     if light_type == 'AREA':
         light.size = (float(blender_light.size), float(blender_light.size))
-        if blender_light.shape == 'RECT':
+        if blender_light.shape in {'RECT', 'RECTANGLE'}:
             light.size = (float(blender_light.size), float(blender_light.size_y))
     elif light_type == 'SUN':
         light.angle = float(blender_light.angle)

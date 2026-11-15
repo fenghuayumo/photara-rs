@@ -13,7 +13,7 @@ bl_info = {
     "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "Render Properties > Photara",
-    "description": "Render with the Photara OptiX path tracer",
+    "description": "Render with the Photara OptiX and Metal path tracer",
     "doc_url": "",
     "tracker_url": "",
     "category": "Render",

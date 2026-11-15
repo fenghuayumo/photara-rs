@@ -73,7 +73,7 @@ its own `scene.photara` settings; both add-ons can be enabled together.
 
 # Photara Blender 插件
 
-在 Blender 中直接使用 Photara（OptiX 路径追踪）渲染。插件通过
+在 Blender 中直接使用 Photara（OptiX / Metal 路径追踪）渲染。插件通过
 `photara_rs` Python 包驱动渲染器核心，无需修改或重新编译 Blender。
 
 ## 支持的 Blender 版本
@@ -82,6 +82,7 @@ its own `scene.photara` settings; both add-ons can be enabled together.
   wheel 的原生扩展必须匹配 Blender 内置 Python；Python 3.11 用 cp311，
   本地 Python 3.13 用 cp313。请以具体构建检测结果为准。
 - Windows x64 + NVIDIA RTX GPU（OptiX）
+- Apple Silicon macOS（Metal）；已验证 Blender 5.3 / Python 3.13 的独立插件路径。
 
 ## 安装
 
@@ -228,3 +229,22 @@ Exposure、Gamma 等控制最终渲染的显示和输出。视口目前只有曝
 依赖。若未来需要进一步压低同步开销，`photara/include/photara/photara.h`
 的 C ABI 也支持把 sync 层下沉为 C++ 实现（路径与 Cycles 一致），插件
 结构无需改变。
+
+## macOS Metal 演示场景
+
+先按 [macOS 构建说明](../BUILDING.md#macos-apple-silicon) 编译原生扩展，
+运行 `python scripts/package_blender_addon.py`，在 Blender 中安装生成的插件 zip。
+在插件偏好设置的 **photara_rs Path** 中选择本仓库的 `photara/python` 目录。
+当前开发安装会使用这里的原生扩展和 `install/source` 运行时源码。
+
+用 Blender 执行 `scripts/create_blender_metal_demo.py` 可生成并渲染三灯棚拍场景：
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender --background --python-exit-code 1 \
+  --python scripts/create_blender_metal_demo.py
+```
+
+结果位于 `test_outputs/blender_metal_demo/`。打开 `photara_metal_studio.blend`，
+渲染引擎已设为 **Photara**，设备为 **Apple Metal**，Reference 模式、128 Samples、
+OpenImageDenoise。按 **F12** 渲染，**F11** 查看或返回渲染结果。
+场景使用基础 Principled 材质，包含陶瓷、金属、玻璃、三盏矩形面光和无缝背景。

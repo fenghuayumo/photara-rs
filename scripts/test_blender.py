@@ -1,4 +1,4 @@
-"""Real Blender/OptiX integration checks against the installed add-on.
+"""Real Blender/Photara integration checks against the installed add-on.
 
 blender.exe --background --python-exit-code 1 --python scripts/test_blender.py
 Use -- --viewport in a windowed Blender to also test asynchronous viewport edits.
@@ -24,6 +24,10 @@ def prepare_scene():
 
     addon_utils.enable("photara_rs_engine", default_set=True)
     assert "photara_rs_engine" in bpy.context.preferences.addons
+    import photara_rs_engine
+    error = photara_rs_engine.ensure_photara_module()
+    if error:
+        raise RuntimeError(error)
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
     scene = bpy.context.scene

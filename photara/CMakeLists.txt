@@ -80,6 +80,11 @@ if(PHOTARA_BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
 
   pybind11_add_module(photara_python python/bindings.cpp)
+  if(APPLE)
+    # Blender also embeds Cycles. Keep renderer C++ symbols private so dyld
+    # cannot coalesce Photara's node registries and RTTI with Blender's copies.
+    target_link_options(photara_python PRIVATE "LINKER:-exported_symbol,_PyInit__photara")
+  endif()
   target_include_directories(photara_python PRIVATE
     "${PHOTARA_INCLUDE_DIR}"
     "${CMAKE_SOURCE_DIR}/src")
