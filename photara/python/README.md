@@ -87,9 +87,8 @@ history. It reports backend, GPU update count, reconstruction pixel-readback
 bytes, allocated raw-ring memory, stored frames, accepted-history counts and seed.
 These reconstruction byte counters exclude explicit diagnostic and output reads.
 
-Set `PHOTARA_HISTORY_CPU=1` before setting `history_samples` to select the CPU
-reference implementation for parity checks. GPU allocation/dispatch failure is
-reported explicitly; it does not silently fall back to CPU.
+Temporal reconstruction runs exclusively on the GPU. Allocation or dispatch
+failure is reported explicitly.
 
 The ring stores raw linear colors, never denoised or recursively accumulated
 colors, so expired frames cannot leak through later entries. It projects the

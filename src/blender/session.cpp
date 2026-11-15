@@ -552,7 +552,6 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
               realtime_layer == b_rlay_name && realtime_view == b_rview_name;
       if (!reuse) { realtime_history.clear(); realtime_history.frame_index = 0; }
       realtime_history.limit = history_limit;
-      realtime_history.use_gpu = true;
       // Film selects the common Stable Planes pipeline for 1-SPP DLSS.
       // Other configurations retain primary-surface history.
       realtime_last_frame = b_scene->r.cfra;
@@ -577,7 +576,7 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
         session->set_frame_reconstruction([this](RenderBuffers *buffers, int spp) {
           realtime_history.reconstruct(buffers, spp, *scene->camera,
                                         scene->dscene.data.integrator.pixel_jitter);
-        }, true);
+        });
       }
       else session->set_frame_reconstruction({});
     }

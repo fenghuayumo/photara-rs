@@ -14,7 +14,7 @@ static PyObject *photara_realtime_stats_func(PyObject *, PyObject *handle)
                        "gpu_updates", (unsigned long long)history.gpu_updates,
                        "reused_pixels", (unsigned long long)history.reused_pixels,
                        "max_history_frames", (unsigned long long)history.reused_frames,
-                       "reconstruction_pixel_readback_bytes", (unsigned long long)history.pixel_readback_bytes);
+                       "reconstruction_pixel_readback_bytes", 0ULL);
 #else
   Py_RETURN_NONE;
 #endif

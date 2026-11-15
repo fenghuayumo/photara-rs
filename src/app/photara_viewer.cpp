@@ -313,9 +313,9 @@ struct Viewer {
         auto *guide = scene->create_node<Pass>(); guide->set_type(type);
       }
       session->set_frame_reconstruction([this](RenderBuffers *buffers, const int samples) {
-        plane_history.reconstruct_gpu(buffers, samples, *session->scene->camera,
+        plane_history.reconstruct(buffers, samples, *session->scene->camera,
             session->scene->dscene.data.integrator.pixel_jitter);
-      }, true);
+      });
     }
     auto *pass = scene->create_node<Pass>();
     pass->set_name(ustring("combined"));

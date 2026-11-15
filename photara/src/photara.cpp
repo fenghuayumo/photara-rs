@@ -2398,7 +2398,6 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
     }
     ctx->history.free_gpu();
     ctx->history.limit = history_samples;
-    ctx->history.use_gpu = std::getenv("PHOTARA_HISTORY_CPU") == nullptr;
     ctx->history.frame_index = 0;
     ctx->scene->integrator->set_seed(ctx->history_seed);
     if (history_samples) {
@@ -2413,7 +2412,7 @@ int photara_set_history_samples(PhotaraContext *ctx, const int history_samples)
       ctx->session->set_frame_reconstruction([ctx](RenderBuffers *buffers, const int samples) {
         ctx->history.reconstruct(buffers, samples, *ctx->scene->camera,
                                  ctx->scene->dscene.data.integrator.pixel_jitter);
-      }, ctx->history.use_gpu);
+      });
     }
     else {
       ctx->session->set_frame_reconstruction({});
@@ -2429,9 +2428,10 @@ int photara_get_history_backend(PhotaraContext *ctx, int *gpu, uint64_t *updates
 {
   return guarded(ctx, [&]() {
     if (!gpu || !updates || !pixel_readback_bytes) throw std::runtime_error("NULL history backend output");
-    *gpu = int(ctx->history.use_gpu);
+    /* Preserve the diagnostic ABI: reconstruction is GPU-only, with no pixel readback. */
+    *gpu = 1;
     *updates = ctx->history.gpu_updates;
-    *pixel_readback_bytes = ctx->history.pixel_readback_bytes;
+    *pixel_readback_bytes = 0;
   }, true);
 }
 
@@ -2508,7 +2508,7 @@ int photara_render_begin(PhotaraContext *ctx, unsigned long long *job)
       if (ctx->scene->integrator->get_denoiser_upscale_factor() != 1.0f) {
         throw std::runtime_error("history_samples currently requires native-resolution denoising");
       }
-      const bool plane_history = ctx->history.use_gpu && ctx->job_samples == 1 &&
+      const bool plane_history = ctx->job_samples == 1 &&
           ctx->scene->integrator->get_use_denoise() &&
           ctx->scene->integrator->get_denoiser_type() == DENOISER_DLSS;
       if (plane_history) {

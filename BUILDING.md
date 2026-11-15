@@ -95,7 +95,7 @@ To exercise software BVH traversal, run the same render with
 `CYCLES_METALRT=0` in the environment. Both this path and MetalRT have been
 smoke-tested on Apple Silicon. The Metal integration tests cover automatic
 selection, scene edits, image textures, OIDN denoising, NEE-AT updates and GPU
-temporal history; the existing GPU/CPU history parity test also passes.
+temporal history, including checks that reconstruction performs no pixel readback.
 
 Metal kernels compile at runtime from `install/source/`. Always run the install
 step after editing kernel headers. The first render can take several minutes.

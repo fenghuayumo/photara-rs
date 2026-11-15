@@ -243,19 +243,11 @@ void PathTrace::render_pipeline(RenderWork render_work)
       return;
     }
     auto &work = path_trace_works_.front();
-    if (!reconstruct_on_device && !work->copy_render_buffers_from_device()) {
-      device_->set_error("Could not read temporal reconstruction inputs");
-      return;
-    }
     try {
       reconstruct_frame(work->get_render_buffers(), get_num_samples_in_buffer());
     }
     catch (const std::exception &error) {
       device_->set_error(error.what());
-      return;
-    }
-    if (!reconstruct_on_device && !work->copy_render_buffers_to_device()) {
-      device_->set_error("Could not upload temporal reconstruction output");
       return;
     }
     /* A previous progressive denoise must not be used for the reconstructed film. */
