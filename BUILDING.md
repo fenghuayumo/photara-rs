@@ -152,4 +152,10 @@ version metadata. Use a `v<version>` Git tag for the matching GitHub Release, an
 rebuild the native extension, wheel and add-on after bumping. A version bump does
 not publish a release or create a tag automatically.
 
+`BUILD-INFO.json` is tracked beside `VERSION` in the repository. It records the
+published build's source commit, platform, Python ABI, dependency deployment
+requirements and validation results. Refresh it when rebuilding release artifacts;
+keep its version consistent with `VERSION` and preserve the actual build provenance.
+It is source-controlled metadata, not a GitHub Release attachment.
+
 Validate the manager with `python -m unittest discover -s scripts -p test_version.py -v`.

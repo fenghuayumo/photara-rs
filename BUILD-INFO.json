@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "source_commit": "9ea7e75e6abb6437babe6b126ef5e16bb55db4cb",
+  "source_has_uncommitted_version_changes": false,
+  "python_abi": "cp313",
+  "architecture": "arm64",
+  "native_declared_deployment_target": "13.0",
+  "bundled_library_minimum_macos": "27.2",
+  "libraries_requiring_maximum_macos": [
+    "libjxl_cms.0.13.0.dylib",
+    "libSvtAv1Enc.4.3.0.dylib",
+    "libOpenImageIO_Util.3.2.2.dylib",
+    "libOpenImageIO.3.2.2.dylib",
+    "libopenjph.0.33.0.dylib",
+    "libIex-3_5.34.3.5.4.dylib",
+    "liblcms2.2.dylib",
+    "libomp.dylib",
+    "libfreetype.6.dylib",
+    "libOpenEXR-3_5.34.3.5.4.dylib",
+    "libjxl_threads.0.13.0.dylib",
+    "libOpenEXRCore-3_5.34.3.5.4.dylib",
+    "libIlmThread-3_5.34.3.5.4.dylib",
+    "libjxl.0.13.0.dylib"
+  ],
+  "tested_macos": "27.0",
+  "tested_blender": "5.3.0",
+  "wheel": "photara_rs-0.2.0-cp313-cp313-macosx_27_0_arm64.whl",
+  "addon": "photara_blender_addon-0.2.0.zip",
+  "validation": {
+    "version_tests": 4,
+    "gpu_and_metal_tests": 13,
+    "blender_integration": "passed",
+    "external_absolute_dependencies": 0
+  },
+  "compatibility_note": "Bundled dependencies declare macOS 27.2; this is not a general macOS 13+ wheel. The wheel macOS major-version tag does not encode this minor-version restriction."
+}
