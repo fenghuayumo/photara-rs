@@ -709,8 +709,9 @@ class Context {
     return int(method);
   }
 
-  void configure_neeat(const bool enabled)
+  void configure_neeat(const bool enabled, const float tree_fraction)
   {
+    if (photara_set_neeat_tree_fraction(context_, tree_fraction) != 0) { throw_last_error(); }
     if (photara_set_neeat(context_, enabled) != 0) { throw_last_error(); }
   }
   void configure_nee_candidates(const int count)
@@ -1293,7 +1294,7 @@ PYBIND11_MODULE(_photara, module)
       .def("set_material_alpha_clip", &Context::set_material_alpha_clip)
       .def("omm_stats", &Context::omm_stats)
       .def("neeat_stats", &Context::neeat_stats)
-      .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"))
+      .def("configure_neeat", &Context::configure_neeat, py::arg("enabled"), py::arg("tree_fraction") = 0.25f)
       .def("configure_nee_candidates", &Context::configure_nee_candidates, py::arg("count"))
       .def("configure_history_samples", &Context::configure_history_samples, py::arg("count"))
       .def("reset_history", &Context::reset_history)

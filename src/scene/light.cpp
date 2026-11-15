@@ -23,6 +23,9 @@
 #include "integrator/shader_eval.h"
 
 #include "util/hash.h"
+#include "util/math.h"
+#include "util/neeat.h"
+#include "kernel/light/neeat_update.h"
 #include "util/log.h"
 #include "util/path.h"
 #include "util/progress.h"
@@ -754,8 +757,65 @@ void LightManager::device_update_distribution(Device * /*unused*/,
   dscene->light_distribution.copy_to_device();
 }
 
-/* Frame-frozen global and screen-tile feedback proposals. Mesh emitters retain
- * full support through the tree component. */
+/* Expand shared light-tree subtrees with actual instance identities. The DFS
+ * order preserves the spatial hierarchy for bounded, exact light LOD clusters. */
+static bool neeat_build_lights(DeviceScene *dscene)
+{
+  struct Work { int node, object; double scale; };
+  std::vector<Work> stack{{0, OBJECT_NONE, 1.0}};
+  std::vector<KernelNEEATLight> lights;
+  std::vector<double> energy;
+  while (!stack.empty()) {
+    const Work work = stack.back(); stack.pop_back();
+    if (work.node < 0 || size_t(work.node) >= dscene->light_tree_nodes.size()) return false;
+    const KernelLightTreeNode &node = dscene->light_tree_nodes[work.node];
+    if (node.type == LIGHT_TREE_INSTANCE) {
+      stack.push_back({node.instance.reference, work.object, work.scale});
+    }
+    else if (node.type & LIGHT_TREE_INNER) {
+      stack.push_back({node.inner.right_child, work.object, work.scale});
+      stack.push_back({node.inner.left_child, work.object, work.scale});
+    }
+    else {
+      for (int j = 0; j < node.num_emitters; ++j) {
+        const int id = node.leaf.first_emitter + j;
+        const auto &e = dscene->light_tree_emitters[id];
+        if (e.light.id >= 0 && e.object_id == OBJECT_NONE) {
+          const auto &root = dscene->light_tree_nodes[e.mesh.node_id];
+          const double scale = root.energy > 0 ? work.scale * e.energy / root.energy : work.scale;
+          stack.push_back({e.mesh.node_id, e.mesh.object_id, scale});
+        }
+        else {
+          if (lights.size() == NEEAT_MAX_LIGHTS) return false;
+          const int object = e.light.id < 0 ? -1 :
+              (work.object == OBJECT_NONE ? e.object_id : work.object);
+          lights.push_back({id, object, 0, 0});
+          energy.push_back(double(e.energy) * work.scale);
+        }
+      }
+    }
+  }
+  if (lights.empty()) return false;
+  /* Preserve the established cold policy for analytic-only scenes. Mesh-lit
+   * scenes start from clustered energy rather than uniform triangle count. */
+  if (std::all_of(lights.begin(), lights.end(), [](const auto &light) { return light.object == -1; })) {
+    std::fill(energy.begin(), energy.end(), 1.0);
+  }
+  std::vector<KernelNEEATCluster> clusters;
+  std::vector<KernelNEEATLookup> lookup;
+  dscene->data.integrator.neeat_cluster_size = neeat_build_clusters(lights, energy, clusters, lookup);
+  auto *leaves = dscene->neeat_lights.alloc(lights.size());
+  std::copy(lights.begin(), lights.end(), leaves);
+  dscene->neeat_lights.copy_to_device();
+  auto *groups = dscene->neeat_clusters.alloc(clusters.size());
+  std::copy(clusters.begin(), clusters.end(), groups);
+  dscene->neeat_clusters.copy_to_device();
+  auto *keys = dscene->neeat_lookup.alloc(lookup.size());
+  std::copy(lookup.begin(), lookup.end(), keys);
+  dscene->neeat_lookup.copy_to_device();
+  return true;
+}
+
 void LightManager::update_neeat(Device *device,
                                 DeviceScene *dscene,
                                 bool enabled,
@@ -764,142 +824,74 @@ void LightManager::update_neeat(Device *device,
                                 const int screen_height)
 {
   auto &integrator = dscene->data.integrator;
-  const size_t count = dscene->light_tree_emitters.size();
-  enabled = enabled && integrator.use_light_tree && count > 0 && count <= 4096 &&
-            !(dscene->data.kernel_features & KERNEL_FEATURE_MNEE) &&
-            integrator.num_portals == 0;
-  int analytic_count = 0;
-  if (enabled) {
-    for (size_t i = 0; i < count; ++i) {
-      analytic_count += dscene->light_tree_emitters[i].light.id < 0;
-    }
-  }
-  if (!enabled || !analytic_count) {
-    if (integrator.neeat_count) {
-      integrator.neeat_count = 0;
-      integrator.neeat_local_count = 0;
-      device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
-    }
+  enabled = enabled && integrator.use_light_tree && dscene->light_tree_nodes.size() > 0 &&
+            !(dscene->data.kernel_features & (KERNEL_FEATURE_MNEE | KERNEL_FEATURE_LIGHT_LINKING |
+                                             KERNEL_FEATURE_SHADOW_LINKING)) &&
+            integrator.num_portals == 0 && device->info.type != DEVICE_MULTI;
+  if (enabled && dscene->neeat_lights.size() == 0) enabled = neeat_build_lights(dscene);
+  if (!enabled) {
+    integrator.neeat_count = integrator.neeat_cluster_count = integrator.neeat_local_count = 0;
+    integrator.neeat_feedback = 0;
+    device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
     return;
   }
 
-  // Bound the dense cache to at most 8x8 tiles and 4096 emitter entries.
+  const int count = int(dscene->neeat_clusters.size());
   const int tile_size = screen_width > 0 && screen_height > 0 ?
                             std::max(32, (std::max(screen_width, screen_height) + 7) / 8) : 0;
   const int tiles_x = tile_size ? (screen_width + tile_size - 1) / tile_size : 0;
   const int tiles_y = tile_size ? (screen_height + tile_size - 1) / tile_size : 0;
   const int local_count = tiles_x * tiles_y;
-  const size_t entries = (count + 1) * (1 + local_count);
+  const size_t entries = size_t(count + 1) * (1 + local_count);
   const bool fresh = reset || dscene->neeat_distribution.size() != entries ||
                      !integrator.neeat_count || integrator.neeat_stride != screen_width ||
                      integrator.neeat_tile_size != tile_size || integrator.neeat_tiles_x != tiles_x;
-  /* Keep the CPU implementation as an explicit reference/fallback. */
+  if (fresh) {
+    dscene->neeat_distribution.alloc(entries);
+    std::fill_n(dscene->neeat_distribution.data(), entries, make_float2(0, 0));
+    dscene->neeat_distribution.copy_to_device();
+    dscene->neeat_feedback.alloc(entries);
+    dscene->neeat_feedback.zero_to_device();
+  }
   const bool gpu = (device->info.type == DEVICE_OPTIX || device->info.type == DEVICE_CUDA) &&
                    !getenv("PHOTARA_NEEAT_CPU");
   if (gpu) {
-    if (fresh) {
-      dscene->neeat_distribution.alloc(entries);
-      std::fill_n(dscene->neeat_distribution.data(), entries, make_float2(0, 0));
-      /* Register the global array pointer once at allocation, not per frame. */
-      dscene->neeat_distribution.copy_to_device();
-      dscene->neeat_feedback.alloc(entries);
-      dscene->neeat_feedback.zero_to_device();
-    }
     if (!neeat_queue_ || neeat_device_ != device) {
       neeat_queue_ = device->gpu_queue_create();
       neeat_device_ = device;
     }
     neeat_queue_->init_execution();
     GPUTimeScope timing(device, "neeat", neeat_queue_->native_queue());
-    const int emitters = int(count), reset_tables = int(fresh);
+    const int reset_tables = int(fresh);
     int first = 0, tables = 1;
     const auto dispatch = [&]() {
       return neeat_queue_->enqueue(DEVICE_KERNEL_NEEAT_UPDATE, tables,
           DeviceKernelArguments(&dscene->neeat_distribution.device_pointer,
                                 &dscene->neeat_feedback.device_pointer,
-                                &dscene->light_tree_emitters.device_pointer,
-                                &emitters, &analytic_count, &first, &tables, &reset_tables));
+                                &dscene->neeat_clusters.device_pointer,
+                                &count, &first, &tables, &reset_tables));
     };
     if (!dispatch()) return;
-    first = 1;
-    tables = local_count;
+    first = 1; tables = local_count;
     if (tables && !dispatch()) return;
     if (!neeat_queue_->synchronize()) return;
     ++neeat_gpu_updates;
-    integrator.neeat_count = emitters;
-    integrator.neeat_feedback = dscene->neeat_feedback.device_pointer;
-    integrator.neeat_stride = screen_width;
-    integrator.neeat_tile_size = tile_size;
-    integrator.neeat_tiles_x = tiles_x;
-    integrator.neeat_local_count = local_count;
-    device->const_copy_to("data", &dscene->data, sizeof(dscene->data));
-    return;
-  }
-  if (!fresh) dscene->neeat_distribution.copy_from_device();
-  auto *distribution = fresh ? dscene->neeat_distribution.alloc(entries) :
-                               dscene->neeat_distribution.data();
-  if (fresh) {
-    dscene->neeat_feedback.alloc(entries);
-    for (size_t i = 0; i < entries; ++i) distribution[i] = make_float2(0, 0);
   }
   else {
-    dscene->neeat_feedback.copy_from_device();
+    if (!fresh) {
+      dscene->neeat_distribution.copy_from_device();
+      dscene->neeat_feedback.copy_from_device();
+    }
+    for (int table = 0; table <= local_count; ++table) {
+      neeat_update_table(dscene->neeat_distribution.data(), dscene->neeat_feedback.data(),
+                        dscene->neeat_clusters.data(), count, table, fresh);
+    }
+    dscene->neeat_distribution.copy_to_device();
+    dscene->neeat_feedback.zero_to_device();
+    ++neeat_cpu_updates;
   }
-  // Update global first. Empty local tiles inherit its proposal rather than
-  // retaining stale local preferences indefinitely after camera movement.
-  for (int table = 0; table <= local_count; ++table) {
-    const size_t base = table * (count + 1);
-    double total = 0, mesh_total = 0;
-    for (size_t i = 0; i < count; ++i) {
-      const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
-      if (std::isfinite(feedback) && feedback > 0) {
-        if (dscene->light_tree_emitters[i].light.id < 0) total += feedback;
-        else mesh_total += feedback;
-      }
-    }
-    const float initial_share = size_t(analytic_count) == count ? 1.0f : 0.0f;
-    const float fallback_share = table ? distribution[count].x : initial_share;
-    const float target_share = total + mesh_total > 0 ?
-        float(total / (total + mesh_total)) : fallback_share;
-    const float share = fresh ? initial_share :
-        0.8f * distribution[base + count].x + 0.2f * target_share;
-    distribution[base + count] = make_float2(share, 0.75f * share);
-    double cdf = 0;
-    for (size_t i = 0; i < count; ++i) {
-      float pdf = 0;
-      if (dscene->light_tree_emitters[i].light.id < 0) {
-        const float uniform = 1.0f / analytic_count;
-        const float feedback = fresh ? 0 : dscene->neeat_feedback[base + i];
-        const float fallback = table ? distribution[i].y : uniform;
-        const float target = total > 0 && std::isfinite(feedback) ?
-                                 float(std::max(0.0f, feedback) / total) : fallback;
-        const float learned = fresh ? uniform :
-                                      0.8f * distribution[base + i].y + 0.2f * target;
-        pdf = 0.95f * learned + 0.05f * uniform;
-      }
-      cdf += pdf;
-      distribution[base + i] = make_float2(float(cdf), pdf);
-    }
-    // Interval widths, including rounding, are the exact sampled PDF.
-    double prefix = 0;
-    float previous = 0;
-    int remaining = analytic_count;
-    for (size_t i = 0; i < count; ++i) {
-      auto &entry = distribution[base + i];
-      prefix += entry.y;
-      float endpoint = previous;
-      if (entry.y > 0) {
-        --remaining;
-        endpoint = remaining == 0 ? 1.0f : float(prefix / cdf);
-      }
-      entry = make_float2(endpoint, endpoint - previous);
-      previous = endpoint;
-    }
-  }
-  dscene->neeat_distribution.copy_to_device();
-  dscene->neeat_feedback.zero_to_device();
-  ++neeat_cpu_updates;
-  integrator.neeat_count = int(count);
+  integrator.neeat_count = int(dscene->neeat_lights.size());
+  integrator.neeat_cluster_count = count;
   integrator.neeat_feedback = dscene->neeat_feedback.device_pointer;
   integrator.neeat_stride = screen_width;
   integrator.neeat_tile_size = tile_size;
@@ -1666,8 +1658,13 @@ void LightManager::device_free(Device * /*unused*/,
 {
   dscene->light_tree_nodes.free();
   dscene->neeat_distribution.free();
+  dscene->neeat_lights.free();
+  dscene->neeat_clusters.free();
+  dscene->neeat_lookup.free();
   dscene->neeat_feedback.free();
   dscene->data.integrator.neeat_count = 0;
+  dscene->data.integrator.neeat_cluster_count = 0;
+  dscene->data.integrator.neeat_cluster_size = 0;
   dscene->data.integrator.neeat_local_count = 0;
   dscene->data.integrator.neeat_feedback = 0;
   dscene->light_tree_emitters.free();

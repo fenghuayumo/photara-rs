@@ -191,6 +191,7 @@ struct Viewer {
   bool smoke_cycle = false;
   bool gpu_timings = false;
   bool use_neeat = true;
+  float neeat_tree_fraction = 0.25f;
   int texture_lod_override = -1;
   int mouse_x = 0, mouse_y = 0;
   int size = 512, spp = 1, reference_samples = 256;
@@ -598,6 +599,7 @@ struct Viewer {
     frame.samples = realtime ? frames.sample_period : reference_samples;
     frame.realtime_frame = realtime;
     frame.use_neeat = use_neeat;
+    frame.neeat_tree_fraction = neeat_tree_fraction;
     frame.nee_candidates = nee_candidates;
     // Film accumulation resets on movement; a full-support sampling proposal
     // remains valid. Keep it until an explicit cut/reset or a mode change.
@@ -831,10 +833,11 @@ int main(int argc, char **argv)
       }
       else if (arg == "--light-sampler") {
         const string sampler = value();
-        if (sampler != "NEE_AT" && sampler != "LIGHT_TREE") {
-          throw std::runtime_error("Light sampler must be NEE_AT or LIGHT_TREE");
+        if (sampler != "NEE_AT" && sampler != "NEE_AT_PURE" && sampler != "LIGHT_TREE") {
+          throw std::runtime_error("Light sampler must be NEE_AT, NEE_AT_PURE or LIGHT_TREE");
         }
-        app.use_neeat = sampler == "NEE_AT";
+        app.use_neeat = sampler != "LIGHT_TREE";
+        app.neeat_tree_fraction = sampler == "NEE_AT_PURE" ? 0.0f : 0.25f;
       }
       else if (arg == "--smoke-cycle") {
         app.smoke_cycle = true;

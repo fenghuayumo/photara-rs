@@ -84,7 +84,7 @@ def main():
         metrics["reference_luminance"] = float(reference.mean())
         metrics["settings"] = vars(args) | {"output": str(args.output)}
         metrics["timing_scope"] = "Scene.render including CPU AOV capture, excluding file writes"
-        metrics["algorithm"] = "Experimental global + screen-tile analytic-light feedback + tree mixture"
+        metrics["algorithm"] = "Clustered analytic/mesh-light feedback + global/screen-tile/tree mixture"
         np.savez_compressed(args.output / "linear.npz", **arrays)
         (args.output / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
         print(json.dumps(metrics, indent=2))

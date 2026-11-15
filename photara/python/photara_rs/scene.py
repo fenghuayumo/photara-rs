@@ -1356,9 +1356,9 @@ class Scene:
         self._ensure_open()
         self._session.configure_texture_lod(method)
 
-    def configure_neeat(self, enabled=True):
-        """Enable the experimental RealTime global and screen-tile light proposal."""
-        self._session.configure_neeat(enabled)
+    def configure_neeat(self, enabled=True, tree_fraction=0.25):
+        """Enable RealTime feedback sampling; tree_fraction=0 selects pure NEE-AT."""
+        self._session.configure_neeat(enabled, tree_fraction=tree_fraction)
 
     def configure_nee_candidates(self, count=1):
         """Set 1–16 surface NEE candidates; Reference retains one candidate."""

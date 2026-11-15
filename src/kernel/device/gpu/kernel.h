@@ -27,14 +27,14 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     ccl_gpu_kernel_signature(neeat_update,
                              ccl_global float2 *distribution,
                              ccl_global float *feedback,
-                             ccl_global const KernelLightTreeEmitter *emitters,
-                             const int count, const int analytic_count,
+                             ccl_global const KernelNEEATCluster *clusters,
+                             const int count,
                              const int first_table, const int tables, const int fresh)
 {
   const int index = ccl_gpu_global_id_x();
   if (index < tables) {
-    ccl_gpu_kernel_call(neeat_update_table(distribution, feedback, emitters, count,
-                                          analytic_count, first_table + index, fresh != 0));
+    ccl_gpu_kernel_call(neeat_update_table(distribution, feedback, clusters, count,
+                                          first_table + index, fresh != 0));
   }
 }
 ccl_gpu_kernel_postfix

@@ -417,19 +417,34 @@ ccl_device bool light_sample_from_position(KernelGlobals kg,
       selection = table ? (selection - global_end) / weights.z :
                           (selection - weights.x) / weights.y;
       selection = min(selection, 0.99999994f);
-      int lo = 0, hi = count;
+      const int clusters = kernel_data.integrator.neeat_cluster_count;
+      int lo = 0, hi = clusters;
       while (lo < hi) {
         const int mid = (lo + hi) / 2;
-        if (selection < kernel_data_fetch(neeat_distribution, table * (count + 1) + mid).x) hi = mid;
+        if (selection < kernel_data_fetch(neeat_distribution, table * (clusters + 1) + mid).x) hi = mid;
         else lo = mid + 1;
       }
-      ls->emitter_id = min(lo, count - 1);
-      if (!(neeat_pdf(kg, ls->emitter_id, table) > 0)) return false;
+      const int cluster = min(lo, clusters - 1);
+      const float2 interval = kernel_data_fetch(neeat_distribution, table * (clusters + 1) + cluster);
+      if (!(interval.y > 0.0f)) return false;
+      const float previous = cluster ? kernel_data_fetch(
+          neeat_distribution, table * (clusters + 1) + cluster - 1).x : 0.0f;
+      selection = min((selection - previous) / interval.y, 0.99999994f);
+      const KernelNEEATCluster group = kernel_data_fetch(neeat_clusters, cluster);
+      lo = group.first; hi = group.first + group.size;
+      while (lo < hi) {
+        const int mid = (lo + hi) / 2;
+        if (selection < kernel_data_fetch(neeat_lights, mid).cdf) hi = mid;
+        else lo = mid + 1;
+      }
+      const KernelNEEATLight leaf = kernel_data_fetch(neeat_lights, min(lo, group.first + group.size - 1));
+      ls->emitter_id = leaf.emitter;
+      ls->object = leaf.object;
       const uint32_t flags = (runtime_flags & SR_BSDF_HAS_TRANSMISSION) ?
                                  path_flag | PATH_RAY_MIS_HAD_TRANSMISSION :
                                  path_flag & ~PATH_RAY_MIS_HAD_TRANSMISSION;
-      ls->pdf_selection = light_tree_pdf<false>(
-          kg, P, N, 0.0f, flags, 0, ls->emitter_id, object_receiver);
+      ls->pdf_selection = weights.x > 0.0f ? light_tree_pdf<false>(
+          kg, P, N, 0.0f, flags, ls->object, ls->emitter_id, object_receiver) : 0.0f;
     }
     else {
       if (count) selection /= weights.x;
@@ -437,7 +452,7 @@ ccl_device bool light_sample_from_position(KernelGlobals kg,
         return false;
       }
     }
-    ls->pdf_selection = neeat_mix_pdf(kg, ls->emitter_id, ls->pdf_selection, pixel);
+    ls->pdf_selection = neeat_mix_pdf(kg, ls->emitter_id, ls->object, ls->pdf_selection, pixel);
   }
   else
 #endif

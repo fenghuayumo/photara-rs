@@ -430,6 +430,7 @@ class PhotaraNativeRenderSettings(bpy.types.PropertyGroup):
     photara_history_samples: IntProperty(default=8, min=0, max=64)
     photara_warmup_frames: IntProperty(default=8, min=0, max=256)
     photara_neeat: BoolProperty(default=True)
+    photara_neeat_tree_fraction: FloatProperty(default=0.25, min=0.0, max=1.0)
     photara_history_revision: IntProperty(default=0)
     __slots__ = ()
 

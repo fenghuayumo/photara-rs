@@ -68,6 +68,12 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         description="Additional internal frames before a still or the first animation frame; only the last is saved",
     )
     realtime_neeat: bpy.props.BoolProperty(name="NEE-AT", default=True)
+    realtime_neeat_mode: bpy.props.EnumProperty(
+        name="Light Sampling",
+        items=[('PURE', 'NEE-AT Only', 'Global/local feedback without per-sample Light Tree evaluation'),
+               ('HYBRID', 'NEE-AT + Light Tree', 'Mix 75% feedback and 25% Light Tree')],
+        default='HYBRID',
+    )
     history_revision: bpy.props.IntProperty(default=0, options={'HIDDEN', 'SKIP_SAVE'})
     device: bpy.props.EnumProperty(
         name="Device",

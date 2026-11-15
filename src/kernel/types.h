@@ -22,6 +22,8 @@
 #include "util/projection.h"
 #include "util/static_assert.h"
 
+#include "util/neeat_types.h"
+
 #include "kernel/features.h"
 #include "kernel/svm/types.h"
 

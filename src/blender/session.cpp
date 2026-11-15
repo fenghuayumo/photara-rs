@@ -561,6 +561,7 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
       realtime_layer = b_rlay_name; realtime_view = b_rview_name;
       effective_session_params.realtime_frame = true;
       effective_session_params.use_neeat = get_boolean(realtime_settings, "photara_neeat");
+      effective_session_params.neeat_tree_fraction = get_float(realtime_settings, "photara_neeat_tree_fraction");
       effective_session_params.reset_neeat = !reuse;
       effective_session_params.use_auto_tile = false;
       effective_session_params.use_sample_subset = false;

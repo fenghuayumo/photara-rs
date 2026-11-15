@@ -228,6 +228,7 @@ set(SRC_KERNEL_LIGHT_HEADERS
   light/distribution.h
   light/neeat.h
   light/neeat_update.h
+  ../util/neeat_types.h
   light/light.h
   light/point.h
   light/sample.h

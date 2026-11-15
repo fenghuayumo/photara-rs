@@ -72,6 +72,9 @@ class DeviceScene {
 
   /* light tree */
   device_vector<float2> neeat_distribution;
+  device_vector<KernelNEEATLight> neeat_lights;
+  device_vector<KernelNEEATCluster> neeat_clusters;
+  device_vector<KernelNEEATLookup> neeat_lookup;
   device_vector<float> neeat_feedback;
   device_vector<KernelLightTreeNode> light_tree_nodes;
   device_vector<KernelLightTreeEmitter> light_tree_emitters;

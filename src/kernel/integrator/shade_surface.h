@@ -500,7 +500,7 @@ ccl_device
       is_constant_light_shader);
 
   if (kernel_data.integrator.neeat_count) {
-    INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, neeat_emitter) = ls.emitter_id;
+    INTEGRATOR_STATE_WRITE(shadow_state, shadow_path, neeat_emitter) = neeat_cluster(kg, ls.emitter_id, ls.object);
   }
 
   if (is_transmission) {

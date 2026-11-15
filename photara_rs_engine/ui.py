@@ -80,6 +80,8 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
             layout.prop(settings, 'history_samples')
             layout.prop(settings, 'realtime_warmup_frames')
             layout.prop(settings, 'realtime_neeat')
+            if settings.realtime_neeat:
+                layout.prop(settings, 'realtime_neeat_mode')
             layout.label(text='Samples are per output frame; history is separate')
             layout.label(text='Persistent Data is enabled for GPU history')
             layout.prop(settings, 'samples')

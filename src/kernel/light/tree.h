@@ -947,7 +947,10 @@ ccl_device float light_tree_pdf(KernelGlobals kg,
         kg, P, D, dt, path_flag, emitter_object, emitter_id, object_receiver);
   }
 
-  return neeat_mix_pdf(kg, emitter_id, light_tree_pdf<false>(
+  if (kernel_data.integrator.neeat_count && kernel_data.integrator.neeat_tree_fraction == 0.0f) {
+    return neeat_mix_pdf(kg, emitter_id, emitter_object, 0.0f, pixel);
+  }
+  return neeat_mix_pdf(kg, emitter_id, emitter_object, light_tree_pdf<false>(
       kg, P, N, 0.0f, path_flag, emitter_object, emitter_id, object_receiver), pixel);
 }
 

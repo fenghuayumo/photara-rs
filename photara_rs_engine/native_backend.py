@@ -87,7 +87,9 @@ def _configure(scene):
     values = dict(
         photara_realtime=realtime, photara_history_samples=settings.history_samples,
         photara_warmup_frames=settings.realtime_warmup_frames,
-        photara_neeat=settings.realtime_neeat, photara_history_revision=settings.history_revision,
+        photara_neeat=settings.realtime_neeat,
+        photara_neeat_tree_fraction=0.0 if settings.realtime_neeat_mode == 'PURE' else 0.25,
+        photara_history_revision=settings.history_revision,
         device='GPU', use_pixel_jitter=True, samples=(settings.samples if realtime else max(settings.samples,
                                    settings.denoise_min_samples if settings.denoise else 0)),
         preview_samples=settings.viewport_samples, seed=settings.seed,

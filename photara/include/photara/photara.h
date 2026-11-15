@@ -351,6 +351,8 @@ PHOTARA_API int photara_set_samples(PhotaraContext *ctx, int samples);
 /* Experimental temporal analytic-light proposal, RealTime only. Default on.
  * Mesh emitters retain tree sampling. Changing this resets feedback history. */
 PHOTARA_API int photara_set_neeat(PhotaraContext *ctx, int enabled);
+/* 0: pure NEE-AT; 0.25: legacy hybrid. Valid range [0,1]. */
+PHOTARA_API int photara_set_neeat_tree_fraction(PhotaraContext *ctx, float fraction);
 PHOTARA_API int photara_set_nee_candidates(PhotaraContext *ctx, int count);
 /* Experimental denoiser-independent GPU reprojection of the previous 0..64 raw frames.
  * Zero disables it (default). Does not change the current frame's SPP budget.

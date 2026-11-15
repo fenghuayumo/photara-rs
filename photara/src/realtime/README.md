@@ -34,10 +34,11 @@ frame-rate guarantee. Films are cleared per job; there is no radiance-history
 accumulation in this module. Existing denoiser behavior is retained; this module
 does not yet establish temporal validity for moving objects or lights.
 
-RealTime now enables an experimental global and screen-tile NEE-AT analytic-light
-proposal. Use `scene.configure_neeat(False)` or viewer `--light-sampler LIGHT_TREE`
-for the original sampler. See [scope, estimator and tests](NEE_AT.md). Mesh-only
-Cornell Box uses the original tree fallback.
+RealTime enables experimental global and screen-tile NEE-AT feedback for
+analytic lights and emissive mesh instances. Scene-sized light LOD clusters
+support up to 2,097,152 real emitter occurrences with bounded adaptive tables,
+while preserving an exact Light Tree mixture and MIS PDF. Reference remains
+unchanged. See [scope, estimator and tests](NEE_AT_CLUSTERED.md).
 
 The local RTXPT `PathTracerNEE.hlsli` and `NEEATBaker.hlsli` were inspected as
 architectural references. No RTXPT source is copied or linked here. Future work:

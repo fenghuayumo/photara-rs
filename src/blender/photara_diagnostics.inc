@@ -43,13 +43,24 @@ static PyObject *photara_session_stats_func(PyObject *, PyObject *handle)
     }
   }
   const auto &params = owner->session->params;
-  return Py_BuildValue("{sO,sO,si,si,si,sK,sK,sK,sK}",
+  return Py_BuildValue("{sO,sO,si,si,si,si,si,si,si,sd,sK,sK,sK,sK,sK,sK}",
                        "use_resolution_divider", params.use_resolution_divider ? Py_True : Py_False,
                        "stable_planes", scene->dscene.data.film.pass_stable_planes != PASS_UNUSED ?
                                             Py_True : Py_False,
                        "pixel_size", params.pixel_size,
                        "trace_width", int(scene->dscene.data.cam.width),
                        "trace_height", int(scene->dscene.data.cam.height),
+                       "neeat_emitters", scene->dscene.data.integrator.neeat_count,
+                       "neeat_local_tables", scene->dscene.data.integrator.neeat_local_count,
+                       "neeat_clusters", scene->dscene.data.integrator.neeat_cluster_count,
+                       "neeat_lod_stride", scene->dscene.data.integrator.neeat_cluster_size,
+                       "neeat_tree_fraction", double(scene->dscene.data.integrator.neeat_tree_fraction),
+                       "neeat_device_bytes", (unsigned long long)(scene->dscene.neeat_lights.size() * sizeof(KernelNEEATLight) +
+                           scene->dscene.neeat_lookup.size() * sizeof(KernelNEEATLookup) +
+                           scene->dscene.neeat_clusters.size() * sizeof(KernelNEEATCluster) +
+                           scene->dscene.neeat_distribution.size() * sizeof(float2) +
+                           scene->dscene.neeat_feedback.size() * sizeof(float)),
+                       "light_tree_emitters", (unsigned long long)scene->dscene.light_tree_emitters.size(),
                        "objects", (unsigned long long)scene->objects.size(),
                        "shaders", (unsigned long long)scene->shaders.size(),
                        "shader_nodes", nodes,

@@ -24,6 +24,24 @@ def scene_fixture():
 
 
 class NEEATTests(unittest.TestCase):
+    def test_pure_feedback_and_fraction_validation(self):
+        with scene_fixture() as scene:
+            reference = scene.render().rgb.copy()
+            scene.configure_neeat(True, tree_fraction=0.0)
+            scene.configure_render_mode('REALTIME', samples_per_frame=64)
+            for _ in range(24):
+                self.assertTrue(np.isfinite(scene.render().rgb).all())
+            self.assertEqual(scene.neeat_stats()['active_lights'], 8)
+            self.assertGreater(scene.neeat_stats()['max_pdf'], .6)
+            frames = np.asarray([scene.render().rgb.copy() for _ in range(32)])
+            self.assertLess(abs(float(frames.mean() / reference.mean()) - 1), .05)
+            for invalid in (-.1, 1.1, float('nan'), float('inf')):
+                with self.assertRaises(RuntimeError):
+                    scene.configure_neeat(True, tree_fraction=invalid)
+            scene.configure_neeat(True, tree_fraction=.25)
+            scene.configure_render_mode('REFERENCE')
+            np.testing.assert_allclose(reference, scene.render().rgb, rtol=1e-5, atol=1e-6)
+
     def test_camera_motion_preserves_learned_proposal(self):
         with scene_fixture() as scene:
             scene.configure_render_mode("REALTIME", samples_per_frame=8)
@@ -71,8 +89,10 @@ class NEEATTests(unittest.TestCase):
                 self.assertLess(abs(float(frames.mean() / reference.mean()) - 1), .03)
                 errors.append(float(np.mean((frames - reference) ** 2)))
             self.assertLess(errors[1], 1.3 * errors[0])
-            np.testing.assert_allclose(cold_frames[0], cold_frames[1], rtol=1e-5, atol=1e-6)
-            self.assertEqual(scene.neeat_stats()["active_lights"], 1)
+            # Mesh proposals now participate even on the first frame; they
+            # need not choose the same samples as the ordinary light tree.
+            self.assertTrue(np.isfinite(cold_frames).all())
+            self.assertEqual(scene.neeat_stats()["active_lights"], 3)
             # A real lighting change must still reset and learn an analytic
             # proposal, rather than permanently disabling NEE-AT for all meshes.
             weak.location = (0, 2, 1)
@@ -137,7 +157,7 @@ class NEEATTests(unittest.TestCase):
             scene.render()
             self.assertEqual(scene.neeat_stats()["local_tiles"], 0)
 
-    def test_emissive_mesh_fallback_and_reenable(self):
+    def test_emissive_mesh_feedback_and_added_analytic_light(self):
         with scene_fixture() as scene:
             scene.configure_render_mode("REALTIME", samples_per_frame=4)
             scene.render()
@@ -147,10 +167,10 @@ class NEEATTests(unittest.TestCase):
             image = scene.render().rgb
             self.assertTrue(np.isfinite(image).all())
             self.assertGreater(float(image.mean()), 0)
-            self.assertEqual(scene.neeat_stats()["active_lights"], 0)
+            self.assertEqual(scene.neeat_stats()["active_lights"], 2)
             scene.lights.new_point("added", position=(0, 2, 1), strength=80)
             scene.render()
-            self.assertEqual(scene.neeat_stats()["active_lights"], 1)
+            self.assertEqual(scene.neeat_stats()["active_lights"], 3)
 
     def test_dynamic_light_rebuild_and_idle_guard(self):
         with scene_fixture() as scene:

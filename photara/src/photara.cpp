@@ -2253,11 +2253,13 @@ int photara_get_neeat_stats(PhotaraContext *ctx, int *lights, float *max_pdf)
     *lights = 0;
     *max_pdf = 0;
     auto &dscene = ctx->scene->dscene;
-    if (dscene.data.integrator.neeat_count) dscene.neeat_distribution.copy_from_device();
-    for (int i = 0; i < dscene.data.integrator.neeat_count; ++i) {
-      const float pdf = dscene.neeat_distribution[i].y;
-      if (pdf > 0) ++*lights;
-      *max_pdf = std::max(*max_pdf, pdf);
+    const int clusters = dscene.data.integrator.neeat_cluster_count;
+    if (clusters) dscene.neeat_distribution.copy_from_device();
+    *lights = dscene.data.integrator.neeat_count;
+    const int stride = dscene.data.integrator.neeat_cluster_size;
+    for (int i = 0; i < *lights; ++i) {
+      *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[i / stride].y *
+                                      dscene.neeat_lights[i].pdf);
     }
   }, true);
 }
@@ -2267,13 +2269,19 @@ int photara_get_neeat_local_stats(PhotaraContext *ctx, int *tiles, float *max_pd
   return guarded(ctx, [&]() {
     if (!tiles || !max_pdf) throw std::runtime_error("NULL NEE-AT stats output");
     auto &dscene = ctx->scene->dscene;
-    const int count = dscene.data.integrator.neeat_count;
+    const int count = dscene.data.integrator.neeat_cluster_count;
     if (count) dscene.neeat_distribution.copy_from_device();
     *tiles = count ? dscene.data.integrator.neeat_local_count : 0;
     *max_pdf = 0;
+    std::vector<float> max_leaf_pdf(count, 0.0f);
+    for (int i = 0; i < dscene.data.integrator.neeat_count; ++i) {
+      const int cluster = i / dscene.data.integrator.neeat_cluster_size;
+      max_leaf_pdf[cluster] = std::max(max_leaf_pdf[cluster], dscene.neeat_lights[i].pdf);
+    }
     for (int table = 1; table <= *tiles; ++table) {
       for (int i = 0; i < count; ++i) {
-        *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[table * (count + 1) + i].y);
+        *max_pdf = std::max(*max_pdf, dscene.neeat_distribution[table * (count + 1) + i].y *
+                                        max_leaf_pdf[i]);
       }
     }
   }, true);
@@ -2315,6 +2323,16 @@ int photara_get_neeat_update_counts(PhotaraContext *ctx, uint64_t *gpu, uint64_t
     *gpu = ctx->scene->light_manager->neeat_gpu_updates;
     *cpu = ctx->scene->light_manager->neeat_cpu_updates;
   }, true);
+}
+
+int photara_set_neeat_tree_fraction(PhotaraContext *ctx, const float fraction)
+{
+  return guarded(ctx, [&]() {
+    if (!std::isfinite(fraction) || fraction < 0.0f || fraction > 1.0f)
+      throw std::runtime_error("NEE-AT tree fraction must be finite and in [0,1]");
+    ctx->session_params.neeat_tree_fraction = fraction;
+    ctx->session_params.reset_neeat = true;
+  });
 }
 
 int photara_set_neeat(PhotaraContext *ctx, const int enabled)

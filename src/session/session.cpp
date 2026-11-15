@@ -405,6 +405,7 @@ RenderWork Session::run_update_for_next_iteration()
                               buffer_params_.full_x == 0 && buffer_params_.full_y == 0;
     scene->dscene.data.integrator.nee_candidates = params.realtime_frame ?
         std::clamp(params.nee_candidates, 1, 16) : 1;
+    scene->dscene.data.integrator.neeat_tree_fraction = params.neeat_tree_fraction;
     scene->light_manager->update_neeat(device.get(), &scene->dscene,
                                      params.realtime_frame && params.use_neeat, params.reset_neeat,
                                      screen_cache ? buffer_params_.width : 0,
