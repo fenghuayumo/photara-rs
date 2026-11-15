@@ -69,7 +69,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile commands for c
 ###########################################################################
 # Initialize project.
 
-project(photara_rs)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PHOTARA_VERSION)
+string(STRIP "${PHOTARA_VERSION}" PHOTARA_VERSION)
+if(NOT PHOTARA_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(FATAL_ERROR "VERSION must contain MAJOR.MINOR.PATCH")
+endif()
+project(photara_rs VERSION "${PHOTARA_VERSION}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+configure_file(src/util/photara_version.h.in generated/util/photara_version.h @ONLY)
+include_directories(BEFORE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 if(APPLE)
   enable_language(OBJCXX)

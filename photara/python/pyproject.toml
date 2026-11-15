@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "photara-rs"
-version = "0.1.0"
+dynamic = ["version"]
 description = "OptiX and Metal physically based renderer derived from Cycles"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -37,4 +37,4 @@ packages = ["photara_rs", "photara_rs.importers"]
 zip-safe = false
 
 [tool.setuptools.package-data]
-photara_rs = ["*.pyd", "*.so", "bin/*.dll", "lib/*.zst", "lib/*.dylib*", "source/**/*.h", "source/**/*.metal", "py.typed"]
+photara_rs = ["VERSION", "*.pyd", "*.so", "bin/*.dll", "lib/*.zst", "lib/*.dylib*", "source/**/*.h", "source/**/*.metal", "py.typed"]

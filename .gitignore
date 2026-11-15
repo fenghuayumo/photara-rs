@@ -35,6 +35,7 @@ install*/
 /lib/windows_x64/
 /lib/macos_arm64/
 /lib/macos_x64/
+/photara/python/photara_rs/VERSION
 /photara/python/photara_rs/*.so
 /photara/python/photara_rs/source/
 /photara/python/photara_rs/*.pyd

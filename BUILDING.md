@@ -131,3 +131,25 @@ The Windows Vulkan/CUDA viewer and DLSS remain platform-specific.
 
 For development details, known issues, and the current roadmap see
 `PHOTARA.md`.
+
+## Version management
+
+The root `VERSION` file is the source of truth for Photara's `MAJOR.MINOR.PATCH`
+release version. CMake reads it to generate the native version header and the
+standalone `--version` output. Python packaging embeds it in the wheel and uses
+it for both distribution metadata and `photara_rs.__version__`; the native Python
+module exposes its compiled version as `_photara.__version__`.
+
+```sh
+python scripts/version.py --check
+python scripts/version.py 0.3.0
+```
+
+The bump command updates `VERSION` and Blender's literal `bl_info["version"]`
+metadata (required for Blender's add-on discovery). If `VERSION` was edited by
+hand, run `python scripts/version.py --sync`. Add-on packaging refuses mismatched
+version metadata. Use a `v<version>` Git tag for the matching GitHub Release, and
+rebuild the native extension, wheel and add-on after bumping. A version bump does
+not publish a release or create a tag automatically.
+
+Validate the manager with `python -m unittest discover -s scripts -p test_version.py -v`.

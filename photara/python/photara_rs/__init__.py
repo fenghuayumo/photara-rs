@@ -24,18 +24,14 @@ builders and render farms. All colour data is linear float32; use
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
-try:  # Prefer the installed distribution metadata when available.
-    from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
-    from importlib.metadata import version as _distribution_version
+from pathlib import Path as _Path
 
-    try:
-        __version__ = _distribution_version("photara-rs")
-    except _PackageNotFoundError:
-        pass
-    del _PackageNotFoundError, _distribution_version
-except ImportError:  # pragma: no cover - Python < 3.8 is not supported.
-    pass
+_package_dir = _Path(__file__).resolve().parent
+_repo_dir = _package_dir.parents[2]
+_version_file = (_repo_dir / "VERSION" if (_repo_dir / "photara/CMakeLists.txt").is_file()
+                 else _package_dir / "VERSION")
+__version__ = _version_file.read_text(encoding="utf-8").strip()
+del _Path, _package_dir, _repo_dir, _version_file
 
 from ._errors import (
     PhotaraCancelledError,

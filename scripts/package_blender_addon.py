@@ -2,10 +2,10 @@
 """Package the Blender add-on into a zip ready to install in Blender."""
 
 import os
-import ast
-import re
 import sys
 import zipfile
+
+from version import check_version
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -14,14 +14,7 @@ DIST_DIR = os.path.join(ROOT, "dist")
 
 
 def addon_version():
-    source_path = os.path.join(ADDON_DIR, "__init__.py")
-    with open(source_path, encoding="utf-8") as handle:
-        source = handle.read()
-    match = re.search(r"bl_info\s*=\s*(\{.*?\n\})", source, re.DOTALL)
-    if match is None:
-        raise RuntimeError("bl_info not found in blender_addon/__init__.py")
-    info = ast.literal_eval(match.group(1))
-    return ".".join(str(part) for part in info["version"])
+    return check_version()
 
 
 def main():

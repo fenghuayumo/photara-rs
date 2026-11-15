@@ -9,6 +9,7 @@
 
 #include "photara/photara.h"
 #include "session/display_driver.h"
+#include "util/photara_version.h"
 
 namespace py = pybind11;
 
@@ -1080,6 +1081,7 @@ static void fill_display_device(void *pointer, int type, const uint8_t *uuid, si
 
 PYBIND11_MODULE(_photara, module)
 {
+  module.attr("__version__") = PHOTARA_VERSION_STRING;
   module.def("auto_denoiser", &photara_auto_denoiser);
   module.def("display_device_allocator", []() {
     return py::capsule(reinterpret_cast<void *>(&fill_display_device),

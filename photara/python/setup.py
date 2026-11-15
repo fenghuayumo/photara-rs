@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import sysconfig
+import re
 
 from setuptools import Distribution, setup
 
@@ -56,5 +57,13 @@ class BinaryDistribution(Distribution):
         return True
 
 
+# A source checkout reads the shared root VERSION. Source distributions carry
+# the same file as package data so rebuilding an sdist needs no repository tree.
+_root_version = Path(__file__).resolve().parents[2] / "VERSION"
+_package_version = _PACKAGE_DIR / "VERSION"
+_version = (_root_version if _root_version.is_file() else _package_version).read_text().strip()
+if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", _version):
+    raise SystemExit("VERSION must contain MAJOR.MINOR.PATCH")
+_package_version.write_text(_version + "\n", encoding="utf-8")
 _check_native_payload()
-setup(distclass=BinaryDistribution)
+setup(version=_version, distclass=BinaryDistribution)

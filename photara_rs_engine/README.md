@@ -116,7 +116,7 @@ Python 包和插件，检查 OptiX 设备并保存启用状态。重新打开 Bl
 :: 找到 Blender 自带的 python.exe，例如：
 :: C:\Program Files\Blender Foundation\Blender 4.2\4.2\python\bin\python.exe
 
-"Blender的python.exe" -m pip install dist\photara_rs-0.1.0-cp311-cp311-win_amd64.whl
+"Blender的python.exe" -m pip install dist\photara_rs-<version>-cp311-cp311-win_amd64.whl
 ```
 
 wheel 由仓库根目录的 `scripts\build_python_windows.bat` 等流程产出

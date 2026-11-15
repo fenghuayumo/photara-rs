@@ -122,7 +122,7 @@ python -m pip wheel --no-build-isolation --no-deps -w dist photara\python
 Install the resulting wheel and use the Scene/Object API:
 
 ```bat
-pip install dist\photara_rs-0.1.0-cp311-cp311-win_amd64.whl
+pip install dist\photara_rs-<version>-cp311-cp311-win_amd64.whl
 ```
 
 ```python
