@@ -5,13 +5,6 @@ with a small C ABI and a Python package named `photara_rs`. It targets
 production-quality path tracing and Python workflows such as sim2real synthetic
 data generation.
 
-> **Upstream attribution.** The renderer core is derived from the Cycles
-> renderer by the Blender Foundation, licensed under Apache-2.0. Original
-> copyright, license, and SPDX notices are preserved (see `LICENSE`).
-> The name Cycles appears only as upstream provenance; the product
-> and all user-facing interfaces in this repository are Photara /
-> `photara_rs`.
-
 ## Status
 
 - OptiX path tracing on the renderer core, with Cycles-level sampling, BSDFs,
