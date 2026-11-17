@@ -274,6 +274,31 @@ loading message and finite runs report errors on stderr. Performance and image
 quality must be measured on representative scenes; an explicit finite history
 window is not assumed to improve on DLSS's own longer temporal history.
 
+### Blender animation history
+
+The embedded Blender backend retains the raw history ring across consecutive
+integer animation frames when object membership, mesh connectivity and material
+assignments are unchanged. Transform and deformation motion are exported by
+BlenderSync. An internal temporal surface pass records the previous world-space
+position and object identity for the multi-sample path; one-sample Stable Planes
+retain their per-branch motion. History metadata distinguishes warm-up iterations
+at the same frame from motion to the preceding animation frame.
+
+Reprojection walks backward through adjacent history entries, rejecting object,
+depth, normal and view mismatches rather than skipping disoccluded entries.
+Current-frame neighborhood bounds limit stale colors from moving shadows on
+stationary surfaces. Material/light edits, topology changes, cuts and explicit
+history resets still invalidate history. Compositor node-tree updates do not:
+compositing runs after this raw radiance cache.
+
+`_photara_native.realtime_stats()` reports `cross_frame_pixels` and
+`moving_pixels`, separate from reuse inside a warm-up sequence. Run
+`scripts/test_blender_dynamic_history.py` in background Blender for transform,
+deformation and material-edit regressions. Opening a scene and passing
+`-- --scene-test` validates frames 141–144 with 8-SPP DLSS and compares the last
+continuous output with an independently warmed output. These checks establish
+reuse and bounded fixture error, not a universal frame-rate or quality guarantee.
+
 Validation measured on 2026-11-14 (RTX 5090 D v2, 512x512, 181-frame camera
 sweep, 256-SPP reference; display-space MSE, lower is better):
 

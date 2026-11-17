@@ -438,6 +438,7 @@ Scene::MotionType Scene::need_motion() const
   const bool denoiser_motion = (integrator->get_use_denoise()) &&
                                (integrator->get_denoiser_passes() & denoiser_motion_passes) != 0;
   if (denoiser_motion || film->use_stable_planes(this) ||
+      Pass::contains(passes, PASS_TEMPORAL_SURFACE) ||
       (Pass::contains(passes, PASS_MOTION) ||
                           Pass::contains(passes, PASS_DENOISING_BACKWARD_MOTION) ||
                           Pass::contains(passes, PASS_DENOISING_SPECULAR_MOTION)))

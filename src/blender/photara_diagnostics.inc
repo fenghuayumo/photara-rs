@@ -11,13 +11,15 @@ static PyObject *photara_realtime_stats_func(PyObject *, PyObject *handle)
   if (!owner || !owner->session || owner->session->is_rendering()) Py_RETURN_NONE;
   auto &history = owner->realtime_history;
   history.sync_stats();
-  return Py_BuildValue("{si,si,si,sK,sK,sK,sK}", "stored_frames", history.stored_frames(),
+  return Py_BuildValue("{si,si,si,sK,sK,sK,sK,sK,sK}", "stored_frames", history.stored_frames(),
                        "samples", owner->session->params.samples,
                        "frame", owner->realtime_last_frame,
                        "gpu_updates", (unsigned long long)history.gpu_updates,
                        "reused_pixels", (unsigned long long)history.reused_pixels,
                        "max_history_frames", (unsigned long long)history.reused_frames,
-                       "reconstruction_pixel_readback_bytes", 0ULL);
+                       "reconstruction_pixel_readback_bytes", 0ULL,
+                       "cross_frame_pixels", (unsigned long long)history.cross_frame_pixels,
+                       "moving_pixels", (unsigned long long)history.moving_pixels);
 #else
   Py_RETURN_NONE;
 #endif

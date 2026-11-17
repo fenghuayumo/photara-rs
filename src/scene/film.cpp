@@ -173,6 +173,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_combined = PASS_UNUSED;
   kfilm->pass_depth = PASS_UNUSED;
   kfilm->pass_position = PASS_UNUSED;
+  kfilm->pass_temporal_surface = PASS_UNUSED;
   kfilm->pass_normal = PASS_UNUSED;
   kfilm->pass_roughness = PASS_UNUSED;
   kfilm->pass_motion = PASS_UNUSED;
@@ -294,6 +295,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
         break;
       case PASS_NORMAL:
         kfilm->pass_normal = kfilm->pass_stride;
+        break;
+      case PASS_TEMPORAL_SURFACE:
+        kfilm->pass_temporal_surface = kfilm->pass_stride;
         break;
       case PASS_POSITION:
         kfilm->pass_position = kfilm->pass_stride;
@@ -718,6 +722,7 @@ void Film::update_passes(Scene *scene)
   /* Flush scene updates. */
   const bool have_uv_pass = Pass::contains(scene->passes, PASS_UV);
   const bool have_motion_pass = use_stable_planes(scene) ||
+                                Pass::contains(scene->passes, PASS_TEMPORAL_SURFACE) ||
                                 Pass::contains(scene->passes, PASS_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_BACKWARD_MOTION) ||
                                 Pass::contains(scene->passes, PASS_DENOISING_SPECULAR_MOTION);

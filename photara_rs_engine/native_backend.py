@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import importlib
 import os
+from array import array
+import zlib
 
 _module = None
 _registered = False
 _configuring = set()
 _last_configuration = {}
+_last_frame_state = {}
 
 
 def available():
@@ -48,6 +51,7 @@ def unregister():
     bpy.utils.unregister_class(native_properties.PhotaraNativeRenderSettings)
     _registered = False
     _last_configuration.clear()
+    _last_frame_state.clear()
 
 
 def configure(scene):
@@ -134,17 +138,53 @@ def _configure(scene):
 
 
 def configure_frame(depsgraph):
-    """Conservatively invalidate history for edits beyond camera animation."""
+    """Retain continuous geometry animation; invalidate edits and topology changes."""
     scene = depsgraph.scene_eval.original
+    if scene.photara_rs.render_mode != 'REALTIME':
+        _last_frame_state.pop(scene.as_pointer(), None)
+        configure(scene)
+        return
+    # Connectivity and object/data identities catch topology, replacement and
+    # membership changes without invalidating vertex/transform animation.
+    connectivity = {}
+    for obj in depsgraph.objects:
+        if obj.type == 'MESH' and obj.data.as_pointer() not in connectivity:
+            indices = array('i', [0]) * len(obj.data.loops)
+            obj.data.loops.foreach_get('vertex_index', indices)
+            connectivity[obj.data.as_pointer()] = zlib.crc32(indices.tobytes())
+    topology = tuple(sorted(
+        (obj.original.as_pointer(), obj.original.data.as_pointer() if obj.original.data else 0,
+         len(obj.data.vertices) if obj.type == 'MESH' else 0,
+         len(obj.data.polygons) if obj.type == 'MESH' else 0,
+         connectivity.get(obj.data.as_pointer(), 0) if obj.data else 0,
+         tuple(slot.material.original.as_pointer() if slot.material else 0
+               for slot in obj.material_slots))
+        for obj in depsgraph.objects))
+    key = scene.as_pointer()
+    frame = (scene.frame_current, scene.frame_subframe)
+    previous = _last_frame_state.get(key)
+    continuous = previous is not None and previous[0] == (frame[0] - 1, 0.0) and frame[1] == 0.0
+    same_topology = previous is not None and previous[1] == topology
+    _last_frame_state[key] = (frame, topology)
     camera = scene.camera
+    invalidate = previous is not None and not same_topology
     for update in depsgraph.updates:
         data = update.id.original
         if data == camera or (camera and data == camera.data):
             continue
-        if data.bl_rna.identifier in {'Scene', 'Collection', 'Action'}:
+        # Compositing happens after renderer history and cannot invalidate the
+        # raw radiance cache. Blender tags its tree on every animated output.
+        if data.bl_rna.identifier in {'Scene', 'Collection', 'Action', 'CompositorNodeTree'}:
             continue
+        if data.bl_rna.identifier == 'Object' and data.type == 'LIGHT':
+            invalidate = True
+            continue
+        if continuous and same_topology and data.bl_rna.identifier in {
+                'Object', 'Mesh', 'Armature', 'Key', 'Curve', 'Curves', 'PointCloud'}:
+            continue
+        invalidate = True
+    if invalidate:
         scene.photara_rs.history_revision += 1
-        break
     configure(scene)
 
 

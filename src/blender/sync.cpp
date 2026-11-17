@@ -931,6 +931,13 @@ void BlenderSync::sync_render_passes(blender::RenderLayer &b_rlay,
     pass_add(scene, PASS_MOTION, "", PassMode::NOISY);
   }
 
+#ifdef WITH_PHOTARA_REALTIME
+  blender::PointerRNA temporal_scene = RNA_id_pointer_create(DEG_get_original_id(&b_scene->id));
+  blender::PointerRNA temporal_settings = RNA_pointer_get(&temporal_scene, "photara_native");
+  if (get_boolean(temporal_settings, "photara_realtime")) {
+    pass_add(scene, PASS_TEMPORAL_SURFACE, "", PassMode::NOISY);
+  }
+#endif
   scene->film->set_pass_alpha_threshold(b_view_layer.pass_alpha_threshold);
 }
 

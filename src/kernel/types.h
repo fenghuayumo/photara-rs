@@ -454,6 +454,7 @@ enum PassType {
   PASS_VOLUME_MAJORANT_SAMPLE_COUNT,
   /* Internal display-referred, premultiplied raster layer. */
   PASS_GSPLAT,
+  PASS_TEMPORAL_SURFACE,
   PASS_CATEGORY_DATA_END = 63,
 
   /* Denoising passes */

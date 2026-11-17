@@ -575,7 +575,7 @@ void BlenderSession::render(blender::Depsgraph &b_depsgraph_)
       if (history_limit) {
         session->set_frame_reconstruction([this](RenderBuffers *buffers, int spp) {
           realtime_history.reconstruct(buffers, spp, *scene->camera,
-                                        scene->dscene.data.integrator.pixel_jitter);
+                                        scene->dscene.data.integrator.pixel_jitter, b_scene->r.cfra);
         });
       }
       else session->set_frame_reconstruction({});

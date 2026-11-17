@@ -64,6 +64,13 @@ ccl_device_inline void film_write_data_passes(KernelGlobals kg,
         const float id = shader_pass_id(kg, sd);
         film_overwrite_pass_float(buffer + kernel_data.film.pass_material_id, id);
       }
+      if (flag & PASSMASK(TEMPORAL_SURFACE)) {
+        float3 center, previous, next;
+        primitive_motion_data_without_camera(kg, sd, &center, &previous, &next);
+        film_overwrite_pass_float3(buffer + kernel_data.film.pass_temporal_surface, previous);
+        film_overwrite_pass_float(buffer + kernel_data.film.pass_temporal_surface + 3,
+                                  object_cryptomatte_id(kg, sd->object));
+      }
       if (flag & PASSMASK(POSITION)) {
         const float3 position = sd->P;
         film_overwrite_pass_float3(buffer + kernel_data.film.pass_position, position);

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <climits>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -31,6 +32,7 @@ class TemporalHistory {
   uint64_t gpu_updates = 0;
   int limit = 0;
   uint64_t frame_index = 0, reused_pixels = 0, reused_frames = 0, active_planes = 0;
+  uint64_t cross_frame_pixels = 0, moving_pixels = 0;
   double mean_history_frames = 0;
 
   void clear()
@@ -38,6 +40,7 @@ class TemporalHistory {
     gpu_count = gpu_next = 0;
     stats_valid = false;
     reused_pixels = reused_frames = active_planes = 0;
+    cross_frame_pixels = moving_pixels = 0;
     mean_history_frames = 0;
   }
 
@@ -62,16 +65,19 @@ class TemporalHistory {
     gpu_stats->copy_from_device();
     uint64_t sum = 0;
     reused_pixels = reused_frames = active_planes = 0;
+    cross_frame_pixels = moving_pixels = 0;
     for (size_t i = 0; i < gpu_stats->size(); ++i) {
       const auto v = gpu_stats->data()[i];
-      sum += v.x; reused_pixels += v.y; active_planes += v.w;
+      sum += v.x; reused_pixels += v.y; active_planes += v.w & 1023u;
+      cross_frame_pixels += (v.w >> 10) & 1023u;
+      moving_pixels += v.w >> 20;
       reused_frames = std::max(reused_frames, uint64_t(v.z));
     }
     mean_history_frames = double(sum) / (double(gpu_width)*gpu_height);
   }
 
   void reconstruct(ccl::RenderBuffers *buffers, int samples, const ccl::Camera &camera,
-                   ccl::float2 pixel_jitter)
+                   ccl::float2 pixel_jitter, int frame_number = INT_MIN)
   {
     using namespace ccl;
     const auto &p = buffers->params;
@@ -107,6 +113,8 @@ class TemporalHistory {
     f.object_id = p.get_pass_offset(PASS_OBJECT_ID);
     f.count = p.get_pass_offset(PASS_SAMPLE_COUNT);
     f.planes = p.get_pass_offset(PASS_STABLE_PLANES);
+    f.surface = p.get_pass_offset(PASS_TEMPORAL_SURFACE);
+    f.frame_number = frame_number == INT_MIN ? int(gpu_updates) : frame_number;
     if (f.combined == PASS_UNUSED || f.position == PASS_UNUSED || f.normal == PASS_UNUSED ||
         f.roughness == PASS_UNUSED || f.object_id == PASS_UNUSED)
       throw std::runtime_error("Temporal guiding passes are missing");
