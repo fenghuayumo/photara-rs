@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Included in the independently named Photara Python module only. */
+#ifdef WITH_DLSS
+uint64_t dlss_evaluation_count();
+#endif
 static PyObject *photara_realtime_stats_func(PyObject *, PyObject *handle)
 {
 #ifdef WITH_PHOTARA_REALTIME
@@ -43,7 +46,15 @@ static PyObject *photara_session_stats_func(PyObject *, PyObject *handle)
     }
   }
   const auto &params = owner->session->params;
-  return Py_BuildValue("{sO,sO,si,si,si,si,si,si,si,sd,sK,sK,sK,sK,sK,sK}",
+  uint64_t dlss_evaluations = 0;
+#ifdef WITH_DLSS
+  dlss_evaluations = dlss_evaluation_count();
+#endif
+  return Py_BuildValue("{sK,sO,si,sd,sO,sO,si,si,si,si,si,si,si,sd,sK,sK,sK,sK,sK,sK}",
+                       "dlss_evaluations", (unsigned long long)dlss_evaluations,
+                       "use_denoise", scene->integrator->get_use_denoise() ? Py_True : Py_False,
+                       "denoiser_type", int(scene->integrator->get_denoiser_type()),
+                       "denoiser_upscale_factor", double(scene->integrator->get_denoiser_upscale_factor()),
                        "use_resolution_divider", params.use_resolution_divider ? Py_True : Py_False,
                        "stable_planes", scene->dscene.data.film.pass_stable_planes != PASS_UNUSED ?
                                             Py_True : Py_False,

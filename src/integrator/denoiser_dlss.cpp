@@ -5,6 +5,7 @@
 
 #ifdef WITH_DLSS
 
+#  include <atomic>
 #  include "integrator/denoiser_dlss.h"
 #  include "integrator/pass_accessor_gpu.h"
 
@@ -18,6 +19,14 @@
 #  include <nvsdk_ngx_defs_dlssd.h>
 
 CCL_NAMESPACE_BEGIN
+
+/* Process-wide successful evaluations, including interactive viewport sessions. */
+static std::atomic<uint64_t> dlss_evaluations{0};
+
+uint64_t dlss_evaluation_count()
+{
+  return dlss_evaluations.load(std::memory_order_relaxed);
+}
 
 /* Application ID for Blender from NVIDIA. */
 static const int NGX_APPLICATION_ID = 100334311;
@@ -485,6 +494,7 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
 
   history_valid_ = NVSDK_NGX_SUCCEED(result);
   if (history_valid_) {
+    dlss_evaluations.fetch_add(1, std::memory_order_relaxed);
     last_geometry_ = geometry;
     last_history_ = temporal_history;
     last_external_history_ = bool(temporal_history);

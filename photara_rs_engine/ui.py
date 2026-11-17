@@ -79,9 +79,6 @@ class RENDER_PT_photara_render(PhotaraButtonsPanel, bpy.types.Panel):
         if settings.render_mode == 'REALTIME':
             layout.prop(settings, 'history_samples')
             layout.prop(settings, 'realtime_warmup_frames')
-            layout.prop(settings, 'realtime_neeat')
-            if settings.realtime_neeat:
-                layout.prop(settings, 'realtime_neeat_mode')
             layout.label(text='Samples are per output frame; history is separate')
             layout.label(text='Persistent Data is enabled for GPU history')
             layout.prop(settings, 'samples')
@@ -176,7 +173,13 @@ class RENDER_PT_photara_light_paths(PhotaraButtonsPanel, bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
-        pass
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        settings = context.scene.photara_rs
+        layout.prop(settings, 'realtime_neeat')
+        if settings.realtime_neeat:
+            layout.prop(settings, 'realtime_neeat_mode')
 
 
 class RENDER_PT_photara_max_bounces(PhotaraButtonsPanel, bpy.types.Panel):
@@ -237,6 +240,74 @@ class RENDER_PT_photara_volumes(PhotaraButtonsPanel, bpy.types.Panel):
 
 
 _color_panels = []
+_shared_panels = []
+_view_layer_panels = []
+
+
+class _PanelContext:
+    """Reuse Cycles layouts while binding scene controls to Photara's renderer."""
+
+    def __init__(self, source, **overrides):
+        self._source = source
+        self.__dict__.update(overrides)
+
+    def __getattr__(self, name):
+        return getattr(self._source, name)
+
+
+def _photara_panel_draw(draw):
+    def draw_panel(self, context):
+        scene = _PanelContext(context.scene, cycles=getattr(
+            context.scene, 'photara_native', context.scene.cycles))
+        draw(self, _PanelContext(context, scene=scene))
+    return draw_panel
+
+
+def register_shared_panels():
+    from bl_ui import properties_output, properties_view_layer
+    from cycles import ui as cycles_ui
+
+    # Output is owned by Blender. View Layer's common controls likewise edit
+    # the actual ViewLayer RNA that the native synchronizer consumes directly.
+    for module in (properties_output, properties_view_layer):
+        for cls in module.classes:
+            engines = getattr(cls, 'COMPAT_ENGINES', None)
+            if engines is None or 'PHOTARA_RS' in engines:
+                continue
+            if module is properties_view_layer:
+                if 'CYCLES' not in engines or getattr(cls, 'bl_parent_id', ''):
+                    continue
+            elif not ({'BLENDER_RENDER', 'CYCLES'} & engines):
+                continue
+            engines.add('PHOTARA_RS')
+            _shared_panels.append(cls)
+
+    # Give Photara its own panel classes; enabling the shared Cycles base class
+    # would also reveal all of Cycles' render/device panels in Photara.
+    for source in cycles_ui.classes:
+        if getattr(source, 'bl_context', '') != 'view_layer':
+            continue
+        name = source.__name__.replace('CYCLES_', 'PHOTARA_RS_', 1)
+        attrs = dict(
+            __module__=__name__, bl_label=source.bl_label, bl_context='view_layer',
+            draw=_photara_panel_draw(source.draw),
+            bl_options=getattr(source, 'bl_options', set()),
+        )
+        parent = getattr(source, 'bl_parent_id', '')
+        if parent:
+            attrs['bl_parent_id'] = parent.replace('CYCLES_', 'PHOTARA_RS_', 1)
+        cls = type(name, (PhotaraButtonsPanel, bpy.types.Panel), attrs)
+        bpy.utils.register_class(cls)
+        _view_layer_panels.append(cls)
+
+
+def unregister_shared_panels():
+    for cls in reversed(_view_layer_panels):
+        bpy.utils.unregister_class(cls)
+    _view_layer_panels.clear()
+    for cls in _shared_panels:
+        cls.COMPAT_ENGINES.discard('PHOTARA_RS')
+    _shared_panels.clear()
 
 def register_color_management():
     from bl_ui import properties_render

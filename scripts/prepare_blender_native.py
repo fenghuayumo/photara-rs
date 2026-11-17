@@ -65,7 +65,7 @@ def prepare(source: Path, build: Path):
                                 'RNA_pointer_get(&scene_rna_ptr, "photara_native")')
             if relative.name == 'python.cpp':
                 text = text.replace('"_cycles"', '"_photara_native"')
-                text = text.replace('#include <Python.h>', '#include <Python.h>\n#include \"scene/camera.h\"\n#include \"scene/shader.h\"\n#include \"scene/shader_graph.h\"')
+                text = text.replace('#include <Python.h>', '#include <Python.h>\n#include \"scene/camera.h\"\n#include \"scene/integrator.h\"\n#include \"scene/shader.h\"\n#include \"scene/shader_graph.h\"')
                 diagnostics = (ROOT/'src/blender/photara_diagnostics.inc').read_text()
                 text = text.replace('static PyMethodDef methods[] = {', diagnostics + '\nstatic PyMethodDef methods[] = {\n    {\"session_stats\", photara_session_stats_func, METH_O, \"Photara scene and resolution diagnostics\"},\n    {\"realtime_stats\", photara_realtime_stats_func, METH_O, \"GPU temporal history diagnostics\"},')
             if relative.name == 'logging.cpp':

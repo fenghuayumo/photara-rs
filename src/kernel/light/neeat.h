@@ -5,7 +5,7 @@ CCL_NAMESPACE_BEGIN
 
 /* Table zero is global; subsequent tables correspond to screen tiles. Each
  * table has a bounded number of light LOD clusters followed by mixture metadata.
- * All probabilities remain frozen until the next finite realtime frame job. */
+ * Probabilities remain frozen during each render work batch. */
 ccl_device_inline int neeat_table(KernelGlobals kg, const uint pixel)
 {
   const int stride = kernel_data.integrator.neeat_stride;

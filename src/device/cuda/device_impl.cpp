@@ -478,6 +478,16 @@ bool CUDADevice::load_kernels(const uint64_t kernel_features)
   }
 
   if (result == CUDA_SUCCESS) {
+    CUdeviceptr kernel_params;
+    size_t bytes = 0;
+    result = cuModuleGetGlobal(&kernel_params, &bytes, cuModule, "kernel_params");
+    if (result != CUDA_SUCCESS || bytes != sizeof(KernelParamsCUDA)) {
+      set_error(string_printf("CUDA kernel parameter layout mismatch in '%s' "
+                              "(%zu bytes, expected %zu). Rebuild the GPU kernels "
+                              "with the current renderer sources.",
+                              cubin.c_str(), bytes, sizeof(KernelParamsCUDA)));
+      return false;
+    }
     kernels.load(this);
     reserve_local_memory(kernel_features);
   }

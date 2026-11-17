@@ -106,6 +106,7 @@ def register():
     bpy.app.handlers.render_init.append(properties.begin_render_history)
     bpy.types.RENDER_PT_context.append(ui.draw_device)
     ui.register_color_management()
+    ui.register_shared_panels()
     bpy.types.TOPBAR_MT_file_import.append(gsplat_import.menu_import)
 
 
@@ -114,6 +115,7 @@ def unregister():
         bpy.app.handlers.render_init.remove(properties.begin_render_history)
     bpy.types.TOPBAR_MT_file_import.remove(gsplat_import.menu_import)
     ui.unregister_color_management()
+    ui.unregister_shared_panels()
     bpy.types.RENDER_PT_context.remove(ui.draw_device)
     # Blender 5.x may already have released owner-tagged properties at
     # shutdown; guard so disabling/unloading never raises.

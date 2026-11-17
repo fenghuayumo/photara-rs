@@ -125,6 +125,7 @@ if STRESS:
 else:
     p.seed = 0
     p.render_mode, p.samples = 'REFERENCE', 4096
+    p.realtime_neeat = False
     reference = render()
     assert float(reference.mean()) > .001
     assert reports[-1]['neeat_emitters'] == 0
@@ -150,6 +151,7 @@ else:
         print('NEEAT_MESH_ENERGY_PASS', backend, json.dumps(results[backend]), flush=True)
     p.render_mode, p.samples = 'REFERENCE', 4096
     p.seed = 0
+    p.realtime_neeat = False
     repeat = render()
     np.testing.assert_allclose(reference, repeat, rtol=1e-5, atol=1e-6)
     (OUT / 'energy.json').write_text(json.dumps(results, indent=2))

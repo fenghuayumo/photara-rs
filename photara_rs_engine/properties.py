@@ -5,10 +5,17 @@ import sys
 from bpy.app.handlers import persistent
 
 
+def update_render_settings(self, context):
+    # Custom scene properties must invalidate the depsgraph so an active
+    # rendered viewport receives view_update and configures the native session.
+    self.id_data.update_tag()
+
+
 def update_render_mode(self, context):
     scene = self.id_data
     if self.render_mode == 'REALTIME' and not scene.render.use_persistent_data:
         scene.render.use_persistent_data = True
+    update_render_settings(self, context)
 
 
 @persistent
@@ -68,12 +75,13 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
         name="Warm-up Frames", default=8, min=0, max=256,
         description="Additional internal frames before a still or the first animation frame; only the last is saved",
     )
-    realtime_neeat: bpy.props.BoolProperty(name="NEE-AT", default=True)
+    realtime_neeat: bpy.props.BoolProperty(name="NEE-AT", default=True, update=update_render_settings)
     realtime_neeat_mode: bpy.props.EnumProperty(
         name="Light Sampling",
         items=[('PURE', 'NEE-AT Only', 'Global/local feedback without per-sample Light Tree evaluation'),
                ('HYBRID', 'NEE-AT + Light Tree', 'Mix 75% feedback and 25% Light Tree')],
         default='HYBRID',
+        update=update_render_settings,
     )
     history_revision: bpy.props.IntProperty(default=0, options={'HIDDEN', 'SKIP_SAVE'})
     device: bpy.props.EnumProperty(
@@ -85,6 +93,7 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
 
     viewport_denoise: bpy.props.BoolProperty(
         name="Denoise", description="Denoise viewport renders", default=True,
+        update=update_render_settings,
     )
 
     viewport_adaptive_sampling: bpy.props.BoolProperty(
@@ -169,7 +178,7 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
 
     denoise_use_gpu: bpy.props.BoolProperty(name="Use GPU", default=True)
 
-    viewport_denoiser: bpy.props.EnumProperty(name="Denoiser", items=DENOISERS, default="AUTO")
+    viewport_denoiser: bpy.props.EnumProperty(name="Denoiser", items=DENOISERS, default="AUTO", update=update_render_settings)
 
     viewport_denoise_passes: bpy.props.EnumProperty(name="Passes", items=DENOISE_PASSES, default="RGB_ALBEDO_NORMAL")
 
@@ -186,4 +195,4 @@ class PhotaraSceneSettings(bpy.types.PropertyGroup):
     filter_width: bpy.props.FloatProperty(name="Width", default=1.5, min=0.01, max=10.0)
 
     denoise_upscale_quality: bpy.props.EnumProperty(name="DLSS Upscaling", items=[('NONE', 'Native Resolution', 'Denoise at full resolution'), ('QUALITY', 'Quality', '1.5x upscale'), ('BALANCED', 'Balanced', '1.724x upscale'), ('PERFORMANCE', 'Performance', '2x upscale'), ('ULTRA_PERFORMANCE', 'Ultra Performance', '3x upscale')], default='NONE')
-    viewport_denoise_upscale_quality: bpy.props.EnumProperty(name="DLSS Upscaling", items=[('NONE', 'Native Resolution', 'Denoise at full resolution'), ('QUALITY', 'Quality', '1.5x upscale'), ('BALANCED', 'Balanced', '1.724x upscale'), ('PERFORMANCE', 'Performance', '2x upscale'), ('ULTRA_PERFORMANCE', 'Ultra Performance', '3x upscale')], default='NONE')
+    viewport_denoise_upscale_quality: bpy.props.EnumProperty(name="DLSS Upscaling", items=[('NONE', 'Native Resolution', 'Denoise at full resolution'), ('QUALITY', 'Quality', '1.5x upscale'), ('BALANCED', 'Balanced', '1.724x upscale'), ('PERFORMANCE', 'Performance', '2x upscale'), ('ULTRA_PERFORMANCE', 'Ultra Performance', '3x upscale')], default='NONE', update=update_render_settings)

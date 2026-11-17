@@ -1174,13 +1174,13 @@ SessionParams BlenderSync::get_session_params(blender::RenderEngine &b_engine,
   }
 
 #ifdef WITH_PHOTARA_REALTIME
+  params.use_neeat = get_boolean(cscene, "photara_neeat");
+  params.neeat_tree_fraction = get_float(cscene, "photara_neeat_tree_fraction");
   if (background && get_boolean(cscene, "photara_realtime")) {
     params.use_auto_tile = false;
     params.use_sample_subset = false;
     params.time_limit = 0;
     params.realtime_frame = true;
-    params.use_neeat = get_boolean(cscene, "photara_neeat");
-    params.neeat_tree_fraction = get_float(cscene, "photara_neeat_tree_fraction");
   }
 #endif
   return params;

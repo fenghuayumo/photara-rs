@@ -182,7 +182,7 @@ KERNEL_STRUCT_BEGIN(KernelIntegrator, integrator)
 KERNEL_STRUCT_MEMBER(integrator, int, use_direct_light)
 KERNEL_STRUCT_MEMBER(integrator, int, use_light_mis)
 KERNEL_STRUCT_MEMBER(integrator, int, use_light_tree)
-/* Frozen per-frame feedback proposal, separate from Reference light sampling. */
+/* Feedback proposal, frozen during each render work batch. */
 KERNEL_STRUCT_MEMBER(integrator, int, neeat_count)
 KERNEL_STRUCT_MEMBER(integrator, float, neeat_tree_fraction)
 KERNEL_STRUCT_MEMBER(integrator, int, neeat_cluster_count)
